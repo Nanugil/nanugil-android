@@ -341,7 +341,7 @@ cd nanugil-android
 
 > 기여 방법과 전체 규칙은 [CONTRIBUTING.md](CONTRIBUTING.md)를 따릅니다.
 
-- **브랜치:** `main` + 작업 브랜치(GitHub Flow). `feat/12-group-drive-map`처럼 만들고 PR로만 합칩니다.
+- **브랜치:** `main`(제출용)과 `develop`(통합)을 두고, 작업은 따로 브랜치를 만들어 합니다. `feat/12-group-drive-map`처럼 develop에서 따고 PR로 develop에 합칩니다.
 - **커밋:** `feat(map): 그룹 경로 표시 추가`처럼 타입은 영어, 내용은 한국어 개조식으로 씁니다.
 - **PR:** 리뷰 1명 승인 후 squash 머지, 하루 작업이 끝나면 꼭 push합니다.
 

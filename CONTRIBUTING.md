@@ -2,12 +2,12 @@
 
 나누길 팀의 GitHub 협업 규칙이다. 팀 공통 규칙(GitHub 공통 규칙)을 이 레포에 맞게 줄였다.
 
-> main은 항상 동작 · 작업은 짧은 브랜치에서 · 커밋은 `타입(영역): 내용` · PR로만 합치고 squash · 하루 끝엔 무조건 push
+> main은 언제든 제출할 수 있는 상태 · 작업은 develop에서 딴 짧은 브랜치에서 · 커밋은 `타입(영역): 내용` · PR로만 합치고 squash · 하루 끝엔 무조건 push
 
 ## 작업 흐름 한눈에
 
 ```bash
-git switch main && git pull                 # 최신 main에서 시작
+git switch develop && git pull              # 최신 develop에서 시작
 git switch -c feat/12-group-drive-map       # 작업 브랜치 만들기
 # ... 작업 ...
 git add -p && git commit -m "feat(map): 일행 차량 위치 표시"
@@ -17,20 +17,22 @@ gh pr create --fill                         # 또는 GitHub 웹에서 PR 만들�
 
 리뷰 1명이 승인하면 **Squash and merge**로 합친다. 브랜치는 머지할 때 자동으로 지워진다.
 
-## 1. 브랜치: GitHub Flow
+## 1. 브랜치: main + develop
 
-배포 서버가 따로 없으니 `main` 하나와 작업 브랜치만 쓴다.
+제출본과 작업 중인 코드를 나누려고 `main`과 `develop` 두 갈래를 둔다.
 
 ```
-main             ← 언제든 제출할 수 있는 상태. 직접 커밋·push 금지
+main             ← 제출·시연용. 직접 커밋·push 금지
+ ↑ 마일스톤마다 develop → main (팀장·PM)
+develop          ← 기능을 모으는 통합 브랜치. 직접 push 금지
  ↑ PR (squash)
-feat/... fix/... ← 각자 작업 브랜치, 머지하면 삭제
+feat/... fix/... ← develop에서 따서 작업하고, 머지하면 삭제
 ```
 
 - 이름: `<타입>/<이슈번호>-<내용>` (이슈가 없으면 `<타입>/<영역>-<내용>`)
 - 영어 소문자·숫자·하이픈만. 한글, 공백, 대문자 금지.
 - 며칠 안에 머지한다. 오래 사는 브랜치는 충돌 덩어리가 된다.
-- 배포 서버가 생겨서 통합 브랜치가 필요해지면 그때 `dev`를 추가한다(PR 대상 `dev`, 배포할 때만 `dev → main`).
+- 작업 브랜치는 항상 `develop`에서 따고, PR 대상도 `develop`이다.
 
 ```
 feat/12-group-drive-map
@@ -78,10 +80,10 @@ Refs #12
 
 ## 3. Pull Request
 
-- 모든 변경은 PR로 합친다. 제목은 커밋 메시지 형식 그대로 쓴다(squash하면 이게 main의 커밋 메시지가 된다).
+- 모든 변경은 PR로 합친다. 제목은 커밋 메시지 형식 그대로 쓴다(squash하면 이게 develop의 커밋 메시지가 된다).
 - 작게: 바뀐 줄 400줄 / 파일 10개를 넘으면 쪼갤 수 있는지 먼저 본다. (대량 이름 변경·자동 생성 코드는 예외)
 - 리뷰 1명 승인 후 머지. 머지는 squash, 머지한 브랜치는 바로 삭제.
-- 본문에 `Closes #12`를 쓰면 main에 머지될 때 이슈가 자동으로 닫힌다.
+- 본문에 `Closes #12`를 쓰면 기본 브랜치(develop)에 머지될 때 이슈가 자동으로 닫힌다.
 - 본문 양식은 [PR 템플릿](.github/pull_request_template.md)으로 자동으로 채워진다.
 
 ## 4. 이슈
@@ -108,7 +110,7 @@ git push -u origin HEAD   # 현재 브랜치를 원격에 올린다
 - 버전은 SemVer `MAJOR.MINOR.PATCH`를 쓴다. 시연이나 제출 시점에 `v1.0.0`처럼 태그를 달고 GitHub Releases의 자동 릴리스 노트를 쓴다.
 
 ```bash
-git switch main && git pull
+git switch develop && git pull
 git tag v1.0.0 && git push origin v1.0.0
 ```
 
@@ -125,7 +127,8 @@ git tag v1.0.0 && git push origin v1.0.0
 
 ## 레포 관리자 체크리스트 (레포 만들 때 한 번)
 
-- [ ] main 보호(Settings → Rules → Rulesets): PR 필수 · 승인 1명 · force push 금지 · 브랜치 삭제 금지. "CI 통과 필수"는 CI가 생기면 추가한다. 비공개 레포는 요금제에 따라 일부 기능이 안 될 수 있다.
+- [ ] 레포 기본 브랜치를 `develop`으로 바꾸고, main과 develop 둘 다 보호 규칙을 건다.
+- [ ] main·develop 보호(Settings → Rules → Rulesets): PR 필수 · 승인 1명 · force push 금지 · 브랜치 삭제 금지. "CI 통과 필수"는 CI가 생기면 추가한다. 비공개 레포는 요금제에 따라 일부 기능이 안 될 수 있다.
 - [ ] 머지 방식(Settings → General): squash만 허용
 - [ ] 머지 후 브랜치 자동 삭제("Automatically delete head branches") 켜기
 - [ ] Secret scanning · push protection 켜기
