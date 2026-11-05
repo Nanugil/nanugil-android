@@ -1,0 +1,38 @@
+name: 버그
+description: 의도와 다르게 동작하는 문제를 알린다
+title: "[버그] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: steps
+    attributes:
+      label: 재현 절차
+      description: 어떤 순서로 하면 문제가 생기는지
+      placeholder: |
+        1. 그룹을 만든다
+        2. 주행을 시작한다
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대 결과
+      description: 원래 어떻게 동작해야 하는지
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 실제 결과
+      description: 실제로 어떻게 동작했는지 (스크린샷·로그가 있으면 첨부)
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 환경
+      description: 기기/에뮬레이터, 앱 버전, 브랜치 또는 커밋
+      placeholder: "Pleos Connect 에뮬레이터, main@abc1234"
+    validations:
+      required: true

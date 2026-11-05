@@ -1,0 +1,30 @@
+name: 기능
+description: 새 기능이나 개선을 제안한다
+title: "[기능] "
+labels: ["feature"]
+body:
+  - type: textarea
+    id: background
+    attributes:
+      label: 배경
+      description: 왜 필요한지, 어떤 문제를 푸는지
+    validations:
+      required: true
+  - type: textarea
+    id: requirements
+    attributes:
+      label: 요구사항
+      description: 무엇을 만들어야 하는지
+      placeholder: |
+        - 
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: 완료 조건
+      description: 무엇이 되면 끝났다고 볼지
+      placeholder: |
+        - [ ] 
+    validations:
+      required: true
