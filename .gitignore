@@ -1,14 +1,45 @@
-*.iml
+_workspace/
+
+# Gradle
 .gradle/
-/local.properties
-/.idea/
-.DS_Store
-/build/
-/captures/
+build/
+
+# Android
+local.properties
+*.apk
+# 공모전 제출용 release APK는 apk/ 폴더에 커밋한다 (가산점 요건)
+!apk/*.apk
+*.aab
+*.ap_
+*.dex
+captures/
 .externalNativeBuild/
 .cxx/
+output-metadata.json
+
+# Kotlin
 .kotlin/
-/app/build/
-*.keystore
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 로그
+*.log
+
+# 비밀값 (.env.example은 커밋)
+.env
+.env.*
+!.env.example
+
+# 서명 키
 *.jks
+*.keystore
+
+# Firebase 설정 — 커밋할지 팀 결정 필요 (공개 레포면 제외 권장)
 google-services.json
