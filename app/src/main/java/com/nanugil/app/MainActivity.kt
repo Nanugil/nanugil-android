@@ -1,6 +1,7 @@
 package com.nanugil.app
 
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -15,12 +16,28 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 
 class MainActivity : ComponentActivity() {
+
+    // 서버가 정해지기 전까지는 가짜 그룹 데이터로 화면을 돌린다.
+    private val groupRepository = FakeGroupLocationRepository()
+    private val opinetClient = OpinetClient(BuildConfig.OPINET_API_KEY)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    HomeScreen()
+                    GroupDriveScreen(
+                        groupRepository = groupRepository,
+                        opinetClient = opinetClient,
+                        onProposeMeetup = { station ->
+                            // TODO: 서버로 합류 이벤트 전송 → 각 차량에서 NaviHelper.addWaypoint + requestReRoute
+                            Toast.makeText(
+                                this,
+                                "${station.name} 합류 제안 (NaviHelper 연동 예정)",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        },
+                    )
                 }
             }
         }
