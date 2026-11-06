@@ -333,7 +333,7 @@ cd nanugil-android
 ### 기술 의사결정 (ADR) — [`docs/decisions`](docs/decisions)
 | # | 제목 | 상태 | 날짜 |
 | --- | --- | --- | --- |
-| - | 아직 없음 | | |
+| 001 | [백엔드·실시간 통신 기술 선택](docs/decisions/001-backend-realtime.md) | 제안 | 2026-11-06 |
 
 ---
 
