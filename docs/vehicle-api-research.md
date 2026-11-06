@@ -13,22 +13,34 @@
 
 주유비는 **사용한 연료 리터 × 근처 주유소 유가**로 추정한다. 리터 값은 Android 표준 속성 `FUEL_LEVEL`에서 읽고, 유가는 오피넷 반경 내 주유소 API에서 가져온다. `FUEL_LEVEL`은 Pleos SDK에 없는 속성이라 차량 지원 여부 확인과 기술 지원팀 검토가 필요하다.
 
+## 역할별 담당
+
+이 문서는 조사 내용을 담당 역할별로 나누어 정리했다. 공통 사용법은 차량 API를 쓰는 모든 개발자가 함께 본다.
+
+| 역할 | 담당자 | 맡은 일 | 이 문서에서 볼 곳 |
+|---|---|---|---|
+| 팀장 | [@apkool12](https://github.com/apkool12) | 화면 디자인 및 구현, 시연영상, 최종 결정 | [정산 화면 요구사항과 결정할 일](#팀장-화면-시연-최종-결정) |
+| PM | [@yxxunseo](https://github.com/yxxunseo) | 일정, 이슈, 앱 뼈대, 통합 | [의존성, 권한, 이슈 등록](#pm-일정-이슈-앱-뼈대-통합) |
+| 개발1 | [@GongsBB](https://github.com/GongsBB) | 차량 데이터, 정산 | [주행거리, 연료, 속도, 통행료, 유가, 정산 계산](#개발1-차량-데이터-정산) |
+| 개발2 | [@kimjh2567](https://github.com/kimjh2567) | 서버와 실시간 통신 | [오피넷 서버 호출, 위치 전달](#개발2-서버와-실시간-통신) |
+| 개발3 | [@WonDongWoo1](https://github.com/WonDongWoo1) | 지도와 그룹 드라이브 | [GPS, 합류점 추천](#개발3-지도와-그룹-드라이브) |
+
 ## 항목별 제공 여부
 
-| 항목 | 제공 | API | 단위·값 | 권한 |
-|---|---|---|---|---|
-| GPS | 제공 | FusedLocation SDK `getLastKnownLocation`, `registerFusedLocationCallback` | 위도, 경도, 고도, 방향, 시각 | `pleos.car.permission.FUSED_LOCATION` (dangerous) |
-| 속도 | Vehicle SDK에는 없음 | AAOS `CarPropertyManager`의 `PERF_VEHICLE_SPEED` | m/s, 공식 FAQ가 안내하는 방법 | `android.car.permission.CAR_SPEED` (dangerous) |
-| 주행거리 | 제공 | `Odometer.getCurrentDistanceDriven` | 누적 km | `CAR_DRIVE` |
-| 트립 거리 | 제공 | `getTripCurrentDrivingDistance`, `getTripSinceRefillDrivingDistance` | m | `CAR_DRIVE` |
-| 연비 | 제공 | `Fuel.getCurrentFuelEconomy`, `getCumulativeFuelEconomy`, `getSinceChargeFuelEconomy` | L/100km | `CAR_ENERGY` |
-| 연료 잔량(%) | 제공 | `Fuel.getFuelPercent` | % (정수) | `CAR_ENERGY` |
-| 연료 잔량(리터) | Vehicle SDK에는 없음 | AAOS `FUEL_LEVEL` | mL | `android.car.permission.CAR_ENERGY` (dangerous) |
-| 연료 탱크 용량 | Vehicle SDK에는 없음 | AAOS `INFO_FUEL_CAPACITY` | mL | `android.car.permission.CAR_INFO` (normal) |
-| 배터리 | 제공 | `EvBattery.getEvBatteryStateOfCharge`, `getCurrentEvEfficiency` | %, km/kWh | `CAR_ENERGY` |
-| 통행료 실결제액 | 찾지 못함 | `Toll` 도메인은 하이패스 음성 안내 볼륨 API뿐 | - | `CAR_TOLL` |
-| 통행료 예상액 | 제공 | NaviHelper `RouteStartInfo.tollFare`, `DestinationInfo.tollFare` | 원 (`DestinationInfo` 기준) | `NAVI_ROUTE` |
-| 근처 주유소 유가 | 외부 API | 오피넷 `aroundAll.do` | 원/L, 반경 최대 5km | 오피넷 인증키 |
+| 항목 | 제공 | API | 단위·값 | 권한 | 담당 |
+|---|---|---|---|---|---|
+| GPS | 제공 | FusedLocation SDK `getLastKnownLocation`, `registerFusedLocationCallback` | 위도, 경도, 고도, 방향, 시각 | `pleos.car.permission.FUSED_LOCATION` (dangerous) | 개발3 |
+| 속도 | Vehicle SDK에는 없음 | AAOS `CarPropertyManager`의 `PERF_VEHICLE_SPEED` | m/s, 공식 FAQ가 안내하는 방법 | `android.car.permission.CAR_SPEED` (dangerous) | 개발1 (표시는 개발3) |
+| 주행거리 | 제공 | `Odometer.getCurrentDistanceDriven` | 누적 km | `CAR_DRIVE` | 개발1 |
+| 트립 거리 | 제공 | `getTripCurrentDrivingDistance`, `getTripSinceRefillDrivingDistance` | m | `CAR_DRIVE` | 개발1 |
+| 연비 | 제공 | `Fuel.getCurrentFuelEconomy`, `getCumulativeFuelEconomy`, `getSinceChargeFuelEconomy` | L/100km | `CAR_ENERGY` | 개발1 |
+| 연료 잔량(%) | 제공 | `Fuel.getFuelPercent` | % (정수) | `CAR_ENERGY` | 개발1 (합류점은 개발3) |
+| 연료 잔량(리터) | Vehicle SDK에는 없음 | AAOS `FUEL_LEVEL` | mL | `android.car.permission.CAR_ENERGY` (dangerous) | 개발1 |
+| 연료 탱크 용량 | Vehicle SDK에는 없음 | AAOS `INFO_FUEL_CAPACITY` | mL | `android.car.permission.CAR_INFO` (normal) | 개발1 |
+| 배터리 | 제공 | `EvBattery.getEvBatteryStateOfCharge`, `getCurrentEvEfficiency` | %, km/kWh | `CAR_ENERGY` | 개발1 (합류점은 개발3) |
+| 통행료 실결제액 | 찾지 못함 | `Toll` 도메인은 하이패스 음성 안내 볼륨 API뿐 | - | `CAR_TOLL` | 개발1 |
+| 통행료 예상액 | 제공 | NaviHelper `RouteStartInfo.tollFare`, `DestinationInfo.tollFare` | 원 (`DestinationInfo` 기준) | `NAVI_ROUTE` | 개발1 |
+| 근처 주유소 유가 | 외부 API | 오피넷 `aroundAll.do` | 원/L, 반경 최대 5km | 오피넷 인증키 | 개발1 (서버 호출은 개발2) |
 
 ## 공통 사용법
 
@@ -82,80 +94,18 @@ fuel.checkFuelPercentCapabilities(
 )
 ```
 
-## API별 기능과 활용 방법
+## 개발1: 차량 데이터, 정산
 
-### 1. GPS — FusedLocation SDK
+담당: [@GongsBB](https://github.com/GongsBB)
 
-| API | 기능 | 나누길 활용 |
-|---|---|---|
-| `isSupported()` | 위치 서비스가 차량에 있는지 확인 | 위치 공유 기능을 켤지 판단 |
-| `getLastKnownLocation(callback)` | 가장 최근 위치 1회 조회 (새로 측정하지는 않음) | 그룹 화면 첫 표시 |
-| `registerFusedLocationCallback(listener)` | 위치가 바뀔 때마다 수신 | 일행 위치 실시간 공유 |
-| `unregisterFusedLocationCallback(listener)` | 위치 수신 중지 | 운행 종료 시 위치 공유 중단 |
-| `showLocationAccessBlockedPopup()` | 위치 접근 차단 안내 팝업 표시 | 개인정보 설정으로 막혔을 때 안내 |
+차량 값을 읽어 다른 담당에게 넘기고, 그 값으로 정산 금액을 계산한다.
 
-```kotlin
-val fusedLocation = FusedLocation(context)
-fusedLocation.initialize()
+- 주행거리, 연료, 배터리, 속도 값 읽기
+- 통행료 예상액 저장
+- 오피넷 인증키 발급과 응답 형식 확인
+- 리터 기준 정산 계산
 
-val listener = object : FusedLocationListener {
-    override fun onChanged(location: LocationData?) {
-        location ?: return
-        // 예시 값: latitude=37.8313, longitude=127.5095, heading=42.0
-        sendToGroup(location.latitude, location.longitude, location.timestampMillis)
-    }
-
-    override fun onError(exception: Exception) {
-        // 위치 수신 오류 처리
-    }
-}
-
-fusedLocation.registerFusedLocationCallback(listener)
-
-// 운행 종료 시
-fusedLocation.unregisterFusedLocationCallback(listener)
-fusedLocation.release()
-```
-
-- `FUSED_LOCATION`은 dangerous 등급이라 매니페스트 선언과 함께 앱 실행 중 권한 요청이 필요하다.
-- `LocationData`에는 속도 필드가 없다.
-- 정산 계산에는 쓰지 않는다. 일행 위치 공유 담당과 인터페이스를 맞출 때 참고한다.
-
-### 2. 속도 — AAOS CarPropertyManager
-
-Vehicle SDK에는 차량 속도 API가 없다. Pleos FAQ는 계기판과 같은 값을 쓰려면 `PERF_VEHICLE_SPEED`를 읽으라고 안내한다.
-
-| API | 기능 | 나누길 활용 |
-|---|---|---|
-| `CarPropertyManager.registerCallback` | 속도 변경 수신 | 그룹 화면의 차량별 속도 표시 |
-| `VehiclePropertyIds.PERF_VEHICLE_SPEED` | 차량 신호 기반 속도 (m/s) | km/h로 바꾸려면 3.6을 곱함 |
-
-```kotlin
-// 아래 코드는 Pleos 문서가 아닌 Android 표준 API 기준이다
-val car = Car.createCar(context)
-val manager = car.getCarManager(Car.PROPERTY_SERVICE) as CarPropertyManager
-
-val callback = object : CarPropertyManager.CarPropertyEventCallback {
-    override fun onChangeEvent(value: CarPropertyValue<*>) {
-        val kmh = (value.value as Float) * 3.6f // 예시 값: 27.8 m/s → 약 100 km/h
-    }
-
-    override fun onErrorEvent(propertyId: Int, areaId: Int) {
-        // 속도 수신 오류 처리
-    }
-}
-
-manager.registerCallback(
-    callback,
-    VehiclePropertyIds.PERF_VEHICLE_SPEED,
-    CarPropertyManager.SENSOR_RATE_NORMAL,
-)
-```
-
-- 정산 계산에는 필요 없다.
-- `CAR_SPEED`는 dangerous 권한이라 앱 실행 중 권한 요청이 필요하다. Pleos App Market 심사 통과 여부는 확인이 필요하다.
-
-### 3. 주행거리 — Vehicle SDK Odometer
+### 주행거리 — Vehicle SDK Odometer
 
 | API | 기능 | 단위 | 나누길 활용 |
 |---|---|---|---|
@@ -175,7 +125,7 @@ odometer.getCurrentDistanceDriven(
 )
 ```
 
-### 4. 연비 — Vehicle SDK Fuel
+### 연비 — Vehicle SDK Fuel
 
 주유비의 기본 계산은 리터 방식으로 바꿨다. 연비는 `FUEL_LEVEL`을 쓸 수 없는 차량의 대체 계산과 화면 표시에 쓴다.
 
@@ -198,7 +148,7 @@ fuel.getCurrentFuelEconomy(
 
 단위가 L/100km라서 값이 작을수록 연비가 좋다. 화면에 km/L로 표시할 때만 `100 ÷ 값`으로 바꾼다.
 
-### 5. 연료·배터리 — Vehicle SDK Fuel, EvBattery
+### 연료·배터리 — Vehicle SDK Fuel, EvBattery
 
 | API | 기능 | 단위 | 나누길 활용 |
 |---|---|---|---|
@@ -249,7 +199,41 @@ if (config != null) {
 - 차종마다 지원 여부가 다르므로 차종 이름으로 나누지 말고 `CarPropertyManager`로 확인한다.
 - Android 문서는 연료량의 정밀도를 밝히지 않는다. 경사나 연료 출렁임으로 값이 흔들릴 수 있어, 출발과 도착 값은 정차 상태에서 읽는 편이 안전하다.
 
-### 6. 통행료 — NaviHelper SDK
+### 속도 — AAOS CarPropertyManager
+
+Vehicle SDK에는 차량 속도 API가 없다. Pleos FAQ는 계기판과 같은 값을 쓰려면 `PERF_VEHICLE_SPEED`를 읽으라고 안내한다.
+
+| API | 기능 | 나누길 활용 |
+|---|---|---|
+| `CarPropertyManager.registerCallback` | 속도 변경 수신 | 그룹 화면의 차량별 속도 표시 |
+| `VehiclePropertyIds.PERF_VEHICLE_SPEED` | 차량 신호 기반 속도 (m/s) | km/h로 바꾸려면 3.6을 곱함 |
+
+```kotlin
+// 아래 코드는 Pleos 문서가 아닌 Android 표준 API 기준이다
+val car = Car.createCar(context)
+val manager = car.getCarManager(Car.PROPERTY_SERVICE) as CarPropertyManager
+
+val callback = object : CarPropertyManager.CarPropertyEventCallback {
+    override fun onChangeEvent(value: CarPropertyValue<*>) {
+        val kmh = (value.value as Float) * 3.6f // 예시 값: 27.8 m/s → 약 100 km/h
+    }
+
+    override fun onErrorEvent(propertyId: Int, areaId: Int) {
+        // 속도 수신 오류 처리
+    }
+}
+
+manager.registerCallback(
+    callback,
+    VehiclePropertyIds.PERF_VEHICLE_SPEED,
+    CarPropertyManager.SENSOR_RATE_NORMAL,
+)
+```
+
+- 정산 계산에는 필요 없다.
+- `CAR_SPEED`는 dangerous 권한이라 앱 실행 중 권한 요청이 필요하다. Pleos App Market 심사 통과 여부는 확인이 필요하다.
+
+### 통행료 — NaviHelper SDK
 
 | API | 기능 | 나누길 활용 |
 |---|---|---|
@@ -296,7 +280,7 @@ naviHelper.release()
 - 전달되는 이벤트는 내비게이션 앱의 구현에 따라 달라질 수 있다고 문서에 적혀 있다.
 - `Toll` 도메인의 API는 하이패스 음성 안내 볼륨 조회와 설정뿐이라 정산에 쓸 수 없다.
 
-### 7. 근처 주유소 유가 — 오피넷 API
+### 근처 주유소 유가 — 오피넷 API
 
 한국석유공사가 운영하는 외부 API다. 앱이 푸시로 받는 방식이 아니라, 필요할 때 요청해서 그 시점의 가격을 조회하는 방식이다.
 
@@ -321,8 +305,6 @@ GET https://www.opinet.co.kr/api/aroundAll.do?out=json&x={KATEC_X}&y={KATEC_Y}&r
 응답에는 주유소 코드(`UNI_ID`), 상표(`POLL_DIV_CD`), 상호(`OS_NM`), 판매가격(`PRICE`), 거리(`DISTANCE`), 좌표가 들어 있다.
 
 - **호출 한도:** 일반 API는 하루 300회다. 기업·기관 제휴를 하면 1,500회로 늘릴 수 있다. 위치가 바뀔 때마다 호출하지 말고 출발, 주유 감지, 합류점 추천 때만 호출한다.
-- **호출 위치:** 인증키를 APK에 넣지 않고 나누길 서버에서 호출한다. 앱은 서버에 좌표만 보낸다.
-- **좌표 변환:** FusedLocation의 위도·경도(WGS84)는 KATEC으로 변환해서 보내야 한다.
 - **가격 신뢰도:** 주유소가 보고한 가격을 게시하는 구조다. 공식 안내와 공공데이터포털은 실시간으로 표기하지만, 보고가 늦거나 틀린 주유소가 있을 수 있어 운전자 수정 입력을 남겨 둔다.
 - **주유소 특정:** 주유 감지 시 가장 가까운 주유소로 추정할 뿐, 실제로 들른 주유소를 알 수는 없다. 카드 할인이나 셀프 할인도 반영되지 않는다.
 
@@ -336,15 +318,13 @@ GET https://www.opinet.co.kr/api/aroundAll.do?out=json&x={KATEC_X}&y={KATEC_Y}&r
 | 주유 감지 | 주유한 차량의 적용 유가 |
 | 합류점 추천 | 추천 주유소의 현재 가격 표시 |
 
-같은 지역의 조회 결과는 서버에 잠시 저장해 여러 그룹이 함께 쓴다.
+서버 호출과 결과 저장은 개발2 영역이다.
 
-시연에서 경로 주변 유가를 계속 갱신해 보여 줘야 할 때만 서버 주기 조회를 추가한다. 서버가 주기적으로 오피넷을 조회하고, 바뀐 가격을 일행 위치 공유용 실시간 연결로 차량에 보내는 방식이다. 하루 300회 한도에서는 조회 지역 1곳이 약 5분 간격, 3곳이 약 15분 간격이다.
-
-## 예시 자료: API 값으로 정산 계산하기
+### 예시 자료: API 값으로 정산 계산하기
 
 차량 2대, 총 8명(운전자 2명, 동승자 6명)이 함께 이동한 경우다. 모든 값은 가상의 값이다. 차량 A는 주유하지 않았고, 차량 B는 이동 중에 30.0 L를 주유했다.
 
-### 1단계. API로 모은 값
+#### 1단계. API로 모은 값
 
 | 값 | 출처 API | 차량 A | 차량 B |
 |---|---|---:|---:|
@@ -354,7 +334,7 @@ GET https://www.opinet.co.kr/api/aroundAll.do?out=json&x={KATEC_X}&y={KATEC_Y}&r
 | 적용 유가 | 오피넷 `aroundAll.do` | 1,700원/L (출발지 근처) | 1,700원/L (주유 지점 근처) |
 | 통행료 예상액 | `tollFare` | 6,700원 | 6,500원 |
 
-### 2단계. 차량별 비용
+#### 2단계. 차량별 비용
 
 | 계산 | 차량 A | 차량 B |
 |---|---:|---:|
@@ -365,7 +345,7 @@ GET https://www.opinet.co.kr/api/aroundAll.do?out=json&x={KATEC_X}&y={KATEC_Y}&r
 
 주유한 30.0 L 전체가 아니라 이번 이동에 쓴 15.0 L만 비용으로 잡는다. 남은 연료는 운전자가 나중에 쓰기 때문이다.
 
-### 3단계. 1인 부담액과 정산
+#### 3단계. 1인 부담액과 정산
 
 전체 비용은 54,000원이고, 8명으로 나누면 1인 부담액은 6,750원이다.
 
@@ -376,7 +356,7 @@ GET https://www.opinet.co.kr/api/aroundAll.do?out=json&x={KATEC_X}&y={KATEC_Y}&r
 | 동승자 6명 | 0원 | 6,750원 | 각자 6,750원 보냄 (총 40,500원) |
 | **합계** | **54,000원** | | 보낸 돈 40,500원 = 받은 돈 40,500원 |
 
-### 계산 코드 예시
+#### 계산 코드 예시
 
 `FUEL_LEVEL` 값이 들어올 때마다 `onFuelLevel`을 부른다. 최저점보다 기준 이상 오르면 주유로 판단하므로, 작은 흔들림은 주유로 세지 않는다.
 
@@ -414,14 +394,14 @@ val perPerson = (carA + carB) / 8 // 6750.0
 
 원 단위로 나누어떨어지지 않을 때의 처리 방식은 아직 정하지 않아 이 예시에 넣지 않았다.
 
-## 정산 설계에 미치는 영향
+### 정산 설계에 미치는 영향
 
 1. **통행료:** `tollFare`는 경로에 필요한 요금이라 실제 결제액이 아니다. 경로 이탈이나 할인이 있으면 달라질 수 있고, 도착 이벤트(`DestinationArrivedInfo`)에는 거리와 시간만 있고 요금은 없다.
 2. **주유비:** 실제 결제 금액 API는 찾지 못했다. `FUEL_LEVEL`로 사용 리터와 주유량은 구할 수 있지만, 금액은 오피넷 유가를 곱한 추정치다.
 3. **유가:** SDK에 유가 정보가 없어 오피넷을 쓴다. 인증키 보호와 호출 한도 때문에 나누길 서버를 거쳐야 하므로, 미정인 백엔드 결정이 먼저 필요하다.
 4. **전기차:** 충전 요금 API를 찾지 못했다. 오피넷의 주유소 API도 전기차 충전 요금을 주지 않으므로 요금 출처를 따로 찾아야 한다.
 
-## 제안하는 정산 방식
+### 제안하는 정산 방식
 
 ```
 사용 연료(L) = 출발 시 연료량 + 주유량 − 도착 시 연료량
@@ -441,29 +421,127 @@ val perPerson = (carA + carB) / 8 // 6750.0
 
 - **주행거리:** 트립 값은 "현재 주행 세션"의 정의가 문서에 없어, 휴게소에서 시동을 끄면 초기화될 수 있다. 그래서 대체 계산에는 누적 주행거리의 차이를 쓴다.
 - **시동 꺼짐:** 앱이 꺼진 동안 주유하면 다음 실행 때 값이 한 번에 오른다. 위 로직은 이 경우도 주유로 세지만, 그룹 운행 시작 전에 넣은 주유는 세지 않는다.
-- **README 수정:** "금액은 추정치이며 운전자가 수정할 수 있음"으로 고쳐야 한다. 수정 입력은 "운전자가 따로 할 일을 만들지 않는다"는 원칙과 부딪히므로 팀 합의가 필요하다.
 
-## 구현 전에 챙길 것
-
-- **의존성:** `app/build.gradle.kts`에는 Vehicle SDK만 있어서, NaviHelper와 FusedLocation을 쓰려면 추가해야 한다.
-- **권한:** 매니페스트에 `FUSED_LOCATION`, `NAVI_ROUTE`, `android.car.permission.CAR_ENERGY`, `android.car.permission.CAR_INFO`가 없다. `FUSED_LOCATION`과 `android.car.permission.CAR_ENERGY`는 dangerous 등급이라 앱 실행 중 권한 요청도 필요하다.
-- **Car API:** `CarPropertyManager`를 쓰려면 `app/build.gradle.kts`의 `android` 블록에 `useLibrary("android.car")`가 필요하다.
-- **오피넷:** 인증키를 발급받고, 나누길 서버에 WGS84→KATEC 변환과 API 호출을 구현한다.
-- **공모전 심사:** 기술 활용성은 Pleos SDK·API를 핵심 기능에 활용했는지 평가한다. 주행거리, 위치, 통행료, 연료 %는 Pleos SDK로 유지하고 리터만 Android 속성으로 보완한다.
-- **차종별 차이:** Vehicle SDK와 FusedLocation 지원은 차종마다 다르다. Vehicle SDK는 `checkXXXCapabilities`로 먼저 확인하고, 콜백 값이 `null`인 경우도 처리해야 한다. NaviHelper는 내비게이션 장착 차량에서만 완전히 호환된다.
-
-## 아직 확인하지 못한 것
+### 개발1이 확인할 것
 
 - [ ] 통행료 결제 내역을 받을 다른 경로가 있는지 공모전 주최 측이나 Pleos 쪽에 문의한다. 문서에서 찾지 못했다는 것이지, 없다고 확정된 것은 아니다.
 - [ ] 에뮬레이터에서 연료와 주행거리를 조작할 수 있는지 확인한다. 가상 콘솔 안내에서는 속도 변경만 확인했고, 시연 준비에 직접 영향을 준다.
 - [ ] Pleos 기술 지원팀에 `FUEL_LEVEL`, `INFO_FUEL_CAPACITY` 사용 검토를 요청한다. 공모전 제출용 APK에도 권한 승인 절차가 적용되는지 함께 묻는다.
 - [ ] 에뮬레이터에서 `FUEL_LEVEL`을 읽고 값을 바꿀 수 있는지 확인한다.
 - [ ] 실제 `FUEL_LEVEL` 값의 흔들림을 보고 주유 감지 기준 2 L를 조정한다.
-- [ ] 오피넷 가격 반영 주기와 하루 300회 한도가 서비스 규모에 맞는지 확인한다.
 - [ ] 전기차 충전 요금의 출처를 찾는다.
 - [ ] 문서의 예시 코드를 빌드하고 에뮬레이터에서 호출해 본다.
 - [ ] 트립 거리와 현재 연비가 시동을 껐다 켜면 초기화되는지 확인한다.
 - [ ] 클라우드 방식의 별도 Vehicle Data API 내용을 확인한다. 이번 조사에서는 보지 않았다.
+
+## 개발2: 서버와 실시간 통신
+
+담당: [@kimjh2567](https://github.com/kimjh2567)
+
+오피넷 호출을 서버에서 맡고, 차량 사이의 위치와 가격을 전달한다. 오피넷 요청 항목과 응답은 개발1의 [근처 주유소 유가](#근처-주유소-유가--오피넷-api)를 본다.
+
+### 오피넷 서버 호출
+
+- **호출 위치:** 인증키를 APK에 넣지 않고 나누길 서버에서 호출한다. 앱은 서버에 좌표만 보낸다.
+- **좌표 변환:** FusedLocation의 위도·경도(WGS84)는 KATEC으로 변환해서 보내야 한다.
+- **서버 구현:** 나누길 서버에 WGS84→KATEC 변환과 API 호출을 구현한다.
+- **결과 저장:** 같은 지역의 조회 결과는 서버에 잠시 저장해 여러 그룹이 함께 쓴다.
+
+### 실시간 전달
+
+- **위치 공유:** 개발3이 받은 위치를 일행 차량에 전달한다. 전송 형식은 개발3과 맞춘다.
+- **유가 주기 조회:** 시연에서 경로 주변 유가를 계속 갱신해 보여 줘야 할 때만 서버 주기 조회를 추가한다. 서버가 주기적으로 오피넷을 조회하고, 바뀐 가격을 일행 위치 공유용 실시간 연결로 차량에 보내는 방식이다. 하루 300회 한도에서는 조회 지역 1곳이 약 5분 간격, 3곳이 약 15분 간격이다.
+
+### 개발2가 확인할 것
+
+- [ ] 오피넷 가격 반영 주기와 하루 300회 한도가 서비스 규모에 맞는지 확인한다.
+
+## 개발3: 지도와 그룹 드라이브
+
+담당: [@WonDongWoo1](https://github.com/WonDongWoo1)
+
+일행 위치를 지도에 보여 주고, 연료가 부족한 차량이 생기면 합류점을 추천한다.
+
+### GPS — FusedLocation SDK
+
+| API | 기능 | 나누길 활용 |
+|---|---|---|
+| `isSupported()` | 위치 서비스가 차량에 있는지 확인 | 위치 공유 기능을 켤지 판단 |
+| `getLastKnownLocation(callback)` | 가장 최근 위치 1회 조회 (새로 측정하지는 않음) | 그룹 화면 첫 표시 |
+| `registerFusedLocationCallback(listener)` | 위치가 바뀔 때마다 수신 | 일행 위치 실시간 공유 |
+| `unregisterFusedLocationCallback(listener)` | 위치 수신 중지 | 운행 종료 시 위치 공유 중단 |
+| `showLocationAccessBlockedPopup()` | 위치 접근 차단 안내 팝업 표시 | 개인정보 설정으로 막혔을 때 안내 |
+
+```kotlin
+val fusedLocation = FusedLocation(context)
+fusedLocation.initialize()
+
+val listener = object : FusedLocationListener {
+    override fun onChanged(location: LocationData?) {
+        location ?: return
+        // 예시 값: latitude=37.8313, longitude=127.5095, heading=42.0
+        sendToGroup(location.latitude, location.longitude, location.timestampMillis)
+    }
+
+    override fun onError(exception: Exception) {
+        // 위치 수신 오류 처리
+    }
+}
+
+fusedLocation.registerFusedLocationCallback(listener)
+
+// 운행 종료 시
+fusedLocation.unregisterFusedLocationCallback(listener)
+fusedLocation.release()
+```
+
+- `FUSED_LOCATION`은 dangerous 등급이라 매니페스트 선언과 함께 앱 실행 중 권한 요청이 필요하다.
+- `LocationData`에는 속도 필드가 없다.
+- 정산 계산에는 쓰지 않는다. 개발2와 전송 형식을 맞출 때 참고한다.
+
+### 합류점 추천에 쓰는 값
+
+- **연료·배터리 잔량:** 개발1의 [연료·배터리](#연료배터리--vehicle-sdk-fuel-evbattery) 표에 있는 `registerFuelPercent`, `registerEvBatteryStateOfCharge`를 기준으로 쓴다.
+- **주유소 가격:** 합류점 후보의 현재 가격은 서버를 거쳐 오피넷에서 받는다.
+- **속도 표시:** 차량별 속도는 개발1의 [속도](#속도--aaos-carpropertymanager) 값을 쓴다.
+
+## 팀장: 화면, 시연, 최종 결정
+
+담당: [@apkool12](https://github.com/apkool12)
+
+### 정산 화면에 필요한 것
+
+- 금액이 실제 결제액이 아니라 추정치임을 표시한다.
+- 통행료와 유가를 운전자가 수정할 수 있는 입력칸을 둔다.
+- 차량 정보로 구분할 수 없는 고급휘발유 같은 유종은 운전자가 고르게 한다.
+- `onDestinationArrived`를 받으면 정산 화면을 띄운다.
+
+### 시연 준비
+
+- 에뮬레이터에서 연료와 주행거리를 조작할 수 있는지가 시연에 직접 영향을 준다. 개발1의 확인 결과를 보고 시연 시나리오를 정한다.
+- 경로 주변 유가를 계속 갱신해 보여 줄지 정한다. 보여 준다면 개발2가 서버 주기 조회를 추가해야 한다.
+
+### 최종 결정이 필요한 것
+
+- **README 수정:** "금액은 추정치이며 운전자가 수정할 수 있음"으로 고쳐야 한다. 수정 입력은 "운전자가 따로 할 일을 만들지 않는다"는 원칙과 부딪히므로 팀 합의가 필요하다.
+- **공모전 심사:** 기술 활용성은 Pleos SDK·API를 핵심 기능에 활용했는지 평가한다. 주행거리, 위치, 통행료, 연료 %는 Pleos SDK로 유지하고 리터만 Android 속성으로 보완한다.
+
+## PM: 일정, 이슈, 앱 뼈대, 통합
+
+담당: [@yxxunseo](https://github.com/yxxunseo)
+
+### 앱 뼈대
+
+- **의존성:** `app/build.gradle.kts`에는 Vehicle SDK만 있어서, NaviHelper와 FusedLocation을 쓰려면 추가해야 한다.
+- **권한:** 매니페스트에 `FUSED_LOCATION`, `NAVI_ROUTE`, `android.car.permission.CAR_ENERGY`, `android.car.permission.CAR_INFO`가 없다. `FUSED_LOCATION`과 `android.car.permission.CAR_ENERGY`는 dangerous 등급이라 앱 실행 중 권한 요청도 필요하다.
+- **Car API:** `CarPropertyManager`를 쓰려면 `app/build.gradle.kts`의 `android` 블록에 `useLibrary("android.car")`가 필요하다.
+- **차종별 차이:** Vehicle SDK와 FusedLocation 지원은 차종마다 다르다. Vehicle SDK는 `checkXXXCapabilities`로 먼저 확인하고, 콜백 값이 `null`인 경우도 처리해야 한다. NaviHelper는 내비게이션 장착 차량에서만 완전히 호환된다.
+
+### 이슈와 통합
+
+- 각 역할의 확인 항목을 이슈로 등록한다.
+- 팀 합의가 끝나면 README 수정을 반영한다.
+- 차량 값을 넘기는 인터페이스를 개발1, 개발2, 개발3과 맞춘다.
 
 ## 출처
 
