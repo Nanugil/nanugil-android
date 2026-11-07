@@ -19,6 +19,8 @@ dependencyResolutionManagement {
         mavenCentral()
         // Pleos Playground SDK (Vehicle, NaviHelper 등)
         maven("https://nexus-playground.pleos.ai/repository/maven-releases/")
+        // 네이버 지도 SDK (ADR-001)
+        maven("https://repository.map.naver.com/archive/maven")
     }
 }
 

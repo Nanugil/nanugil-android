@@ -1,8 +1,17 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+
+// API 키는 커밋하지 않는 local.properties(또는 CI 환경변수)에서 읽는다.
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+fun secret(name: String): String = localProperties.getProperty(name) ?: System.getenv(name) ?: ""
 
 android {
     namespace = "com.nanugil.app"
@@ -17,6 +26,9 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "NAVER_MAP_CLIENT_ID", "\"${secret("NAVER_MAP_CLIENT_ID")}\"")
+        buildConfigField("String", "OPINET_API_KEY", "\"${secret("OPINET_API_KEY")}\"")
     }
 
     buildTypes {
@@ -38,11 +50,13 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
 dependencies {
     implementation(libs.vehicle.sdk)
+    implementation(libs.naver.map.sdk)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
