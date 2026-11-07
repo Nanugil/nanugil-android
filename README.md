@@ -227,9 +227,6 @@ sequenceDiagram
 | --- | --- |
 | 차량 앱 | Kotlin, Android (Pleos Connect SDK) |
 | 차량 데이터 | Pleos Connect Vehicle API — GPS, 연비, 주유량·배터리, 통행료 |
-| 지도 | 네이버 지도 Android SDK 3.24.0 ([ADR-001](docs/decisions/001-map-sdk-selection.md)) |
-| 주유소·유가 | 한국석유공사 오피넷 API — 반경 5km 주유소와 판매가격 ([ADR-001](docs/decisions/001-map-sdk-selection.md)) |
-| 경로 변경 | Pleos NaviHelper SDK — 합류 주유소를 경유지로 추가 (연동 예정) |
 | 실시간 통신 | 미정 |
 | 백엔드 | 미정 |
 | 결제 연동 | 카카오페이 등 송금 오픈 API |
@@ -245,11 +242,7 @@ flowchart LR
         VAPI[Vehicle API<br/>GPS · 연비 · 주유량 · 통행료]
         App[나누길 앱]
         VAPI --> App
-        Navi[NaviHelper<br/>내장 내비 경유지]
-        App --> Navi
     end
-    App --> NMap[네이버 지도 SDK<br/>일행·주유소 표시]
-    App --> Opinet[오피넷 API<br/>주변 주유소 · 유가]
     App <-->|실시간 위치 · 상태| Server[나누길 서버]
     Server --> Group[그룹 · 합류점 추천]
     Server --> Calc[정산 계산]
@@ -270,10 +263,7 @@ flowchart LR
 
 ```
 nanugil-android/
-├── app/src/main/java/com/nanugil/app/
-│   ├── MainActivity.kt       # 앱 진입점
-│   └── GroupDrive.kt         # 그룹 드라이브 기능 전체: 지도 인증, KATEC 좌표 변환,
-│                             # 오피넷 주유소 조회, 그룹 차량 상태, 네이버 지도, 화면
+├── app/                      # Android 앱 모듈 (추가 예정)
 ├── docs/
 │   ├── troubleshooting/      # 트러블슈팅 기록
 │   └── decisions/            # 기술 의사결정 기록 (ADR)
@@ -284,33 +274,17 @@ nanugil-android/
 
 ## 시작하기
 
+> 앱 모듈이 올라오면 빌드 방법을 채웁니다.
+
 ```bash
 git clone https://github.com/Nanugil/nanugil-android.git
 cd nanugil-android
-./gradlew assembleDebug
+# ./gradlew assembleDebug
 ```
 
 **필요한 것**
 - Android Studio 최신 안정 버전
 - Pleos Connect SDK와 에뮬레이터 (설치 방법 추가 예정)
-
-**API 키 설정**
-
-키는 커밋하지 않습니다. 프로젝트 루트의 `local.properties`에 아래 두 줄을 넣고 Gradle Sync 하면 `BuildConfig`로 들어갑니다. CI에서는 같은 이름의 환경변수를 씁니다.
-
-```properties
-NAVER_MAP_CLIENT_ID=네이버_클라우드_Client_ID
-OPINET_API_KEY=오피넷_인증키
-```
-
-| 키 | 발급 방법 |
-| --- | --- |
-| `NAVER_MAP_CLIENT_ID` | [네이버 클라우드 콘솔](https://console.ncloud.com) → AI·NAVER API → Maps → Application 등록. **Dynamic Map**을 선택하고 Android 패키지 이름에 `com.nanugil.app`을 넣는다. 과금 사고를 막으려면 콘솔에서 이용 한도를 낮게 걸어 둔다. |
-| `OPINET_API_KEY` | [오피넷 무료 API](https://www.opinet.co.kr/user/custapi/openApiNew.do) 신청 (하루 1,500건) |
-
-키가 없으면 지도는 회색 화면으로 뜨고(Logcat `NaverMap` 태그에 인증 실패 로그), 주유소 패널에 "오피넷 API 키가 없습니다"가 표시됩니다.
-
-지금은 서버 없이 화면을 볼 수 있게 가짜 그룹 데이터(서울시청 → 가평, 차량 2대)가 돌아갑니다. 운전자 B의 연료가 15% 아래로 떨어지면 그 차 주변 주유소를 오피넷에서 최저가 순으로 자동 조회합니다.
 
 ---
 
@@ -359,7 +333,8 @@ OPINET_API_KEY=오피넷_인증키
 ### 기술 의사결정 (ADR) — [`docs/decisions`](docs/decisions)
 | # | 제목 | 상태 | 날짜 |
 | --- | --- | --- | --- |
-| 001 | [지도는 네이버 지도 SDK, 주유소·유가는 오피넷 API](docs/decisions/001-map-sdk-selection.md) | 채택 | 2026-11-06 |
+| 001 | [백엔드·실시간 통신 기술 선택](docs/decisions/001-backend-realtime.md) | 제안 | 2026-11-06 |
+| 002 | [지도는 네이버 지도 SDK, 주유소·유가는 오피넷 API](docs/decisions/002-map-sdk-selection.md) | 제안 | 2026-11-06 |
 
 ---
 
@@ -380,4 +355,3 @@ OPINET_API_KEY=오피넷_인증키
 | 역할 | GitHub |
 | --- | --- |
 | 역할 | @계정 |
-

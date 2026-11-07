@@ -14,6 +14,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import com.nanugil.app.data.fuel.OpinetClient
+import com.nanugil.app.data.mock.FakeGroupLocationRepository
+import com.nanugil.app.ui.drive.GroupDriveScreen
 
 class MainActivity : ComponentActivity() {
 

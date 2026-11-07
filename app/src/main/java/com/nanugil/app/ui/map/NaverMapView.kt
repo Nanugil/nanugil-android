@@ -1,0 +1,196 @@
+package com.nanugil.app.ui.map
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.nanugil.app.core.geo.Wgs84Point
+import com.nanugil.app.data.fuel.GasStation
+import com.nanugil.app.data.group.CarState
+import com.naver.maps.geometry.LatLng
+import com.naver.maps.geometry.LatLngBounds
+import com.naver.maps.map.CameraAnimation
+import com.naver.maps.map.CameraUpdate
+import com.naver.maps.map.MapView
+import com.naver.maps.map.NaverMap
+import com.naver.maps.map.overlay.Marker
+import com.naver.maps.map.overlay.Overlay
+import com.naver.maps.map.util.MarkerIcons
+
+private const val COLOR_ME = 0xFF5B2EFF.toInt() // 나누길 보라
+private const val COLOR_GROUP = 0xFF3D7BFF.toInt()
+private const val COLOR_LOW_FUEL = 0xFFE5484D.toInt()
+private const val COLOR_STATION = 0xFF2E9E5B.toInt()
+private const val COLOR_STATION_SELECTED = 0xFFFF9F1C.toInt()
+
+fun Wgs84Point.toLatLng() = LatLng(latitude, longitude)
+
+/**
+ * 네이버 지도를 Compose에 올리고, 일행 차량과 주유소를 마커로 그린다.
+ *
+ * MapView는 액티비티 생명주기를 그대로 전달받아야 하므로 LifecycleEventObserver로 연결한다.
+ */
+@Composable
+fun NaverMapView(
+    cars: List<CarState>,
+    stations: List<GasStation>,
+    selectedStation: GasStation?,
+    onStationClick: (GasStation) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val mapView = remember { MapView(context) }
+    var naverMap by remember { mutableStateOf<NaverMap?>(null) }
+
+    DisposableEffect(lifecycle, mapView) {
+        var created = false
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_CREATE -> { mapView.onCreate(null); created = true }
+                Lifecycle.Event.ON_START -> mapView.onStart()
+                Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                Lifecycle.Event.ON_STOP -> mapView.onStop()
+                Lifecycle.Event.ON_DESTROY -> { mapView.onDestroy(); created = false }
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            // 액티비티는 살아 있는데 이 화면만 빠지는 경우에도 지도 리소스를 정리한다.
+            if (created) {
+                if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) mapView.onPause()
+                if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) mapView.onStop()
+                mapView.onDestroy()
+            }
+        }
+    }
+
+    LaunchedEffect(mapView) {
+        mapView.getMapAsync { map ->
+            // 주행 중 조작을 줄이기 위해 확대/축소 버튼은 숨긴다.
+            map.uiSettings.isZoomControlEnabled = false
+            naverMap = map
+        }
+    }
+
+    AndroidView(factory = { mapView }, modifier = modifier)
+
+    val map = naverMap ?: return
+    val density = context.resources.displayMetrics.density
+    CarMarkers(map, cars)
+    StationMarkers(map, stations, selectedStation, onStationClick, paddingPx = (96 * density).toInt(), cars = cars)
+}
+
+@Composable
+private fun CarMarkers(map: NaverMap, cars: List<CarState>) {
+    val markers = remember(map) { mutableMapOf<String, Marker>() }
+    var cameraPlaced by remember(map) { mutableStateOf(false) }
+
+    LaunchedEffect(map, cars) {
+        val ids = cars.map { it.carId }.toSet()
+        markers.keys.filterNot { it in ids }.forEach { markers.remove(it)?.map = null }
+
+        cars.forEach { car ->
+            val marker = markers.getOrPut(car.carId) {
+                // 위치 없이 지도에 올리면 InvalidCoordinateException(NaN)으로 크래시 → position을 먼저 넣는다.
+                Marker().apply {
+                    position = car.position.toLatLng()
+                    icon = MarkerIcons.BLACK
+                    zIndex = 100
+                    this.map = map
+                }
+            }
+            marker.position = car.position.toLatLng()
+            marker.iconTintColor = when {
+                car.isLowFuel -> COLOR_LOW_FUEL
+                car.isMe -> COLOR_ME
+                else -> COLOR_GROUP
+            }
+            marker.captionText = car.driverName
+            marker.subCaptionText = "${car.speedKmh}km/h · 연료 ${car.fuelPercent}%"
+        }
+
+        if (!cameraPlaced) {
+            cars.firstOrNull { it.isMe }?.let {
+                map.moveCamera(CameraUpdate.scrollAndZoomTo(it.position.toLatLng(), 11.0))
+                cameraPlaced = true
+            }
+        }
+    }
+
+    DisposableEffect(map) {
+        onDispose {
+            markers.values.forEach { it.map = null }
+            markers.clear()
+        }
+    }
+}
+
+@Composable
+private fun StationMarkers(
+    map: NaverMap,
+    stations: List<GasStation>,
+    selectedStation: GasStation?,
+    onStationClick: (GasStation) -> Unit,
+    paddingPx: Int,
+    cars: List<CarState>,
+) {
+    val markers = remember(map) { mutableListOf<Marker>() }
+
+    // 주유소 목록이 바뀌면 마커를 새로 그리고, 연료 부족 차량과 주유소가 한 화면에 들어오게 맞춘다.
+    LaunchedEffect(map, stations) {
+        markers.forEach { it.map = null }
+        markers.clear()
+        stations.forEach { station ->
+            markers += Marker().apply {
+                position = station.position.toLatLng()
+                icon = MarkerIcons.BLACK
+                iconTintColor = COLOR_STATION
+                captionText = station.name
+                subCaptionText = "%,d원".format(station.priceWon)
+                tag = station.id
+                onClickListener = Overlay.OnClickListener {
+                    onStationClick(station)
+                    true
+                }
+                this.map = map
+            }
+        }
+        if (stations.isNotEmpty()) {
+            val points = stations.map { it.position.toLatLng() } +
+                cars.filter { it.isLowFuel }.map { it.position.toLatLng() }
+            val bounds = points.fold(LatLngBounds.Builder()) { builder, p -> builder.include(p) }.build()
+            map.moveCamera(CameraUpdate.fitBounds(bounds, paddingPx).animate(CameraAnimation.Easing))
+        }
+    }
+
+    LaunchedEffect(map, stations, selectedStation) {
+        markers.forEach { marker ->
+            val selected = marker.tag == selectedStation?.id
+            marker.iconTintColor = if (selected) COLOR_STATION_SELECTED else COLOR_STATION
+            marker.zIndex = if (selected) 50 else 0
+        }
+        selectedStation?.let {
+            map.moveCamera(CameraUpdate.scrollTo(it.position.toLatLng()).animate(CameraAnimation.Easing))
+        }
+    }
+
+    DisposableEffect(map) {
+        onDispose {
+            markers.forEach { it.map = null }
+            markers.clear()
+        }
+    }
+}
