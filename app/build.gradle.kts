@@ -29,6 +29,8 @@ android {
 
         buildConfigField("String", "NAVER_MAP_CLIENT_ID", "\"${secret("NAVER_MAP_CLIENT_ID")}\"")
         buildConfigField("String", "OPINET_API_KEY", "\"${secret("OPINET_API_KEY")}\"")
+        // TODO(서버): 경로선(Directions 5) 테스트용. Secret은 출시 전에 서버 프록시로 옮긴다 (ADR-002).
+        buildConfigField("String", "NAVER_MAP_CLIENT_SECRET", "\"${secret("NAVER_MAP_CLIENT_SECRET")}\"")
     }
 
     buildTypes {
@@ -56,6 +58,7 @@ android {
 
 dependencies {
     implementation(libs.vehicle.sdk)
+    implementation(libs.navihelper.sdk)
     implementation(libs.naver.map.sdk)
 
     implementation(libs.androidx.core.ktx)

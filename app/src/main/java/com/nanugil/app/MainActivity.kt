@@ -11,11 +11,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.nanugil.app.data.fuel.OpinetClient
 import com.nanugil.app.data.mock.FakeGroupLocationRepository
+import com.nanugil.app.data.mock.MockGroupDriveData
+import com.nanugil.app.data.navi.NaviController
+import com.nanugil.app.data.navi.NaviPlace
+import com.nanugil.app.data.route.NaverDirectionsClient
 import com.nanugil.app.ui.drive.GroupDriveScreen
 
 class MainActivity : ComponentActivity() {
@@ -23,27 +29,57 @@ class MainActivity : ComponentActivity() {
     // 서버가 정해지기 전까지는 가짜 그룹 데이터로 화면을 돌린다.
     private val groupRepository = FakeGroupLocationRepository()
     private val opinetClient = OpinetClient(BuildConfig.OPINET_API_KEY)
+    private val directionsClient = NaverDirectionsClient(BuildConfig.NAVER_MAP_CLIENT_ID, BuildConfig.NAVER_MAP_CLIENT_SECRET)
+    private lateinit var naviController: NaviController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        naviController = NaviController(this).also { it.connect() }
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
+                    val naviState by naviController.state.collectAsState()
                     GroupDriveScreen(
                         groupRepository = groupRepository,
                         opinetClient = opinetClient,
+                        directionsClient = directionsClient,
+                        naviState = naviState,
+                        onStartRoute = {
+                            naviController.startRoute(
+                                NaviPlace(name = GROUP_DESTINATION_NAME, position = MockGroupDriveData.DESTINATION),
+                            )
+                        },
+                        onCancelRoute = naviController::cancelRoute,
+                        onSearchPlace = naviController::searchPlace,
+                        onOpenNavi = naviController::openNaviScreen,
+                        onPickDestination = { point ->
+                            naviController.startRoute(NaviPlace(name = "지도에서 선택한 곳", position = point))
+                        },
                         onProposeMeetup = { station ->
-                            // TODO: 서버로 합류 이벤트 전송 → 각 차량에서 NaviHelper.addWaypoint + requestReRoute
-                            Toast.makeText(
-                                this,
-                                "${station.name} 합류 제안 (NaviHelper 연동 예정)",
-                                Toast.LENGTH_SHORT,
-                            ).show()
+                            // TODO(서버): 합류 이벤트를 그룹 전체에 푸시 → 각 차량이 같은 addMeetupStop을 실행
+                            naviController.addMeetupStop(NaviPlace(name = station.name, position = station.position))
+                            Toast.makeText(this, "${station.name} 내비 경유지로 추가", Toast.LENGTH_SHORT).show()
                         },
                     )
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 내장 내비 화면에서 안내를 시작·종료하고 돌아왔을 수 있으니 상태를 다시 맞춘다.
+        naviController.refreshRoute()
+    }
+
+    override fun onDestroy() {
+        naviController.release()
+        super.onDestroy()
+    }
+
+    private companion object {
+        /** 서버가 붙기 전까지 쓰는 그룹 목적지 이름 (좌표는 MockGroupDriveData.DESTINATION) */
+        const val GROUP_DESTINATION_NAME = "가평 펜션"
     }
 }
 

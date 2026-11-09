@@ -20,7 +20,13 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
+import com.nanugil.app.core.geo.Wgs84Point
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -42,6 +48,9 @@ import com.nanugil.app.data.fuel.OpinetConstants
 import com.nanugil.app.data.fuel.OpinetException
 import com.nanugil.app.data.group.CarState
 import com.nanugil.app.data.group.GroupLocationRepository
+import com.nanugil.app.data.navi.NaviState
+import com.nanugil.app.data.route.DirectionsException
+import com.nanugil.app.data.route.NaverDirectionsClient
 import com.nanugil.app.ui.map.NaverMapView
 import kotlinx.coroutines.launch
 
@@ -57,6 +66,13 @@ private val LowFuelRed = Color(0xFFE5484D)
 fun GroupDriveScreen(
     groupRepository: GroupLocationRepository,
     opinetClient: OpinetClient,
+    directionsClient: NaverDirectionsClient,
+    naviState: NaviState,
+    onStartRoute: () -> Unit,
+    onCancelRoute: () -> Unit,
+    onSearchPlace: (String) -> Unit,
+    onOpenNavi: () -> Unit,
+    onPickDestination: (Wgs84Point) -> Unit,
     onProposeMeetup: (GasStation) -> Unit,
     groupId: String = "demo",
 ) {
@@ -85,6 +101,26 @@ fun GroupDriveScreen(
         }
     }
 
+    // 내장 내비가 안내 중이면 같은 출발·경유·목적지로 네이버 경로를 받아 우리 지도에 선으로 그린다.
+    // 차가 움직일 때마다가 아니라 목적지·경유지가 바뀔 때만 다시 받는다 (현재 위치는 그 순간 값을 쓴다).
+    var routePath by remember { mutableStateOf<List<Wgs84Point>>(emptyList()) }
+    var routeError by remember { mutableStateOf<String?>(null) }
+    val hasStart = naviState.currentPosition != null
+    LaunchedEffect(naviState.guiding, naviState.destinationPosition, naviState.waypointPositions, hasStart) {
+        val start = naviState.currentPosition
+        val goal = naviState.destinationPosition
+        if (!naviState.guiding || start == null || goal == null) {
+            routePath = emptyList()
+            return@LaunchedEffect
+        }
+        routePath = try {
+            directionsClient.drivingPath(start, goal, naviState.waypointPositions).also { routeError = null }
+        } catch (e: DirectionsException) {
+            routeError = e.message
+            emptyList()
+        }
+    }
+
     // 연료 부족 차량이 새로 생기면 한 번 자동 조회
     val lowFuelCar = cars.firstOrNull { it.isLowFuel }
     LaunchedEffect(lowFuelCar?.carId) {
@@ -97,6 +133,10 @@ fun GroupDriveScreen(
             stations = stations,
             selectedStation = selected,
             onStationClick = { selected = it },
+            destination = naviState.destinationPosition,
+            destinationName = naviState.destinationName,
+            onMapLongClick = onPickDestination,
+            routePath = routePath,
             modifier = Modifier.weight(1f).fillMaxHeight(),
         )
         SidePanel(
@@ -106,6 +146,12 @@ fun GroupDriveScreen(
             searching = searching,
             error = error,
             searchedFor = searchedFor,
+            naviState = naviState,
+            routeError = routeError,
+            onStartRoute = onStartRoute,
+            onCancelRoute = onCancelRoute,
+            onSearchPlace = onSearchPlace,
+            onOpenNavi = onOpenNavi,
             onSearchNearMe = { cars.firstOrNull { it.isMe }?.let(::search) },
             onSelect = { selected = it },
             onProposeMeetup = onProposeMeetup,
@@ -122,6 +168,12 @@ private fun SidePanel(
     searching: Boolean,
     error: String?,
     searchedFor: CarState?,
+    naviState: NaviState,
+    routeError: String?,
+    onStartRoute: () -> Unit,
+    onCancelRoute: () -> Unit,
+    onSearchPlace: (String) -> Unit,
+    onOpenNavi: () -> Unit,
     onSearchNearMe: () -> Unit,
     onSelect: (GasStation) -> Unit,
     onProposeMeetup: (GasStation) -> Unit,
@@ -134,6 +186,15 @@ private fun SidePanel(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("그룹 드라이브", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+
+        NaviCard(
+            naviState,
+            onStartRoute = onStartRoute,
+            onCancelRoute = onCancelRoute,
+            onSearchPlace = onSearchPlace,
+            onOpenNavi = onOpenNavi,
+        )
+        routeError?.let { Text("경로선: $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 
         cars.forEach { CarRow(it) }
 
@@ -179,6 +240,90 @@ private fun SidePanel(
             modifier = Modifier.fillMaxWidth().height(56.dp),
         ) {
             Text("내 차 주변 주유소 다시 찾기")
+        }
+    }
+}
+
+/** 내장 내비 상태와 길안내 시작/취소. 실제 턴바이턴 안내 화면은 차량 내장 내비가 띄운다. */
+@Composable
+private fun NaviCard(
+    state: NaviState,
+    onStartRoute: () -> Unit,
+    onCancelRoute: () -> Unit,
+    onSearchPlace: (String) -> Unit,
+    onOpenNavi: () -> Unit,
+) {
+    var keyword by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
+    // 검색 후 키보드가 지도를 가리지 않게 닫는다.
+    val search = {
+        focusManager.clearFocus()
+        onSearchPlace(keyword)
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (state.guiding) {
+                Text(
+                    "${state.destinationName ?: "목적지"} 안내 중",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                val summary = listOfNotNull(
+                    state.remainDistanceMeters?.let { "%.1fkm".format(it / 1000.0) },
+                    state.remainTimeSeconds?.let { "${it / 60}분" },
+                    state.tollFareWon?.let { "통행료 %,d원".format(it) },
+                ).joinToString(" · ")
+                if (summary.isNotEmpty()) Text(summary, style = MaterialTheme.typography.bodyMedium)
+                if (state.waypointNames.isNotEmpty()) {
+                    Text("경유: ${state.waypointNames.joinToString(", ")}", style = MaterialTheme.typography.bodyMedium)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onOpenNavi, modifier = Modifier.weight(1f).height(48.dp)) {
+                        Text("내비 화면")
+                    }
+                    OutlinedButton(onClick = onCancelRoute, modifier = Modifier.weight(1f).height(48.dp)) {
+                        Text("길안내 취소")
+                    }
+                }
+            } else {
+                Button(
+                    onClick = onStartRoute,
+                    enabled = state.connected,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                ) {
+                    Text(if (state.connected) "가평 펜션으로 길안내 시작" else "내장 내비 연결 중…")
+                }
+            }
+            // 장소 검색은 내장 내비 검색 화면에 맡긴다 (검색 API 키·서버 없이 동작).
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = keyword,
+                    onValueChange = { keyword = it },
+                    placeholder = { Text("목적지 검색") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { search() }),
+                    modifier = Modifier.weight(1f),
+                )
+                Button(
+                    onClick = search,
+                    enabled = state.connected && keyword.isNotBlank(),
+                    modifier = Modifier.height(56.dp),
+                ) {
+                    Text("검색")
+                }
+            }
+            Text(
+                "지도를 길게 누르면 그 지점으로 안내합니다",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            state.message?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }

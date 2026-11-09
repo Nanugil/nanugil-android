@@ -6,6 +6,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -24,6 +25,8 @@ import com.naver.maps.map.MapView
 import com.naver.maps.map.NaverMap
 import com.naver.maps.map.overlay.Marker
 import com.naver.maps.map.overlay.Overlay
+import com.naver.maps.map.overlay.PathOverlay
+import android.graphics.Color
 import com.naver.maps.map.util.MarkerIcons
 
 private const val COLOR_ME = 0xFF5B2EFF.toInt() // 나누길 보라
@@ -31,6 +34,8 @@ private const val COLOR_GROUP = 0xFF3D7BFF.toInt()
 private const val COLOR_LOW_FUEL = 0xFFE5484D.toInt()
 private const val COLOR_STATION = 0xFF2E9E5B.toInt()
 private const val COLOR_STATION_SELECTED = 0xFFFF9F1C.toInt()
+private const val COLOR_DESTINATION = 0xFF111111.toInt()
+private const val COLOR_ROUTE = 0xFF5B2EFF.toInt()
 
 fun Wgs84Point.toLatLng() = LatLng(latitude, longitude)
 
@@ -46,8 +51,13 @@ fun NaverMapView(
     selectedStation: GasStation?,
     onStationClick: (GasStation) -> Unit,
     modifier: Modifier = Modifier,
+    destination: Wgs84Point? = null,
+    destinationName: String? = null,
+    onMapLongClick: (Wgs84Point) -> Unit = {},
+    routePath: List<Wgs84Point> = emptyList(),
 ) {
     val context = LocalContext.current
+    val currentOnLongClick by rememberUpdatedState(onMapLongClick)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val mapView = remember { MapView(context) }
     var naverMap by remember { mutableStateOf<NaverMap?>(null) }
@@ -81,6 +91,10 @@ fun NaverMapView(
         mapView.getMapAsync { map ->
             // 주행 중 조작을 줄이기 위해 확대/축소 버튼은 숨긴다.
             map.uiSettings.isZoomControlEnabled = false
+            // 지도를 길게 누르면 그 지점을 목적지로 쓴다.
+            map.setOnMapLongClickListener { _, latLng ->
+                currentOnLongClick(Wgs84Point(latLng.latitude, latLng.longitude))
+            }
             naverMap = map
         }
     }
@@ -89,7 +103,15 @@ fun NaverMapView(
 
     val map = naverMap ?: return
     val density = context.resources.displayMetrics.density
+    RouteLine(map, routePath, paddingPx = (96 * density).toInt())
     CarMarkers(map, cars)
+    DestinationMarker(
+        map,
+        destination,
+        destinationName,
+        myPosition = cars.firstOrNull { it.isMe }?.position,
+        paddingPx = (96 * density).toInt(),
+    )
     StationMarkers(map, stations, selectedStation, onStationClick, paddingPx = (96 * density).toInt(), cars = cars)
 }
 
@@ -135,6 +157,74 @@ private fun CarMarkers(map: NaverMap, cars: List<CarState>) {
             markers.values.forEach { it.map = null }
             markers.clear()
         }
+    }
+}
+
+/** 출발 → 경유지 → 목적지 경로선. 새 경로가 오면 경로 전체가 보이게 카메라를 맞춘다. */
+@Composable
+private fun RouteLine(map: NaverMap, path: List<Wgs84Point>, paddingPx: Int) {
+    val overlay = remember(map) {
+        PathOverlay().apply {
+            color = COLOR_ROUTE
+            outlineColor = Color.WHITE
+            width = 14
+            outlineWidth = 3
+            zIndex = -1 // 마커 아래
+        }
+    }
+
+    LaunchedEffect(map, path) {
+        // PathOverlay는 좌표가 2개 미만이면 예외가 나므로 지도에서 내린다.
+        if (path.size < 2) {
+            overlay.map = null
+            return@LaunchedEffect
+        }
+        val coords = path.map { it.toLatLng() }
+        overlay.coords = coords
+        overlay.map = map
+        val bounds = coords.fold(LatLngBounds.Builder()) { b, p -> b.include(p) }.build()
+        map.moveCamera(CameraUpdate.fitBounds(bounds, paddingPx).animate(CameraAnimation.Easing))
+    }
+
+    DisposableEffect(map) {
+        onDispose { overlay.map = null }
+    }
+}
+
+@Composable
+private fun DestinationMarker(
+    map: NaverMap,
+    destination: Wgs84Point?,
+    name: String?,
+    myPosition: Wgs84Point?,
+    paddingPx: Int,
+) {
+    val marker = remember(map) { Marker().apply { icon = MarkerIcons.BLACK; iconTintColor = COLOR_DESTINATION; zIndex = 200 } }
+
+    LaunchedEffect(map, destination, name) {
+        if (destination == null) {
+            marker.map = null
+            return@LaunchedEffect
+        }
+        marker.position = destination.toLatLng()
+        marker.captionText = name ?: "목적지"
+        marker.map = map
+    }
+
+    // 목적지가 새로 정해지면 내 차와 목적지가 한 화면에 들어오게 맞춘다 (차가 움직일 때마다는 하지 않는다).
+    LaunchedEffect(map, destination) {
+        destination ?: return@LaunchedEffect
+        val points = listOfNotNull(destination, myPosition).map { it.toLatLng() }
+        val update = if (points.size == 1) {
+            CameraUpdate.scrollTo(points.first())
+        } else {
+            CameraUpdate.fitBounds(points.fold(LatLngBounds.Builder()) { b, p -> b.include(p) }.build(), paddingPx)
+        }
+        map.moveCamera(update.animate(CameraAnimation.Easing))
+    }
+
+    DisposableEffect(map) {
+        onDispose { marker.map = null }
     }
 }
 

@@ -1,0 +1,99 @@
+package com.nanugil.app.data.route
+
+import com.nanugil.app.core.geo.Wgs84Point
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
+
+class DirectionsException(message: String, cause: Throwable? = null) : IOException(message, cause)
+
+/**
+ * 네이버 Directions 5(운전 경로) 클라이언트. 우리 네이버 지도에 경로선을 그리는 데만 쓴다.
+ * 실제 턴바이턴 안내는 내장 내비가 하므로, 이 선은 "대략 이 길로 간다"를 보여 주는 용도다.
+ *
+ * TODO(서버): Client Secret이 앱에 들어가 있다. 테스트용이며, 출시 전에 서버 프록시로 옮긴다 (ADR-002).
+ */
+class NaverDirectionsClient(
+    private val clientId: String,
+    private val clientSecret: String,
+    private val baseUrl: String = "https://maps.apigw.ntruss.com/map-direction/v1/driving",
+) {
+
+    val isConfigured: Boolean get() = clientId.isNotBlank() && clientSecret.isNotBlank()
+
+    /** 출발 → 경유지(최대 5개) → 목적지 경로의 좌표 목록. */
+    suspend fun drivingPath(
+        start: Wgs84Point,
+        goal: Wgs84Point,
+        waypoints: List<Wgs84Point> = emptyList(),
+    ): List<Wgs84Point> = withContext(Dispatchers.IO) {
+        if (!isConfigured) {
+            throw DirectionsException("경로선 키가 없습니다. local.properties에 NAVER_MAP_CLIENT_SECRET을 넣어 주세요.")
+        }
+        val params = buildMap {
+            put("start", start.toParam())
+            put("goal", goal.toParam())
+            if (waypoints.isNotEmpty()) put("waypoints", waypoints.take(MAX_WAYPOINTS).joinToString("|") { it.toParam() })
+            put("option", "traoptimal")
+        }
+        parsePath(get(params))
+    }
+
+    private fun get(params: Map<String, String>): String {
+        val query = params.entries.joinToString("&") { (k, v) -> "$k=${URLEncoder.encode(v, "UTF-8")}" }
+        val connection = (URL("$baseUrl?$query").openConnection() as HttpURLConnection).apply {
+            connectTimeout = 5_000
+            readTimeout = 5_000
+            requestMethod = "GET"
+            setRequestProperty("X-NCP-APIGW-API-KEY-ID", clientId)
+            setRequestProperty("X-NCP-APIGW-API-KEY", clientSecret)
+        }
+        try {
+            val code = connection.responseCode
+            if (code !in 200..299) {
+                val err = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                android.util.Log.w("NaverDirections", "HTTP $code query=$query body=$err")
+                throw DirectionsException("경로 조회 실패 HTTP $code ${err.take(120)}")
+            }
+            return connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } catch (e: DirectionsException) {
+            throw e
+        } catch (e: IOException) {
+            throw DirectionsException("경로 서버 연결 실패: ${e.message}", e)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    internal fun parsePath(body: String): List<Wgs84Point> {
+        val json = try {
+            JSONObject(body)
+        } catch (e: Exception) {
+            throw DirectionsException("경로 응답을 읽을 수 없습니다: ${body.take(120)}", e)
+        }
+        // code 0 = 성공. 1 = 출발지와 도착지가 같음 등은 선을 안 그리면 된다.
+        if (json.optInt("code", -1) != 0) {
+            throw DirectionsException(json.optString("message", "경로를 찾지 못했습니다"))
+        }
+        val path = json.optJSONObject("route")
+            ?.optJSONArray("traoptimal")
+            ?.optJSONObject(0)
+            ?.optJSONArray("path")
+            ?: return emptyList()
+        // 좌표는 [경도, 위도] 순서다.
+        return (0 until path.length()).map { i ->
+            val p = path.getJSONArray(i)
+            Wgs84Point(latitude = p.getDouble(1), longitude = p.getDouble(0))
+        }
+    }
+
+    private fun Wgs84Point.toParam() = "$longitude,$latitude"
+
+    private companion object {
+        const val MAX_WAYPOINTS = 5
+    }
+}
