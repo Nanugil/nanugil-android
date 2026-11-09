@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    // ponytail: 화면이 두 개뿐이라 상태 하나로 전환. 화면이 늘면 Navigation Compose로 바꾼다.
+                    // 화면이 두 개뿐이라 상태 하나로 전환. 화면이 늘면 Navigation Compose로 바꾼다.
                     var showSettlement by rememberSaveable { mutableStateOf(false) }
                     BackHandler(enabled = showSettlement) { showSettlement = false }
 
@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
                                     ).show()
                                 },
                             )
+                            // TODO: 주행 중 텍스트 입력 금지. 정차 중(P단) 또는 운행 종료 후에만 정산 화면을 연다.
                             ExtendedFloatingActionButton(
                                 onClick = { showSettlement = true },
                                 modifier = Modifier.align(Alignment.TopStart).padding(24.dp),
