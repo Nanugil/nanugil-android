@@ -25,26 +25,57 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.nanugil.app.data.fuel.OpinetClient
 import com.nanugil.app.data.mock.FakeGroupLocationRepository
+import com.nanugil.app.data.vehicle.VehicleFuelReader
 import com.nanugil.app.ui.drive.GroupDriveScreen
 import com.nanugil.app.ui.settlement.SettlementScreen
+import com.nanugil.app.ui.settlement.VehicleType
+import com.nanugil.app.ui.settlement.VehicleTypeScreen
 
 class MainActivity : ComponentActivity() {
 
     // 서버가 정해지기 전까지는 가짜 그룹 데이터로 화면을 돌린다.
     private val groupRepository = FakeGroupLocationRepository()
     private val opinetClient = OpinetClient(BuildConfig.OPINET_API_KEY)
+    private val fuelReader by lazy { VehicleFuelReader(applicationContext) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        fuelReader.start()
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    // 화면이 두 개뿐이라 상태 하나로 전환. 화면이 늘면 Navigation Compose로 바꾼다.
-                    var showSettlement by rememberSaveable { mutableStateOf(false) }
-                    BackHandler(enabled = showSettlement) { showSettlement = false }
+                    // 화면이 지도 → 차종 선택 → 정산 세 개뿐이라 상태 두 개로 전환. 화면이 늘면 Navigation Compose로 바꾼다.
+                    var choosingType by rememberSaveable { mutableStateOf(false) }
+                    var settlementType by rememberSaveable { mutableStateOf<VehicleType?>(null) }
+                    BackHandler(enabled = choosingType || settlementType != null) {
+                        if (settlementType != null) {
+                            settlementType = null
+                            choosingType = true
+                        } else {
+                            choosingType = false
+                        }
+                    }
 
-                    if (showSettlement) {
-                        SettlementScreen(onBack = { showSettlement = false })
+                    val type = settlementType
+                    if (type != null) {
+                        SettlementScreen(
+                            initialType = type,
+                            onBack = {
+                                settlementType = null
+                                choosingType = true
+                            },
+                            readMyFuelMl = fuelReader::readFuelMl,
+                            readMyBatteryWh = fuelReader::readBatteryWh,
+                            loadFuelPrices = opinetClient::averagePrices,
+                        )
+                    } else if (choosingType) {
+                        VehicleTypeScreen(
+                            onBack = { choosingType = false },
+                            onSelect = {
+                                settlementType = it
+                                choosingType = false
+                            },
+                        )
                     } else {
                         Box(Modifier.fillMaxSize()) {
                             GroupDriveScreen(
@@ -61,7 +92,7 @@ class MainActivity : ComponentActivity() {
                             )
                             // TODO: 주행 중 텍스트 입력 금지. 정차 중(P단) 또는 운행 종료 후에만 정산 화면을 연다.
                             ExtendedFloatingActionButton(
-                                onClick = { showSettlement = true },
+                                onClick = { choosingType = true },
                                 modifier = Modifier.align(Alignment.TopStart).padding(24.dp),
                             ) { Text("정산하기") }
                         }
@@ -69,6 +100,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        fuelReader.stop()
+        super.onDestroy()
     }
 }
 

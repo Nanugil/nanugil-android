@@ -14,16 +14,26 @@ package com.nanugil.app.share
  * @property refueledMl 운행 중 주유한 양의 합계(mL). 주유하지 않았으면 0.
  * @property endFuelMl 도착 시 연료량(mL).
  * @property fuelPriceWonPerLiter 적용 유가(원/L). 오피넷에서 고른 근처 또는 최저가 유가.
+ * @property startBatteryWh 출발 시 배터리 잔량(Wh). 전기차·하이브리드만. Pleos `getEvBatteryLevel` 단위.
+ * @property chargedWh 운행 중 충전한 양의 합계(Wh). 충전하지 않았으면 0.
+ * @property endBatteryWh 도착 시 배터리 잔량(Wh).
+ * @property electricityWonPerKwh 충전 단가(원/kWh).
  * @property tollWon 통행료(원). `tollFare` 예상액이나 운전자가 수정한 값.
+ *
+ * 연료차는 배터리 값을, 전기차는 연료 값을 0으로 둔다. 하이브리드는 둘 다 넣는다.
  */
 data class VehicleTrip(
     val vehicleId: String,
     val driverId: String,
     val passengerIds: List<String> = emptyList(),
-    val startFuelMl: Long,
+    val startFuelMl: Long = 0,
     val refueledMl: Long = 0,
-    val endFuelMl: Long,
-    val fuelPriceWonPerLiter: Long,
+    val endFuelMl: Long = 0,
+    val fuelPriceWonPerLiter: Long = 0,
+    val startBatteryWh: Long = 0,
+    val chargedWh: Long = 0,
+    val endBatteryWh: Long = 0,
+    val electricityWonPerKwh: Long = 0,
     val tollWon: Long = 0,
 )
 
@@ -96,11 +106,33 @@ object SettlementCalculator {
         return Math.addExact(milliWon, ML_PER_LITER / 2) / ML_PER_LITER
     }
 
-    /** 차량 비용(원) = 주유비 추정 + 통행료. */
+    /**
+     * 이번 운행에 쓴 전력량(Wh) = 출발 배터리 + 충전량 − 도착 배터리.
+     *
+     * @throws IllegalArgumentException 값이 음수이거나 결과가 음수일 때(충전량 누락이나 센서 오류 의심).
+     */
+    fun usedEnergyWh(startBatteryWh: Long, chargedWh: Long, endBatteryWh: Long): Long {
+        require(startBatteryWh >= 0) { "출발 배터리는 0 이상이어야 합니다: $startBatteryWh" }
+        require(chargedWh >= 0) { "충전량은 0 이상이어야 합니다: $chargedWh" }
+        require(endBatteryWh >= 0) { "도착 배터리는 0 이상이어야 합니다: $endBatteryWh" }
+        val used = Math.addExact(startBatteryWh, chargedWh) - endBatteryWh
+        require(used >= 0) {
+            "사용 전력이 음수입니다(출발 $startBatteryWh + 충전 $chargedWh < 도착 $endBatteryWh Wh). 충전량 누락이나 센서 오류를 확인하세요."
+        }
+        return used
+    }
+
+    /**
+     * 차량 비용(원) = 주유비 추정 + 충전비 추정 + 통행료.
+     * 충전비 = 사용 전력(Wh) × 단가(원/kWh) ÷ 1000으로, 주유비(mL × 원/L ÷ 1000)와 같은 식이다.
+     */
     fun vehicleCostWon(trip: VehicleTrip): Long {
         require(trip.tollWon >= 0) { "통행료는 0 이상이어야 합니다: ${trip.vehicleId}" }
-        val used = usedFuelMl(trip.startFuelMl, trip.refueledMl, trip.endFuelMl)
-        return Math.addExact(fuelCostWon(used, trip.fuelPriceWonPerLiter), trip.tollWon)
+        val fuel = fuelCostWon(usedFuelMl(trip.startFuelMl, trip.refueledMl, trip.endFuelMl), trip.fuelPriceWonPerLiter)
+        require(trip.electricityWonPerKwh >= 0) { "충전 단가는 0 이상이어야 합니다: ${trip.vehicleId}" }
+        val usedWh = usedEnergyWh(trip.startBatteryWh, trip.chargedWh, trip.endBatteryWh)
+        val electricity = fuelCostWon(usedWh, trip.electricityWonPerKwh)
+        return Math.addExact(Math.addExact(fuel, electricity), trip.tollWon)
     }
 
     /**
