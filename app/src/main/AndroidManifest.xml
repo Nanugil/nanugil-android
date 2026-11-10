@@ -8,8 +8,10 @@
     <!--
       Pleos App Market 심사: 승인되지 않은 권한을 선언하면 탈락하므로 실제로 쓰는 것만 선언한다.
       CAR_ENERGY: 연료 잔량·연비·EV 배터리 / CAR_DRIVE: 주행거리·트립 / CAR_SAFETY: 경고등
+      android CAR_INFO (normal): 탱크 용량 INFO_FUEL_CAPACITY. Pleos SDK에 없어 AAOS 속성으로 읽는다.
     -->
     <uses-permission android:name="pleos.car.permission.CAR_ENERGY" />
+    <uses-permission android:name="android.car.permission.CAR_INFO" />
     <uses-permission android:name="pleos.car.permission.CAR_DRIVE" />
     <uses-permission android:name="pleos.car.permission.CAR_SAFETY" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -22,6 +24,9 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Nanugil">
+        <uses-library
+            android:name="android.car"
+            android:required="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true">
