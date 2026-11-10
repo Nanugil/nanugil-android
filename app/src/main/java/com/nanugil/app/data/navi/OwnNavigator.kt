@@ -6,7 +6,7 @@ import com.nanugil.app.core.geo.Wgs84Point
 import com.nanugil.app.core.geo.distanceTo
 import com.nanugil.app.data.location.GpsFix
 import com.nanugil.app.data.route.DirectionsException
-import com.nanugil.app.data.route.NaverDirectionsClient
+import com.nanugil.app.data.route.RouteRepository
 import com.nanugil.app.data.route.PlannedRoute
 import com.nanugil.app.data.route.RouteGuide
 import com.nanugil.app.data.route.TurnKind
@@ -35,7 +35,7 @@ import kotlin.math.roundToInt
  */
 class OwnNavigator(
     context: Context,
-    private val directions: NaverDirectionsClient,
+    private val routes: RouteRepository,
     private val scope: CoroutineScope,
 ) {
     private val _state = MutableStateFlow(NaviState(connected = true))
@@ -127,7 +127,7 @@ class OwnNavigator(
         fetchJob?.cancel()
         fetchJob = scope.launch {
             try {
-                val planned = directions.drivingRoute(start, dest.position, waypoints.map { it.position })
+                val planned = routes.planRoute(start, dest.position, waypoints.map { it.position })
                 setRoute(planned)
                 message = null
                 save()

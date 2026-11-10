@@ -33,6 +33,9 @@ android {
         buildConfigField("String", "NAVER_MAP_CLIENT_SECRET", "\"${secret("NAVER_MAP_CLIENT_SECRET")}\"")
         // 선택: NCP 스타일 에디터로 만든 지도 스타일 ID (Figma 시안의 회색 블록 지도). 없으면 기본 내비 지도를 다듬어 쓴다.
         buildConfigField("String", "NAVER_MAP_STYLE_ID", "\"${secret("NAVER_MAP_STYLE_ID")}\"")
+        // 목적지 검색: 네이버 개발자센터(developers.naver.com) 애플리케이션의 "검색" API 키 (NCP 키와 별개)
+        buildConfigField("String", "NAVER_SEARCH_CLIENT_ID", "\"${secret("NAVER_SEARCH_CLIENT_ID")}\"")
+        buildConfigField("String", "NAVER_SEARCH_CLIENT_SECRET", "\"${secret("NAVER_SEARCH_CLIENT_SECRET")}\"")
     }
 
     buildTypes {

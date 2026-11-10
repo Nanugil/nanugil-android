@@ -21,6 +21,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
+import com.nanugil.app.data.search.PlaceResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -167,6 +177,8 @@ fun NaviDriveScreen(
     carGlow: Boolean = false,
     themeMode: ThemeMode = ThemeMode.AUTO,
     onThemeModeChange: (ThemeMode) -> Unit = {},
+    search: SearchUiState = SearchUiState(),
+    searchActions: SearchActions = SearchActions(),
 ) {
     val darkTheme = resolveDarkTheme(themeMode)
     val p = if (darkTheme) DarkPalette else LightPalette
@@ -184,6 +196,7 @@ fun NaviDriveScreen(
             fareSelected = showFare,
             themeMode = themeMode,
             onTheme = { onThemeModeChange(themeMode.next()) },
+            onSearch = searchActions.onOpen,
             onHome = onHome,
             onCars = onCars,
             onFare = { showFare = !showFare },
@@ -191,13 +204,20 @@ fun NaviDriveScreen(
             modifier = Modifier.align(Alignment.TopCenter).padding(start = 32.dp, end = 32.dp, top = 26.dp).fillMaxWidth(),
         )
 
-        DestinationCard(
-            p = p,
-            navi = navi,
-            routeError = routeError,
-            onStartRoute = onStartRoute,
-            modifier = Modifier.align(Alignment.TopStart).padding(start = 32.dp, top = 146.dp).width(558.dp),
-        )
+        val leftModifier = Modifier.align(Alignment.TopStart).padding(start = 32.dp, top = 146.dp).width(558.dp)
+        if (search.open) {
+            SearchPanel(p, search, searchActions, leftModifier)
+        } else {
+            DestinationCard(
+                p = p,
+                navi = navi,
+                routeError = routeError,
+                onStartRoute = onStartRoute,
+                onOpenSearch = searchActions.onOpen,
+                onVoiceSearch = searchActions.onVoice,
+                modifier = leftModifier,
+            )
+        }
 
         Column(
             Modifier.align(Alignment.TopEnd).padding(end = 32.dp, top = 146.dp).width(518.dp),
@@ -252,6 +272,7 @@ private fun TopBar(
     fareSelected: Boolean,
     themeMode: ThemeMode,
     onTheme: () -> Unit,
+    onSearch: () -> Unit,
     onHome: () -> Unit,
     onCars: () -> Unit,
     onFare: () -> Unit,
@@ -272,6 +293,7 @@ private fun TopBar(
             )
             Label("${carsDriving}대 주행 중", 32.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(start = 16.dp))
             Spacer(Modifier.weight(1f))
+            SquareIconButton(p, R.drawable.ic_search, onSearch)
             ThemeButton(p, themeMode, onTheme)
             if (guiding) {
                 Box(
@@ -299,6 +321,15 @@ private fun ThemeButton(p: NaviPalette, mode: ThemeMode, onClick: () -> Unit) {
 }
 
 @Composable
+private fun SquareIconButton(p: NaviPalette, iconRes: Int, onClick: () -> Unit) {
+    Box(
+        Modifier.padding(end = 14.dp).size(64.dp).clip(RoundedCornerShape(18.dp))
+            .background(p.navSelected).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Icon(iconRes, p.textPrimary, 30.dp) }
+}
+
+@Composable
 private fun NavButton(p: NaviPalette, iconRes: Int, selected: Boolean, onClick: () -> Unit) {
     Box(
         Modifier.size(72.dp).clip(RoundedCornerShape(18.dp))
@@ -311,17 +342,38 @@ private fun NavButton(p: NaviPalette, iconRes: Int, selected: Boolean, onClick: 
 // ---- 왼쪽 카드: 목적지 · 도착 · 이동 경로 ----
 
 @Composable
-private fun DestinationCard(p: NaviPalette, navi: NaviState, routeError: String?, onStartRoute: () -> Unit, modifier: Modifier) {
+private fun DestinationCard(
+    p: NaviPalette,
+    navi: NaviState,
+    routeError: String?,
+    onStartRoute: () -> Unit,
+    onOpenSearch: () -> Unit,
+    onVoiceSearch: () -> Unit,
+    modifier: Modifier,
+) {
     Panel(p, modifier, CardShape) {
         Column(Modifier.padding(horizontal = 32.dp, vertical = 30.dp)) {
             Label("목적지", 24.sp, p.textSecondary)
             if (!navi.guiding) {
-                Label("아직 정하지 않았어요", 36.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(top = 4.dp))
-                PrimaryButton(
-                    text = if (navi.connected) "가평 펜션으로 안내 시작" else "내장 내비 연결 중…",
-                    enabled = navi.connected,
+                Label("어디로 갈까요?", 36.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(top = 4.dp))
+                // 검색창 모양 버튼: 누르면 검색 패널, 마이크는 바로 음성 검색
+                Row(
+                    Modifier.padding(top = 24.dp).fillMaxWidth().height(76.dp).clip(RoundedCornerShape(18.dp))
+                        .background(p.navSelected).clickable(onClick = onOpenSearch).padding(start = 22.dp, end = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(R.drawable.ic_search, p.textSecondary, 28.dp)
+                    Label("장소·주소 검색", 28.sp, p.textSecondary, modifier = Modifier.weight(1f).padding(start = 14.dp))
+                    Box(
+                        Modifier.size(64.dp).clip(CircleShape).background(BrandPrimary).clickable(onClick = onVoiceSearch),
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(R.drawable.ic_mic, Color.White, 30.dp) }
+                }
+                SecondaryButton(
+                    p = p,
+                    text = "그룹 목적지(가평 펜션)로 안내",
                     onClick = onStartRoute,
-                    modifier = Modifier.padding(top = 28.dp).fillMaxWidth(),
+                    modifier = Modifier.padding(top = 14.dp).fillMaxWidth(),
                 )
                 navi.message?.let { Label(it, 24.sp, p.textSecondary, modifier = Modifier.padding(top = 16.dp)) }
                 return@Column
@@ -571,6 +623,116 @@ private fun Label(
         maxLines = 1,
         style = TextStyle(color = color, fontSize = size, fontWeight = weight, letterSpacing = letterSpacing),
     )
+}
+
+/** 검색 패널 이벤트 묶음 (화면 함수 인자가 너무 길어지지 않게) */
+data class SearchActions(
+    val onOpen: () -> Unit = {},
+    val onClose: () -> Unit = {},
+    val onQueryChange: (String) -> Unit = {},
+    val onSubmit: () -> Unit = {},
+    val onVoice: () -> Unit = {},
+    val onStopVoice: () -> Unit = {},
+    val onSelect: (PlaceResult) -> Unit = {},
+)
+
+/** 목적지 검색: 검색창 + 마이크 + 결과 목록 (왼쪽 카드 자리에 뜬다) */
+@Composable
+private fun SearchPanel(p: NaviPalette, search: SearchUiState, actions: SearchActions, modifier: Modifier) {
+    val focus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(Unit) { if (!search.listening) focus.requestFocus() }
+
+    Panel(p, modifier, CardShape) {
+        Column(Modifier.padding(horizontal = 28.dp, vertical = 26.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Label("목적지 검색", 24.sp, p.textSecondary, modifier = Modifier.weight(1f))
+                Box(
+                    Modifier.size(56.dp).clip(CircleShape).clickable(onClick = actions.onClose),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(R.drawable.ic_close, p.textSecondary, 28.dp) }
+            }
+
+            // 검색창 + 마이크
+            Row(
+                Modifier.padding(top = 10.dp).fillMaxWidth().height(80.dp).clip(RoundedCornerShape(18.dp))
+                    .background(p.navSelected)
+                    .border(2.dp, if (search.listening) BrandPrimary else Color.Transparent, RoundedCornerShape(18.dp))
+                    .padding(start = 22.dp, end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(R.drawable.ic_search, p.textSecondary, 28.dp)
+                Box(Modifier.weight(1f).padding(start = 14.dp)) {
+                    val shown = if (search.listening) search.partial else search.query
+                    BasicTextField(
+                        value = shown,
+                        onValueChange = actions.onQueryChange,
+                        singleLine = true,
+                        readOnly = search.listening,
+                        textStyle = TextStyle(color = p.textPrimary, fontSize = 30.sp),
+                        cursorBrush = SolidColor(BrandPrimary),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = {
+                            keyboard?.hide()
+                            actions.onSubmit()
+                        }),
+                        modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                    )
+                    if (shown.isEmpty()) {
+                        Label(if (search.listening) "듣고 있어요… 말씀하세요" else "장소·주소를 입력하세요", 30.sp, p.textSecondary)
+                    }
+                }
+                Box(
+                    Modifier.size(64.dp).clip(CircleShape)
+                        .background(if (search.listening) BrandDanger else BrandPrimary)
+                        .clickable {
+                            keyboard?.hide()
+                            if (search.listening) actions.onStopVoice() else actions.onVoice()
+                        },
+                    contentAlignment = Alignment.Center,
+                ) { Icon(if (search.listening) R.drawable.ic_stop else R.drawable.ic_mic, Color.White, 30.dp) }
+            }
+
+            val error = search.error
+            when {
+                search.searching -> Label("검색 중…", 26.sp, p.textSecondary, modifier = Modifier.padding(top = 22.dp))
+                // 안내 문구가 길 수 있어 여러 줄로
+                error != null -> Text(
+                    error,
+                    modifier = Modifier.padding(top = 22.dp),
+                    maxLines = 3,
+                    style = TextStyle(color = BrandDanger, fontSize = 24.sp),
+                )
+                search.searched && search.results.isEmpty() ->
+                    Label("검색 결과가 없어요", 26.sp, p.textSecondary, modifier = Modifier.padding(top = 22.dp))
+            }
+
+            // 결과 (가까운 순)
+            Column(Modifier.padding(top = 12.dp)) {
+                search.results.forEachIndexed { i, place ->
+                    if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(p.divider))
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                            .clickable {
+                                keyboard?.hide()
+                                actions.onSelect(place)
+                            }
+                            .padding(vertical = 16.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(R.drawable.ic_pin, BrandPrimary, 28.dp)
+                        Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                            Label(place.name, 28.sp, p.textPrimary, FontWeight.Bold)
+                            Label(place.address, 22.sp, p.textSecondary, modifier = Modifier.padding(top = 2.dp))
+                        }
+                        place.distanceMeters?.let {
+                            Label(formatKm(it), 26.sp, p.textPrimary, p.distanceWeight, Modifier.padding(start = 12.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /** 테마 선택을 실제 다크 여부로 바꾼다. 자동이면 차량 화면 설정(시스템 다크 모드)을 따른다. */

@@ -21,10 +21,16 @@
     <!-- 내 차 위치(GPS): 내장 내비 위치가 멈춰 있어도 실제 위치로 지도·남은 거리·이동 거리를 갱신 -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- 목적지 음성 검색 (마이크) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- Android 11+ 패키지 가시성: 내장 내비 앱을 실행하려면 선언해야 한다 -->
     <queries>
         <package android:name="ai.umos.maps.android.navigation.app" />
+        <!-- 음성 인식 엔진(SpeechRecognizer)을 찾으려면 선언해야 한다 -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
     </queries>
 
     <!-- 네이버 지도 인증 키는 NanugilApplication에서 코드로 설정한다 (매니페스트 meta-data 불필요). -->

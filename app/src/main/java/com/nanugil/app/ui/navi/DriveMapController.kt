@@ -49,6 +49,10 @@ class DriveMapController(context: Context, private val map: NaverMap) {
         width = 14
         outlineWidth = 14
     }
+    /** 손으로 지도를 움직이면 따라가기를 끈다 (init보다 먼저 선언해야 한다) */
+    private val cameraListener = NaverMap.OnCameraChangeListener { reason, _ ->
+        if (reason == CameraUpdate.REASON_GESTURE) setFollowing(false)
+    }
     /** 경로선 각 꼭짓점까지의 누적 거리(m). 지나온 비율 계산용 */
     private var routeCumulative: DoubleArray = DoubleArray(0)
     private val destinationMarker = Marker().apply {
@@ -80,9 +84,7 @@ class DriveMapController(context: Context, private val map: NaverMap) {
             subIcon = null
         }
         // 손으로 지도를 움직이면 따라가기를 멈춘다 (안 그러면 1초 뒤 내 차로 끌려간다)
-        map.addOnCameraChangeListener { reason, _ ->
-            if (reason == CameraUpdate.REASON_GESTURE) setFollowing(false)
-        }
+        map.addOnCameraChangeListener(cameraListener)
     }
 
     /**
@@ -125,6 +127,45 @@ class DriveMapController(context: Context, private val map: NaverMap) {
     }
 
     private val groupMarkers = mutableMapOf<String, Marker>()
+    private val waypointMarkers = mutableListOf<Marker>()
+    private val fuelIcon by lazy {
+        OverlayImage.fromBitmap(ContextCompat.getDrawable(appContext, R.drawable.ic_fuel_marker)!!.toBitmap())
+    }
+
+    /**
+     * 경유지(합류 주유소)마다 주유소 마커를 띄운다. 경로선(현재 위치 → 주유소 → 목적지) 위에 함께 보인다.
+     * 경유지를 지나치면 목록에서 빠지므로 마커도 함께 사라진다.
+     */
+    fun updateWaypoints(names: List<String>, positions: List<Wgs84Point>) {
+        val count = minOf(names.size, positions.size)
+        while (waypointMarkers.size > count) waypointMarkers.removeAt(waypointMarkers.lastIndex).map = null
+        for (i in 0 until count) {
+            val marker = waypointMarkers.getOrNull(i) ?: Marker().apply {
+                // 위치 없이 지도에 올리면 NaN 좌표로 크래시 → 위치부터 넣는다
+                position = positions[i].toLatLng()
+                icon = fuelIcon
+                anchor = PointF(0.5f, 0.5f)
+                zIndex = 110
+                this.map = this@DriveMapController.map
+            }.also { waypointMarkers += it }
+            marker.position = positions[i].toLatLng()
+            marker.captionText = names[i]
+            marker.captionColor = groupInk
+            marker.captionHaloColor = if (groupInk == 0xFFFFFFFF.toInt()) 0xFF111216.toInt() else 0xFFFFFFFF.toInt()
+        }
+    }
+
+    /** Activity가 끝날 때 지도에서 모든 오버레이와 리스너를 떼어 MapView·Activity를 붙잡지 않게 한다 */
+    fun release() {
+        map.removeOnCameraChangeListener(cameraListener)
+        routeOverlay.map = null
+        destinationMarker.map = null
+        groupMarkers.values.forEach { it.map = null }
+        groupMarkers.clear()
+        waypointMarkers.forEach { it.map = null }
+        waypointMarkers.clear()
+        onFollowingChanged = null
+    }
     private var groupInk = 0xFFFFFFFF.toInt()
 
     /**
@@ -145,7 +186,7 @@ class DriveMapController(context: Context, private val map: NaverMap) {
                     captionRequestedWidth = 0
                     captionTextSize = 18f
                     zIndex = 90
-                    this.map = map
+                    this.map = this@DriveMapController.map
                 }
             }
             marker.position = car.position.toLatLng()
