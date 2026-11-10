@@ -16,6 +16,8 @@ fun secret(name: String): String = localProperties.getProperty(name) ?: System.g
 android {
     namespace = "com.nanugil.app"
     compileSdk = 35
+    // 탱크 용량(INFO_FUEL_CAPACITY)은 Pleos SDK에 없어 AAOS Car API로 읽는다.
+    useLibrary("android.car")
 
     defaultConfig {
         applicationId = "com.nanugil.app"
@@ -68,6 +70,8 @@ dependencies {
     implementation(libs.androidx.material3)
 
     testImplementation(libs.junit)
+    // 단위 테스트에서 오피넷 응답(JSON)을 파싱하려면 진짜 org.json이 필요하다. 안드로이드 기본 것은 빈 껍데기.
+    testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     debugImplementation(libs.androidx.ui.tooling)
