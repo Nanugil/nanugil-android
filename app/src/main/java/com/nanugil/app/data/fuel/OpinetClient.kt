@@ -60,6 +60,27 @@ class OpinetClient(
         parseStations(body)
     }
 
+    /** 오늘 전국 평균 판매가(원/L, 반올림). 정산 화면 유가 기본값에 쓴다. */
+    suspend fun averagePrices(): Map<FuelProduct, Int> = withContext(Dispatchers.IO) {
+        if (apiKey.isBlank()) throw OpinetException("오피넷 API 키가 없습니다.")
+        parseAveragePrices(get("$baseUrl/avgAllPrice.do", mapOf("certkey" to apiKey, "code" to apiKey, "out" to "json")))
+    }
+
+    internal fun parseAveragePrices(body: String): Map<FuelProduct, Int> {
+        val oil = try {
+            JSONObject(body).getJSONObject("RESULT").getJSONArray("OIL")
+        } catch (e: Exception) {
+            throw OpinetException("오피넷 응답을 읽을 수 없습니다: ${body.take(120)}", e)
+        }
+        val byCode = FuelProduct.entries.associateBy { it.code }
+        return (0 until oil.length()).mapNotNull { i ->
+            val o = oil.getJSONObject(i)
+            val product = byCode[o.optString("PRODCD")] ?: return@mapNotNull null
+            val price = o.optDouble("PRICE")
+            if (price.isNaN()) null else product to Math.round(price).toInt()
+        }.toMap()
+    }
+
     private fun get(url: String, params: Map<String, String>): String {
         val query = params.entries.joinToString("&") { (k, v) ->
             "${URLEncoder.encode(k, "UTF-8")}=${URLEncoder.encode(v, "UTF-8")}"
