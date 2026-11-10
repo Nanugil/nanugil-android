@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.PointF
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
+import com.nanugil.app.BuildConfig
 import com.nanugil.app.R
 import com.nanugil.app.core.geo.Wgs84Point
 import com.nanugil.app.core.geo.distanceTo
@@ -26,6 +27,8 @@ import com.naver.maps.map.util.MarkerIcons
  */
 class DriveMapController(context: Context, private val map: NaverMap) {
 
+    private val appContext = context.applicationContext
+
     /** 내 차를 따라가는 중인지. 화면의 "현재 위치" 버튼 표시에 쓴다. */
     var following: Boolean = true
         private set
@@ -37,13 +40,14 @@ class DriveMapController(context: Context, private val map: NaverMap) {
     private var route: List<Wgs84Point> = emptyList()
 
     private val routeOverlay = PathOverlay().apply {
-        color = 0xFF2F80FF.toInt()
-        outlineColor = 0x662F80FF
+        // 시안의 "도로 위 파란 빛": 반투명 브랜드 Primary(#1E5EFF) + 넓고 옅은 테두리로 번지는 느낌
+        color = 0xCC1E5EFF.toInt()
+        outlineColor = 0x331E5EFF
         // 지나온 구간은 회색 (progress 앞쪽)
-        passedColor = 0xFF5C6370.toInt()
-        passedOutlineColor = 0x665C6370
-        width = 16
-        outlineWidth = 6
+        passedColor = 0x995C6370.toInt()
+        passedOutlineColor = 0x1A5C6370
+        width = 14
+        outlineWidth = 14
     }
     /** 경로선 각 꼭짓점까지의 누적 거리(m). 지나온 비율 계산용 */
     private var routeCumulative: DoubleArray = DoubleArray(0)
@@ -68,10 +72,7 @@ class DriveMapController(context: Context, private val map: NaverMap) {
             isRotateGesturesEnabled = true
             isTiltGesturesEnabled = true
         }
-        // 시안처럼 어두운 내비 지도 + 입체 건물
-        map.mapType = NaverMap.MapType.Navi
-        map.isNightModeEnabled = true
-        map.setLayerGroupEnabled(NaverMap.LAYER_GROUP_BUILDING, true)
+        applyFigmaStyle()
         map.locationOverlay.apply {
             isVisible = true
             icon = OverlayImage.fromBitmap(ContextCompat.getDrawable(context, R.drawable.ic_nav_arrow)!!.toBitmap())
@@ -84,18 +85,74 @@ class DriveMapController(context: Context, private val map: NaverMap) {
         }
     }
 
+    /**
+     * Figma v5 지도: 글자·아이콘 없이 도로와 입체 건물 블록만 보이는 도시 풍경.
+     * - 커스텀 스타일 ID가 있으면(NCP 스타일 에디터에서 만든 회색 블록 스타일) 그대로 쓴다.
+     * - 없으면 기본 내비 지도에서 심벌(POI 아이콘·글자)을 지우고, 산·대중교통·자전거 레이어를 끄고,
+     *   건물 높이를 최대로 올려 비슷하게 만든다.
+     */
+    private fun applyFigmaStyle() {
+        map.mapType = NaverMap.MapType.Navi
+        if (BuildConfig.NAVER_MAP_STYLE_ID.isNotBlank()) {
+            map.customStyleId = BuildConfig.NAVER_MAP_STYLE_ID
+        }
+        map.symbolScale = 0f
+        map.buildingHeight = 1f
+        map.setLayerGroupEnabled(NaverMap.LAYER_GROUP_BUILDING, true)
+        map.setLayerGroupEnabled(NaverMap.LAYER_GROUP_MOUNTAIN, false)
+        map.setLayerGroupEnabled(NaverMap.LAYER_GROUP_TRANSIT, false)
+        map.setLayerGroupEnabled(NaverMap.LAYER_GROUP_BICYCLE, false)
+        map.setLayerGroupEnabled(NaverMap.LAYER_GROUP_TRAFFIC, false)
+    }
+
     fun recenter() {
         setFollowing(true)
         followCurrent()
     }
 
-    /** 지도 종류 버튼: 어두운 내비 지도 ↔ 위성 지도 */
-    fun toggleLayer() {
-        if (map.mapType == NaverMap.MapType.Navi) {
-            map.mapType = NaverMap.MapType.Hybrid
-        } else {
-            map.mapType = NaverMap.MapType.Navi
-            map.isNightModeEnabled = true
+    /** 화면 테마에 맞춰 지도도 낮(화이트톤)/밤(다크)으로 바꾼다 (Figma v5 두 시안) */
+    fun setDarkTheme(dark: Boolean) {
+        map.isNightModeEnabled = dark
+        // 화이트톤 시안은 밝고 채도 낮게, 다크 시안은 더 어둡게
+        map.lightness = if (dark) -0.15f else 0.25f
+        val ink = if (dark) 0xFFFFFFFF.toInt() else 0xFF0F172A.toInt()
+        val halo = if (dark) 0xFF111216.toInt() else 0xFFFFFFFF.toInt()
+        destinationMarker.iconTintColor = ink
+        destinationMarker.captionColor = ink
+        destinationMarker.captionHaloColor = halo
+        groupMarkers.values.forEach { it.iconTintColor = ink }
+        groupInk = ink
+    }
+
+    private val groupMarkers = mutableMapOf<String, Marker>()
+    private var groupInk = 0xFFFFFFFF.toInt()
+
+    /**
+     * 같은 그룹의 다른 차를 지도에 표시한다 ("B차 정차", "B차"처럼 시안의 말풍선 라벨).
+     * TODO(서버): 지금은 목업 위치. 서버가 붙으면 각 차량이 보낸 실제 GPS 위치가 들어온다.
+     */
+    fun updateGroupCars(cars: List<com.nanugil.app.data.group.CarState>) {
+        val ids = cars.map { it.carId }.toSet()
+        groupMarkers.keys.filterNot { it in ids }.forEach { groupMarkers.remove(it)?.map = null }
+        cars.forEach { car ->
+            val marker = groupMarkers.getOrPut(car.carId) {
+                Marker().apply {
+                    // 위치 없이 지도에 올리면 NaN 좌표로 크래시 → 위치를 먼저 넣는다
+                    position = car.position.toLatLng()
+                    icon = OverlayImage.fromBitmap(ContextCompat.getDrawable(appContext, R.drawable.ic_group_car)!!.toBitmap())
+                    iconTintColor = groupInk
+                    anchor = PointF(0.5f, 0.5f)
+                    captionRequestedWidth = 0
+                    captionTextSize = 18f
+                    zIndex = 90
+                    this.map = map
+                }
+            }
+            marker.position = car.position.toLatLng()
+            val label = car.carId.substringAfterLast('-').uppercase() + "차"
+            marker.captionText = if (car.speedKmh == 0) "$label 정차" else label
+            marker.captionColor = groupInk
+            marker.captionHaloColor = if (groupInk == 0xFFFFFFFF.toInt()) 0xFF111216.toInt() else 0xFFFFFFFF.toInt()
         }
     }
 
@@ -208,7 +265,8 @@ class DriveMapController(context: Context, private val map: NaverMap) {
         const val DRIVE_ZOOM = 17.0
         const val MIN_FOLLOW_ZOOM = 8.0
         const val MAX_FOLLOW_ZOOM = 19.0
-        const val DRIVE_TILT = 55.0
+        /** 시안처럼 도시를 낮게 내려다보는 각도 (네이버 지도 최대 60°) */
+        const val DRIVE_TILT = 60.0
         /** 주행 시점에서 내 차가 놓일 세로 위치 (0=위, 1=아래) */
         const val DRIVE_PIVOT_Y = 0.75f
         const val ROUTE_PADDING_PX = 160

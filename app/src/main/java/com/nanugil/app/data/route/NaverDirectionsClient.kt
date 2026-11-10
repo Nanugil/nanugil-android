@@ -9,6 +9,38 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
+/** 회전 안내 한 건. [pointIndex]는 경로선(path)에서 이 안내가 일어나는 지점. */
+data class RouteGuide(
+    val pointIndex: Int,
+    /** 네이버 안내 코드 (1 직진, 2 좌회전, 3 우회전, 6 유턴, 87 경유지, 88 목적지 등) */
+    val type: Int,
+    /** 예: "'테헤란로' 방면으로 우회전" */
+    val instruction: String,
+) {
+    val kind: TurnKind
+        get() = when {
+            type == 88 -> TurnKind.DESTINATION
+            type == 87 -> TurnKind.WAYPOINT
+            "유턴" in instruction || type == 6 -> TurnKind.UTURN
+            "좌회전" in instruction || "왼쪽" in instruction -> TurnKind.LEFT
+            "우회전" in instruction || "오른쪽" in instruction -> TurnKind.RIGHT
+            else -> TurnKind.STRAIGHT
+        }
+}
+
+enum class TurnKind { STRAIGHT, LEFT, RIGHT, UTURN, WAYPOINT, DESTINATION }
+
+/** 길안내용 경로 한 벌. */
+data class PlannedRoute(
+    val path: List<Wgs84Point>,
+    val guides: List<RouteGuide>,
+    val distanceMeters: Int,
+    val durationMillis: Long,
+    val tollFareWon: Int,
+    /** 경유지가 경로선에서 놓인 지점 (경유지 순서대로) */
+    val waypointPointIndexes: List<Int>,
+)
+
 class DirectionsException(message: String, cause: Throwable? = null) : IOException(message, cause)
 
 /**
@@ -41,6 +73,63 @@ class NaverDirectionsClient(
             put("option", "traoptimal")
         }
         parsePath(get(params))
+    }
+
+    /**
+     * 길안내용 경로 전체: 경로선 + 회전 안내 목록 + 요약(거리·시간·통행료·경유지 위치).
+     * 우리 앱이 직접 턴바이턴 안내를 할 때 쓴다 (내장 내비를 거치지 않음).
+     */
+    suspend fun drivingRoute(
+        start: Wgs84Point,
+        goal: Wgs84Point,
+        waypoints: List<Wgs84Point> = emptyList(),
+    ): PlannedRoute = withContext(Dispatchers.IO) {
+        if (!isConfigured) {
+            throw DirectionsException("경로 키가 없습니다. local.properties에 NAVER_MAP_CLIENT_SECRET을 넣어 주세요.")
+        }
+        val params = buildMap {
+            put("start", start.toParam())
+            put("goal", goal.toParam())
+            if (waypoints.isNotEmpty()) put("waypoints", waypoints.take(MAX_WAYPOINTS).joinToString("|") { it.toParam() })
+            put("option", "traoptimal")
+        }
+        parseRoute(get(params))
+    }
+
+    internal fun parseRoute(body: String): PlannedRoute {
+        val json = try {
+            JSONObject(body)
+        } catch (e: Exception) {
+            throw DirectionsException("경로 응답을 읽을 수 없습니다: ${body.take(120)}", e)
+        }
+        if (json.optInt("code", -1) != 0) {
+            throw DirectionsException(json.optString("message", "경로를 찾지 못했습니다"))
+        }
+        val route = json.optJSONObject("route")?.optJSONArray("traoptimal")?.optJSONObject(0)
+            ?: throw DirectionsException("경로가 비어 있습니다")
+        val path = parsePath(body)
+        val summary = route.optJSONObject("summary")
+        val guidesJson = route.optJSONArray("guide")
+        val guides = (0 until (guidesJson?.length() ?: 0)).map { i ->
+            val g = guidesJson!!.getJSONObject(i)
+            RouteGuide(
+                pointIndex = g.optInt("pointIndex"),
+                type = g.optInt("type"),
+                instruction = g.optString("instructions"),
+            )
+        }
+        val waypointsJson = summary?.optJSONArray("waypoints")
+        val waypointIndexes = (0 until (waypointsJson?.length() ?: 0)).map { i ->
+            waypointsJson!!.getJSONObject(i).optInt("pointIndex")
+        }
+        return PlannedRoute(
+            path = path,
+            guides = guides,
+            distanceMeters = summary?.optInt("distance") ?: 0,
+            durationMillis = summary?.optLong("duration") ?: 0L,
+            tollFareWon = summary?.optInt("tollFare") ?: 0,
+            waypointPointIndexes = waypointIndexes,
+        )
     }
 
     private fun get(params: Map<String, String>): String {

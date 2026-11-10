@@ -54,8 +54,17 @@ data class NaviState(
     val nextTurn: NaviTurn? = null,
     /** 그다음 회전 (TMAP식 작은 보조 안내) */
     val afterNextTurn: NaviTurn? = null,
+    /** 우리 앱 자체 길안내의 다음 안내 (네이버 경로 안내 문구) */
+    val nextGuide: GuideBanner? = null,
     /** 마지막 이벤트·오류를 사람이 읽을 수 있게 */
     val message: String? = null,
+)
+
+/** 자체 길안내 화면의 다음 안내 카드. */
+data class GuideBanner(
+    val kind: com.nanugil.app.data.route.TurnKind,
+    val instruction: String,
+    val distanceMeters: Int,
 )
 
 /** 내장 내비가 알려 준 다음 회전. */

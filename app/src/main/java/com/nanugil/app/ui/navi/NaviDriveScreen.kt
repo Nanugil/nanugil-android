@@ -1,14 +1,11 @@
 package com.nanugil.app.ui.navi
 
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,20 +22,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -52,7 +50,6 @@ import com.nanugil.app.data.fare.TripCost
 import com.nanugil.app.data.navi.NaviState
 import com.nanugil.app.data.vehicle.VehicleStatus
 import com.naver.maps.map.MapView
-import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -66,28 +63,86 @@ data class MeetupProposal(
     val fuelPercent: Int,
 )
 
-// ---- 디자인 토큰 (다크 글라스, 고급스럽게: 낮은 채도 + 얇은 하이라이트 + 깊은 그림자) ----
-private val Ink = Color(0xFF0B0C0F)
-private val PanelTop = Color(0xF2202329)
-private val PanelBottom = Color(0xEB111317)
-private val Hairline = Color(0x1FFFFFFF)
-private val HairlineFaint = Color(0x0AFFFFFF)
-private val TextPrimary = Color(0xFFF5F6F8)
-private val TextSecondary = Color(0xFF8E96A3)
-private val TextTertiary = Color(0xFF5E6672)
-private val Accent = Color(0xFF3D8BFF)
-private val AccentDeep = Color(0xFF1E5FE0)
-private val AccentSoft = Color(0x293D8BFF)
-private val ButtonGrey = Color(0xFF262A31)
-private val Danger = Color(0xFFF0555B)
-private val Warning = Color(0xFFFFB547)
-private val CardShape = RoundedCornerShape(26.dp)
-private val AccentBrush = Brush.verticalGradient(listOf(Color(0xFF5A9CFF), AccentDeep))
+/** 화면 테마 선택. 자동 = 차량 화면 설정(Display Mode)을 따른다. */
+enum class ThemeMode(val label: String) {
+    AUTO("자동"),
+    LIGHT("라이트"),
+    DARK("다크"),
+    ;
+
+    /** 위쪽 바 버튼을 누를 때마다 자동 → 라이트 → 다크 → 자동 */
+    fun next(): ThemeMode = entries[(ordinal + 1) % entries.size]
+}
+
+// ---- 브랜드 색 (Figma "로고·브랜드 보드") ----
+private val BrandPrimary = Color(0xFF1E5EFF)
+private val BrandDanger = Color(0xFFE5484D)
+private val BrandAmber = Color(0xFFFFB020)
 
 /**
- * 나누길 주행 화면 (다크 테마 시안 기준).
+ * Figma v5 시안의 두 테마. 차량 화면 설정(Display Mode)이 다크면 다크, 아니면 화이트톤(글라스).
+ * 수치는 시안 프레임(1682×1210 = Pleos 앱 영역) 기준 그대로다.
+ */
+private data class NaviPalette(
+    val dark: Boolean,
+    val background: Color,
+    val panel: Color,
+    val panelBorder: Color,
+    val textPrimary: Color,
+    val textSecondary: Color,
+    val divider: Color,
+    val navSelected: Color,
+    val navIcon: Color,
+    val secondaryButton: Color,
+    val secondaryButtonText: Color,
+    val stopBackground: Color,
+    val stopIcon: Color,
+    val timelineConnector: Color,
+    val distanceWeight: FontWeight,
+)
+
+private val DarkPalette = NaviPalette(
+    dark = true,
+    background = Color(0xFF0A0A0B),
+    panel = Color(0xF21A1B1F),
+    panelBorder = Color(0x14FFFFFF),
+    textPrimary = Color(0xFFF5F6F8),
+    textSecondary = Color(0xFF9CA3AF),
+    divider = Color(0x1FFFFFFF),
+    navSelected = Color(0xFF26282E),
+    navIcon = Color(0xFF9CA3AF),
+    secondaryButton = Color(0xFF2A2C32),
+    secondaryButtonText = Color(0xFFE5E7EB),
+    stopBackground = Color(0x40E5484D),
+    stopIcon = BrandDanger,
+    timelineConnector = Color(0x4D9CA3AF),
+    distanceWeight = FontWeight.Bold,
+)
+
+private val LightPalette = NaviPalette(
+    dark = false,
+    background = Color(0xFFE9EDF2),
+    panel = Color(0xE6FFFFFF),
+    panelBorder = Color(0x1A0F172A),
+    textPrimary = Color(0xFF0F172A),
+    textSecondary = Color(0xFF64748B),
+    divider = Color(0x1A0F172A),
+    navSelected = Color(0xFFF1F5F9),
+    navIcon = Color(0xFF64748B),
+    secondaryButton = Color(0xFFE2E8F0),
+    secondaryButtonText = Color(0xFF334155),
+    stopBackground = Color(0xFFFF3B3B),
+    stopIcon = Color.White,
+    timelineConnector = Color(0x4D64748B),
+    distanceWeight = FontWeight.Medium,
+)
+
+private val CardShape = RoundedCornerShape(28.dp)
+
+/**
+ * 나누길 주행 화면 (Figma "그룹 드라이브 v5").
  *
- * 지도(MapView)는 맨 아래에 깔고, 카드·버튼은 위에 겹친다. 카드 영역이 아닌 곳의 터치는
+ * 지도(MapView)는 맨 아래에 깔고 카드·버튼은 위에 겹친다. 카드가 아닌 곳의 터치는
  * 그대로 지도로 내려가서 끌기·확대·회전이 된다.
  */
 @Composable
@@ -105,156 +160,202 @@ fun NaviDriveScreen(
     onSkipMeetup: () -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
-    onToggleLayer: () -> Unit,
     onRecenter: () -> Unit,
     onHome: () -> Unit,
     onCars: () -> Unit,
-    onFare: () -> Unit,
-    onMic: () -> Unit,
-    onProfile: () -> Unit,
+    /** 내 차를 따라가는 중이면 차 아래에 파란 빛을 깐다 (시안의 도로 위 블루 글로우) */
+    carGlow: Boolean = false,
+    themeMode: ThemeMode = ThemeMode.AUTO,
+    onThemeModeChange: (ThemeMode) -> Unit = {},
 ) {
-    Box(Modifier.fillMaxSize().background(Ink)) {
+    val darkTheme = resolveDarkTheme(themeMode)
+    val p = if (darkTheme) DarkPalette else LightPalette
+    // 위쪽 바의 정산 버튼으로 "지금까지 쓴 돈" 카드를 열고 닫는다 (시안에 자리가 없어 오른쪽 카드 아래에 띄운다)
+    var showFare by remember { mutableStateOf(false) }
+
+    Box(Modifier.fillMaxSize().background(p.background)) {
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
+        if (carGlow) CarGlow(Modifier.fillMaxSize())
 
-        // 위·아래 비네트: 카드 글씨가 지도에 묻히지 않게 (터치는 받지 않음)
-        Box(
-            Modifier.fillMaxWidth().height(220.dp).align(Alignment.TopCenter)
-                .background(Brush.verticalGradient(listOf(Color(0xE60B0C0F), Color(0x660B0C0F), Color.Transparent))),
+        TopBar(
+            p = p,
+            carsDriving = carsDriving,
+            guiding = navi.guiding,
+            fareSelected = showFare,
+            themeMode = themeMode,
+            onTheme = { onThemeModeChange(themeMode.next()) },
+            onHome = onHome,
+            onCars = onCars,
+            onFare = { showFare = !showFare },
+            onStop = onStopRoute,
+            modifier = Modifier.align(Alignment.TopCenter).padding(start = 32.dp, end = 32.dp, top = 26.dp).fillMaxWidth(),
         )
-        Box(
-            Modifier.fillMaxWidth().height(200.dp).align(Alignment.BottomCenter)
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0x990B0C0F), Color(0xF20B0C0F)))),
-        )
-
-        Header(carsDriving, Modifier.align(Alignment.TopStart).padding(start = 28.dp, top = 22.dp))
 
         DestinationCard(
+            p = p,
             navi = navi,
             routeError = routeError,
             onStartRoute = onStartRoute,
-            modifier = Modifier.align(Alignment.TopStart).padding(start = 28.dp, top = 118.dp).width(400.dp),
+            modifier = Modifier.align(Alignment.TopStart).padding(start = 32.dp, top = 146.dp).width(558.dp),
         )
 
-        val rightCardModifier = Modifier.align(Alignment.TopEnd).padding(end = 120.dp, top = 118.dp).width(390.dp)
-        if (proposal != null) {
-            MeetupCard(proposal, onAcceptMeetup, onSkipMeetup, rightCardModifier)
-        } else {
-            VehicleCard(vehicle, rightCardModifier)
+        Column(
+            Modifier.align(Alignment.TopEnd).padding(end = 32.dp, top = 146.dp).width(518.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            if (proposal != null) {
+                MeetupCard(p, proposal, onAcceptMeetup, onSkipMeetup)
+            } else {
+                VehicleCard(p, vehicle)
+            }
+            if (showFare) FareCard(p, cost)
         }
 
         MapControls(
+            p = p,
             onZoomIn = onZoomIn,
             onZoomOut = onZoomOut,
-            onToggleLayer = onToggleLayer,
             onRecenter = onRecenter,
-            modifier = Modifier.align(Alignment.TopEnd).padding(end = 28.dp, top = 118.dp),
-        )
-
-        BottomBar(
-            guiding = navi.guiding,
-            cost = cost,
-            onStopRoute = onStopRoute,
-            onHome = onHome,
-            onCars = onCars,
-            onFare = onFare,
-            onMic = onMic,
-            onProfile = onProfile,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 28.dp, vertical = 20.dp),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 48.dp),
         )
     }
 }
 
-// ---- 왼쪽 위: 로고 + 주행 상태 ----
+/**
+ * 내 차 아래 파란 빛. 주행 시점에서 내 차는 화면 가로 가운데, 세로 75% 지점에 놓인다
+ * (DriveMapController.DRIVE_PIVOT_Y). 터치는 받지 않으므로 지도 조작을 막지 않는다.
+ */
+@Composable
+private fun CarGlow(modifier: Modifier) {
+    Canvas(modifier) {
+        val center = Offset(size.width * 0.5f, size.height * 0.75f)
+        val radius = size.minDimension * 0.32f
+        drawOval(
+            brush = Brush.radialGradient(
+                colors = listOf(BrandPrimary.copy(alpha = 0.45f), BrandPrimary.copy(alpha = 0.12f), Color.Transparent),
+                center = center,
+                radius = radius,
+            ),
+            topLeft = Offset(center.x - radius, center.y - radius * 0.75f),
+            size = Size(radius * 2, radius * 1.5f),
+        )
+    }
+}
+
+// ---- 위쪽 바: 메뉴 · 로고 · 주행 대수 · 안내 종료 ----
 
 @Composable
-private fun Header(carsDriving: Int, modifier: Modifier) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Image(
-            painterResource(R.drawable.logo_nanugil),
-            contentDescription = "나누길",
-            modifier = Modifier.size(64.dp).shadow(18.dp, RoundedCornerShape(16.dp), ambientColor = Color.Black)
-                .clip(RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp)),
-        )
-        Column(Modifier.padding(start = 16.dp)) {
-            Label("${carsDriving}대 주행 중", 25.sp, TextPrimary, FontWeight.SemiBold, letterSpacing = (-0.3).sp)
-            Row(
-                Modifier.padding(top = 7.dp).clip(RoundedCornerShape(50))
-                    .background(AccentSoft).border(1.dp, Color(0x553D8BFF), RoundedCornerShape(50))
-                    .padding(horizontal = 11.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                PulsingDot()
-                Label("위치 공유 중", 12.sp, Color(0xFFBFD6FF), FontWeight.Medium, modifier = Modifier.padding(start = 7.dp))
+private fun TopBar(
+    p: NaviPalette,
+    carsDriving: Int,
+    guiding: Boolean,
+    fareSelected: Boolean,
+    themeMode: ThemeMode,
+    onTheme: () -> Unit,
+    onHome: () -> Unit,
+    onCars: () -> Unit,
+    onFare: () -> Unit,
+    onStop: () -> Unit,
+    modifier: Modifier,
+) {
+    Panel(p, modifier.height(92.dp), RoundedCornerShape(24.dp)) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            NavButton(p, R.drawable.ic_home, selected = !fareSelected, onClick = onHome)
+            NavButton(p, R.drawable.ic_car, selected = false, onClick = onCars)
+            NavButton(p, R.drawable.ic_card, selected = fareSelected, onClick = onFare)
+            Box(Modifier.padding(horizontal = 16.dp).width(1.dp).height(44.dp).background(p.divider))
+            Image(
+                painterResource(R.drawable.logo_nanugil),
+                contentDescription = "나누길",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(60.dp).clip(CircleShape),
+            )
+            Label("${carsDriving}대 주행 중", 32.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(start = 16.dp))
+            Spacer(Modifier.weight(1f))
+            ThemeButton(p, themeMode, onTheme)
+            if (guiding) {
+                Box(
+                    Modifier.size(64.dp).clip(CircleShape).background(p.stopBackground).clickable(onClick = onStop),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(R.drawable.ic_stop, p.stopIcon, 30.dp) }
             }
         }
     }
 }
 
+/** 라이트·다크 전환 버튼: 지금 상태 아이콘만 (◑ 자동 / ☀ 라이트 / ☾ 다크) */
 @Composable
-private fun PulsingDot() {
-    val alpha by rememberInfiniteTransition(label = "live").animateFloat(
-        initialValue = 1f,
-        targetValue = 0.35f,
-        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
-        label = "liveAlpha",
-    )
-    Box(Modifier.size(7.dp).alpha(alpha).clip(CircleShape).background(Accent))
+private fun ThemeButton(p: NaviPalette, mode: ThemeMode, onClick: () -> Unit) {
+    val icon = when (mode) {
+        ThemeMode.AUTO -> R.drawable.ic_theme_auto
+        ThemeMode.LIGHT -> R.drawable.ic_theme_light
+        ThemeMode.DARK -> R.drawable.ic_theme_dark
+    }
+    Box(
+        Modifier.padding(end = 14.dp).size(64.dp).clip(RoundedCornerShape(18.dp))
+            .background(p.navSelected).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, p.textPrimary, 30.dp) }
 }
 
-// ---- 왼쪽 카드: 목적지 · 도착 예정 · 이동 경로 ----
+@Composable
+private fun NavButton(p: NaviPalette, iconRes: Int, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.size(72.dp).clip(RoundedCornerShape(18.dp))
+            .background(if (selected) p.navSelected else Color.Transparent)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Icon(iconRes, if (selected) BrandPrimary else p.navIcon, 30.dp) }
+}
+
+// ---- 왼쪽 카드: 목적지 · 도착 · 이동 경로 ----
 
 @Composable
-private fun DestinationCard(navi: NaviState, routeError: String?, onStartRoute: () -> Unit, modifier: Modifier) {
-    GlassPanel(modifier) {
-        Column(Modifier.padding(horizontal = 28.dp, vertical = 26.dp)) {
-            Eyebrow("목적지")
+private fun DestinationCard(p: NaviPalette, navi: NaviState, routeError: String?, onStartRoute: () -> Unit, modifier: Modifier) {
+    Panel(p, modifier, CardShape) {
+        Column(Modifier.padding(horizontal = 32.dp, vertical = 30.dp)) {
+            Label("목적지", 24.sp, p.textSecondary)
             if (!navi.guiding) {
-                Label("아직 정하지 않았어요", 25.sp, TextPrimary, FontWeight.SemiBold, Modifier.padding(top = 8.dp))
+                Label("아직 정하지 않았어요", 36.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(top = 4.dp))
                 PrimaryButton(
                     text = if (navi.connected) "가평 펜션으로 안내 시작" else "내장 내비 연결 중…",
                     enabled = navi.connected,
                     onClick = onStartRoute,
-                    modifier = Modifier.padding(top = 22.dp).fillMaxWidth(),
+                    modifier = Modifier.padding(top = 28.dp).fillMaxWidth(),
                 )
-                navi.message?.let { Label(it, 13.sp, TextSecondary, modifier = Modifier.padding(top = 12.dp)) }
+                navi.message?.let { Label(it, 24.sp, p.textSecondary, modifier = Modifier.padding(top = 16.dp)) }
                 return@Column
             }
 
-            Label(navi.destinationName ?: "목적지", 25.sp, TextPrimary, FontWeight.SemiBold, Modifier.padding(top = 6.dp), letterSpacing = (-0.3).sp)
+            Label(navi.destinationName ?: "목적지", 36.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(top = 2.dp))
 
             val remainSeconds = navi.remainTimeSeconds
             if (remainSeconds != null) {
-                Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.Bottom) {
-                    Label(arrivalTime(remainSeconds), 56.sp, TextPrimary, FontWeight.Bold, letterSpacing = (-1.5).sp)
-                    Label("도착 예정", 17.sp, TextSecondary, modifier = Modifier.padding(start = 10.dp, bottom = 10.dp))
+                Row(Modifier.padding(top = 18.dp), verticalAlignment = Alignment.Bottom) {
+                    Label(arrivalTime(remainSeconds), 80.sp, p.textPrimary, FontWeight.ExtraBold, letterSpacing = (-2).sp)
+                    Label("도착", 28.sp, p.textSecondary, modifier = Modifier.padding(start = 12.dp, bottom = 12.dp))
                 }
-                Label("${formatMinutes(remainSeconds)} 남음", 18.sp, Color(0xFFD5D9DF), modifier = Modifier.padding(top = 2.dp))
+                Label("${formatMinutes(remainSeconds)} 남음", 28.sp, p.textPrimary, modifier = Modifier.padding(top = 2.dp))
             }
 
-            HairlineDivider(Modifier.padding(top = 22.dp))
-            Row(Modifier.fillMaxWidth().padding(top = 18.dp)) {
-                Eyebrow("이동 경로", Modifier.weight(1f))
-                navi.remainDistanceMeters?.let { Eyebrow("총 ${formatKm(it)} 남음") }
-            }
+            Box(Modifier.padding(top = 26.dp).fillMaxWidth().height(1.dp).background(p.divider))
 
-            Column(Modifier.padding(top = 12.dp)) {
-                TimelineRow(marker = Marker.Current, title = "현재 위치", trailing = "이동 중", trailingColor = Accent)
+            Column(Modifier.padding(top = 14.dp)) {
+                TimelineRow(p, Marker.Current, "현재 위치", "이동 중", BrandPrimary, FontWeight.Bold)
                 navi.waypointNames.forEachIndexed { i, name ->
-                    TimelineConnector()
+                    TimelineConnector(p, highlighted = i == 0)
                     TimelineRow(
-                        marker = Marker.Stop,
-                        title = name,
-                        trailing = navi.waypointRemainMeters.getOrNull(i)?.let(::formatKm).orEmpty(),
+                        p, Marker.Stop, name,
+                        navi.waypointRemainMeters.getOrNull(i)?.let(::formatKm).orEmpty(),
                     )
                 }
-                TimelineConnector()
+                TimelineConnector(p, highlighted = navi.waypointNames.isEmpty())
                 TimelineRow(
-                    marker = Marker.Destination,
-                    title = navi.destinationName ?: "목적지",
-                    trailing = navi.remainDistanceMeters?.let(::formatKm).orEmpty(),
+                    p, Marker.Destination, navi.destinationName ?: "목적지",
+                    navi.remainDistanceMeters?.let(::formatKm).orEmpty(),
                 )
             }
-            routeError?.let { Label(it, 12.sp, Danger, modifier = Modifier.padding(top = 10.dp)) }
+            routeError?.let { Label(it, 24.sp, BrandDanger, modifier = Modifier.padding(top = 10.dp)) }
         }
     }
 }
@@ -262,101 +363,99 @@ private fun DestinationCard(navi: NaviState, routeError: String?, onStartRoute: 
 private enum class Marker { Current, Stop, Destination }
 
 @Composable
-private fun TimelineRow(marker: Marker, title: String, trailing: String, trailingColor: Color = TextPrimary) {
-    Row(Modifier.fillMaxWidth().height(38.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.width(20.dp), contentAlignment = Alignment.Center) {
+private fun TimelineRow(
+    p: NaviPalette,
+    marker: Marker,
+    title: String,
+    trailing: String,
+    trailingColor: Color = p.textPrimary,
+    trailingWeight: FontWeight = p.distanceWeight,
+) {
+    Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(24.dp), contentAlignment = Alignment.Center) {
             when (marker) {
                 Marker.Current -> Box(
-                    Modifier.size(18.dp).clip(CircleShape).background(AccentSoft),
+                    Modifier.size(22.dp).clip(CircleShape).background(BrandPrimary.copy(alpha = 0.2f)),
                     contentAlignment = Alignment.Center,
-                ) { Box(Modifier.size(9.dp).clip(CircleShape).background(Accent)) }
-                Marker.Stop -> Box(Modifier.size(9.dp).clip(CircleShape).border(2.dp, TextSecondary, CircleShape))
-                Marker.Destination -> Icon(R.drawable.ic_pin, TextSecondary, 19.dp)
+                ) { Box(Modifier.size(12.dp).clip(CircleShape).background(BrandPrimary)) }
+                Marker.Stop -> Box(Modifier.size(14.dp).clip(CircleShape).border(2.5.dp, BrandPrimary, CircleShape))
+                Marker.Destination -> Icon(R.drawable.ic_pin, p.textSecondary, 24.dp)
             }
         }
-        Label(title, 19.sp, TextPrimary, modifier = Modifier.weight(1f).padding(start = 14.dp))
-        Label(trailing, 18.sp, trailingColor, FontWeight.Medium)
+        Label(title, 28.sp, p.textPrimary, modifier = Modifier.weight(1f).padding(start = 18.dp))
+        Label(trailing, 28.sp, trailingColor, trailingWeight)
     }
 }
 
 @Composable
-private fun TimelineConnector() {
+private fun TimelineConnector(p: NaviPalette, highlighted: Boolean) {
     Box(
-        Modifier.padding(start = 9.dp).width(2.dp).height(12.dp)
-            .background(Brush.verticalGradient(listOf(Color(0x663D8BFF), Color(0x223D8BFF)))),
+        Modifier.padding(start = 11.dp).width(2.dp).height(18.dp)
+            .background(if (highlighted) BrandPrimary else p.timelineConnector),
     )
 }
 
 // ---- 오른쪽 카드 ① 합류 제안 ----
 
 @Composable
-private fun MeetupCard(proposal: MeetupProposal, onAccept: () -> Unit, onSkip: () -> Unit, modifier: Modifier) {
-    GlassPanel(modifier) {
-        Column(Modifier.padding(26.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Eyebrow("차량 합류 제안이 도착했어요", Modifier.weight(1f))
-                CarChip(proposal.carLabel, proposal.driverName)
+private fun MeetupCard(p: NaviPalette, proposal: MeetupProposal, onAccept: () -> Unit, onSkip: () -> Unit) {
+    Panel(p, Modifier.fillMaxWidth(), CardShape) {
+        Column(Modifier.padding(horizontal = 32.dp, vertical = 30.dp)) {
+            Label("${proposal.placeName}에서 합류", 36.sp, p.textPrimary, FontWeight.Bold)
+            Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(R.drawable.ic_pin, BrandPrimary, 26.dp)
+                Label(
+                    proposal.distanceMeters?.let { "${formatKm(it)} 전방" } ?: "거리 계산 중",
+                    26.sp, p.textPrimary, modifier = Modifier.padding(start = 8.dp),
+                )
+                Box(Modifier.padding(horizontal = 16.dp).width(1.dp).height(24.dp).background(p.divider))
+                Icon(R.drawable.ic_fuel, BrandPrimary, 26.dp)
+                Label(
+                    "${proposal.carLabel} 연료 ${proposal.fuelPercent}%",
+                    26.sp, p.textPrimary, modifier = Modifier.padding(start = 8.dp),
+                )
             }
-            Label("${proposal.placeName}에서 합류", 25.sp, TextPrimary, FontWeight.SemiBold, Modifier.padding(top = 12.dp), letterSpacing = (-0.3).sp)
-            Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(R.drawable.ic_pin, Accent, 17.dp)
-                Label(proposal.distanceMeters?.let { "${formatKm(it)} 전방" } ?: "거리 계산 중", 16.sp, Color(0xFFD5D9DF), modifier = Modifier.padding(start = 6.dp))
-                Box(Modifier.padding(horizontal = 12.dp).width(1.dp).height(13.dp).background(Hairline))
-                Icon(R.drawable.ic_fuel, Warning, 17.dp)
-                Label("잔여 연료 ${proposal.fuelPercent}%", 16.sp, Color(0xFFD5D9DF), modifier = Modifier.padding(start = 6.dp))
-            }
-            Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PrimaryButton("합류하기", true, onAccept, Modifier.width(124.dp))
-                SecondaryButton("건너뛰기", onSkip, Modifier.width(124.dp))
+            Row(Modifier.padding(top = 26.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PrimaryButton("합류하기", true, onAccept, Modifier.width(160.dp))
+                SecondaryButton(p, "건너뛰기", onSkip, Modifier.width(160.dp))
             }
         }
     }
 }
 
-// ---- 오른쪽 카드 ② 내 차 상태 (Pleos Vehicle SDK) ----
+// ---- 오른쪽 카드 ② 내 차 상태 (Pleos Vehicle SDK) — 합류 제안이 없을 때 ----
 
 @Composable
-private fun VehicleCard(vehicle: VehicleStatus, modifier: Modifier) {
-    GlassPanel(modifier) {
-        Column(Modifier.padding(26.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Eyebrow("내 차 상태", Modifier.weight(1f))
-                CarChip("A차", "나")
-            }
+private fun VehicleCard(p: NaviPalette, vehicle: VehicleStatus) {
+    Panel(p, Modifier.fillMaxWidth(), CardShape) {
+        Column(Modifier.padding(horizontal = 32.dp, vertical = 30.dp)) {
             val percent = vehicle.energyPercent
             val low = percent != null && percent <= LOW_ENERGY_PERCENT
-            Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.Bottom) {
-                Label(if (vehicle.isEv) "잔여 배터리" else "잔여 연료", 19.sp, TextSecondary, modifier = Modifier.padding(bottom = 6.dp))
-                Label(percent?.let { "$it" } ?: "--", 44.sp, if (low) Warning else TextPrimary, FontWeight.Bold, Modifier.padding(start = 12.dp), letterSpacing = (-1).sp)
-                Label("%", 20.sp, TextSecondary, modifier = Modifier.padding(start = 2.dp, bottom = 7.dp))
+            Label("내 차 상태", 24.sp, p.textSecondary)
+            Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.Bottom) {
+                Label(if (vehicle.isEv) "잔여 배터리" else "잔여 연료", 36.sp, p.textPrimary, FontWeight.Bold)
+                Label(
+                    percent?.let { "$it%" } ?: "--",
+                    36.sp, if (low) BrandAmber else BrandPrimary, FontWeight.Bold, Modifier.padding(start = 14.dp),
+                )
             }
-            EnergyGauge(percent, low, Modifier.padding(top = 12.dp).fillMaxWidth())
-            Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(R.drawable.ic_road, TextSecondary, 17.dp)
+            Box(Modifier.padding(top = 18.dp).fillMaxWidth().height(10.dp).clip(RoundedCornerShape(50)).background(p.divider)) {
+                Box(
+                    Modifier.fillMaxHeight().fillMaxWidth(((percent ?: 0) / 100f).coerceIn(0f, 1f))
+                        .clip(RoundedCornerShape(50)).background(if (low) BrandAmber else BrandPrimary),
+                )
+            }
+            Row(Modifier.padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(R.drawable.ic_road, BrandPrimary, 26.dp)
                 Label(
                     vehicle.odometerKm?.let { "누적 %,dkm".format(it.toInt()) } ?: "주행거리 정보 없음",
-                    15.sp, Color(0xFFD5D9DF), modifier = Modifier.padding(start = 6.dp),
+                    26.sp, p.textPrimary, modifier = Modifier.padding(start = 8.dp),
                 )
-                Box(Modifier.padding(horizontal = 12.dp).width(1.dp).height(13.dp).background(Hairline))
-                Icon(if (vehicle.isEv) R.drawable.ic_battery else R.drawable.ic_fuel, TextSecondary, 17.dp)
-                Label(efficiencyText(vehicle), 15.sp, Color(0xFFD5D9DF), modifier = Modifier.padding(start = 6.dp))
+                Box(Modifier.padding(horizontal = 16.dp).width(1.dp).height(24.dp).background(p.divider))
+                Icon(if (vehicle.isEv) R.drawable.ic_battery else R.drawable.ic_fuel, BrandPrimary, 26.dp)
+                Label(efficiencyText(vehicle), 26.sp, p.textPrimary, modifier = Modifier.padding(start = 8.dp))
             }
-            Label("Pleos 차량 정보 기준", 11.sp, TextTertiary, modifier = Modifier.padding(top = 12.dp))
         }
-    }
-}
-
-@Composable
-private fun EnergyGauge(percent: Int?, low: Boolean, modifier: Modifier) {
-    val fraction = ((percent ?: 0) / 100f).coerceIn(0f, 1f)
-    Box(modifier.height(8.dp).clip(RoundedCornerShape(50)).background(Color(0x14FFFFFF))) {
-        Box(
-            Modifier.fillMaxHeight().fillMaxWidth(fraction).clip(RoundedCornerShape(50))
-                .background(
-                    if (low) Brush.horizontalGradient(listOf(Color(0xFFFF7A45), Warning))
-                    else Brush.horizontalGradient(listOf(AccentDeep, Color(0xFF6FB0FF))),
-                ),
-        )
     }
 }
 
@@ -366,121 +465,57 @@ private fun efficiencyText(v: VehicleStatus): String = if (v.isEv) {
     v.fuelEconomyLPer100Km?.takeIf { it > 0 }?.let { "연비 %.1fkm/L".format(100f / it) } ?: "연비 정보 없음"
 }
 
+// ---- 오른쪽 카드 ③ 지금까지 쓴 돈 (위쪽 바 정산 버튼) ----
+
 @Composable
-private fun CarChip(car: String, driver: String) {
-    Row(
-        Modifier.clip(RoundedCornerShape(50)).background(Color(0x0FFFFFFF)).border(1.dp, Hairline, RoundedCornerShape(50))
-            .padding(horizontal = 12.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Label(car, 13.sp, TextPrimary, FontWeight.SemiBold)
-        Box(Modifier.padding(horizontal = 8.dp).width(1.dp).height(11.dp).background(Hairline))
-        Label(driver, 13.sp, TextSecondary)
+private fun FareCard(p: NaviPalette, cost: TripCost) {
+    Panel(p, Modifier.fillMaxWidth(), CardShape) {
+        Column(Modifier.padding(horizontal = 32.dp, vertical = 30.dp)) {
+            Label("1인 · 지금까지", 24.sp, p.textSecondary)
+            Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.Bottom) {
+                Label("%,d".format(cost.perPersonWon), 56.sp, p.textPrimary, FontWeight.ExtraBold, letterSpacing = (-1).sp)
+                Label("원", 28.sp, p.textSecondary, modifier = Modifier.padding(start = 6.dp, bottom = 8.dp))
+            }
+            Label(
+                "총 %,d원 · %d명  (유류비 %,d원 · 통행료 %,d원)".format(
+                    cost.totalWon, cost.members, cost.energyWon, cost.tollWon,
+                ),
+                24.sp, p.textSecondary, modifier = Modifier.padding(top = 6.dp),
+            )
+        }
     }
 }
 
-// ---- 오른쪽 세로 버튼: 확대 · 축소 · 지도 종류 · 현재 위치 ----
+// ---- 오른쪽 아래: 확대 · 축소 · 현재 위치 ----
 
 @Composable
 private fun MapControls(
+    p: NaviPalette,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
-    onToggleLayer: () -> Unit,
     onRecenter: () -> Unit,
     modifier: Modifier,
 ) {
-    GlassPanel(modifier.width(72.dp), shape = RoundedCornerShape(24.dp)) {
-        Column(Modifier.padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            IconTap(R.drawable.ic_zoom_in, onZoomIn)
-            IconTap(R.drawable.ic_zoom_out, onZoomOut)
-            Box(Modifier.width(32.dp).height(1.dp).background(Hairline))
-            IconTap(R.drawable.ic_layers, onToggleLayer)
-            IconTap(R.drawable.ic_recenter, onRecenter)
+    Panel(p, modifier.width(86.dp), RoundedCornerShape(24.dp)) {
+        Column(Modifier.padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            IconTap(p, R.drawable.ic_zoom_in, onZoomIn)
+            IconTap(p, R.drawable.ic_zoom_out, onZoomOut)
+            Box(Modifier.width(40.dp).height(1.dp).background(p.divider))
+            IconTap(p, R.drawable.ic_recenter, onRecenter)
         }
     }
-}
-
-// ---- 하단 바: 메뉴 · 지금까지 쓴 돈 · 종료 · 음성 · 프로필 · 시계 ----
-
-@Composable
-private fun BottomBar(
-    guiding: Boolean,
-    cost: TripCost,
-    onStopRoute: () -> Unit,
-    onHome: () -> Unit,
-    onCars: () -> Unit,
-    onFare: () -> Unit,
-    onMic: () -> Unit,
-    onProfile: () -> Unit,
-    modifier: Modifier,
-) {
-    GlassPanel(modifier.fillMaxWidth().height(96.dp), shape = RoundedCornerShape(30.dp)) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(64.dp).clip(CircleShape)
-                    .background(Brush.verticalGradient(listOf(Color(0xFF2C3442), Color(0xFF1E242F))))
-                    .border(1.dp, Color(0x333D8BFF), CircleShape)
-                    .clickable(onClick = onHome),
-                contentAlignment = Alignment.Center,
-            ) { Icon(R.drawable.ic_home, Accent, 27.dp) }
-            IconTap(R.drawable.ic_car, onCars, size = 64.dp, tint = TextSecondary)
-            IconTap(R.drawable.ic_card, onFare, size = 64.dp, tint = TextSecondary)
-
-            VerticalHairline()
-            Column(Modifier.clickable(onClick = onFare).padding(horizontal = 4.dp)) {
-                Label("1인 · 지금까지", 12.sp, TextSecondary, FontWeight.Medium)
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Label("%,d".format(cost.perPersonWon), 32.sp, TextPrimary, FontWeight.Bold, letterSpacing = (-0.8).sp)
-                    Label("원", 16.sp, TextSecondary, modifier = Modifier.padding(start = 4.dp, bottom = 5.dp))
-                }
-                Label("총 %,d원 · %d명".format(cost.totalWon, cost.members), 12.sp, TextTertiary)
-            }
-            VerticalHairline()
-
-            Spacer(Modifier.weight(1f))
-
-            if (guiding) {
-                Box(
-                    Modifier.size(60.dp).clip(CircleShape).background(Color(0x26F0555B))
-                        .border(1.dp, Color(0x55F0555B), CircleShape).clickable(onClick = onStopRoute),
-                    contentAlignment = Alignment.Center,
-                ) { Icon(R.drawable.ic_stop, Danger, 26.dp) }
-            }
-            IconTap(R.drawable.ic_mic, onMic, size = 64.dp, tint = TextSecondary)
-            Box(
-                Modifier.padding(horizontal = 6.dp).size(48.dp).clip(CircleShape)
-                    .background(Brush.verticalGradient(listOf(Color(0xFF30343C), Color(0xFF1C1F25))))
-                    .border(1.dp, Hairline, CircleShape).clickable(onClick = onProfile),
-                contentAlignment = Alignment.Center,
-            ) { Icon(R.drawable.ic_person, TextPrimary, 24.dp) }
-            Clock(Modifier.padding(start = 12.dp, end = 10.dp))
-        }
-    }
-}
-
-@Composable
-private fun Clock(modifier: Modifier) {
-    var now by remember { mutableStateOf(Date()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            now = Date()
-            delay(15_000)
-        }
-    }
-    Label(CLOCK_FORMAT.format(now), 24.sp, TextPrimary, FontWeight.Medium, modifier, letterSpacing = (-0.3).sp)
 }
 
 // ---- 공통 조각 ----
 
-/** 위가 살짝 밝은 유리 패널 + 얇은 하이라이트 테두리 + 깊은 그림자 */
 @Composable
-private fun GlassPanel(modifier: Modifier, shape: Shape = CardShape, content: @Composable () -> Unit) {
+private fun Panel(p: NaviPalette, modifier: Modifier, shape: Shape, content: @Composable () -> Unit) {
     Box(
         modifier
-            .shadow(28.dp, shape, ambientColor = Color.Black, spotColor = Color.Black)
+            .shadow(if (p.dark) 24.dp else 18.dp, shape, ambientColor = Color.Black, spotColor = Color.Black)
             .clip(shape)
-            .background(Brush.verticalGradient(listOf(PanelTop, PanelBottom)))
-            .border(1.dp, Brush.verticalGradient(listOf(Hairline, HairlineFaint)), shape),
+            .background(p.panel)
+            .border(1.dp, p.panelBorder, shape),
     ) { content() }
 }
 
@@ -488,30 +523,26 @@ private fun GlassPanel(modifier: Modifier, shape: Shape = CardShape, content: @C
 private fun PrimaryButton(text: String, enabled: Boolean, onClick: () -> Unit, modifier: Modifier) {
     val shape = RoundedCornerShape(14.dp)
     Box(
-        modifier.height(52.dp)
-            .shadow(if (enabled) 14.dp else 0.dp, shape, ambientColor = Accent, spotColor = Accent)
-            .clip(shape)
-            .background(if (enabled) AccentBrush else Brush.verticalGradient(listOf(ButtonGrey, ButtonGrey)))
-            .border(1.dp, Color(0x33FFFFFF), shape)
+        modifier.height(72.dp).clip(shape)
+            .background(if (enabled) BrandPrimary else BrandPrimary.copy(alpha = 0.4f))
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Label(text, 18.sp, Color.White, FontWeight.SemiBold) }
+    ) { Label(text, 28.sp, Color.White, FontWeight.Bold) }
 }
 
 @Composable
-private fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier) {
+private fun SecondaryButton(p: NaviPalette, text: String, onClick: () -> Unit, modifier: Modifier) {
     val shape = RoundedCornerShape(14.dp)
     Box(
-        modifier.height(52.dp).clip(shape).background(Color(0x14FFFFFF)).border(1.dp, Hairline, shape)
-            .clickable(onClick = onClick),
+        modifier.height(72.dp).clip(shape).background(p.secondaryButton).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Label(text, 18.sp, Color(0xFFD5D9DF), FontWeight.Medium) }
+    ) { Label(text, 28.sp, p.secondaryButtonText, FontWeight.Bold) }
 }
 
 @Composable
-private fun IconTap(iconRes: Int, onClick: () -> Unit, size: Dp = 64.dp, tint: Color = TextPrimary) {
-    Box(Modifier.size(size).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Icon(iconRes, tint, 26.dp)
+private fun IconTap(p: NaviPalette, iconRes: Int, onClick: () -> Unit) {
+    Box(Modifier.size(80.dp).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(iconRes, p.textPrimary, 32.dp)
     }
 }
 
@@ -523,24 +554,6 @@ private fun Icon(iconRes: Int, tint: Color, size: Dp) {
         colorFilter = ColorFilter.tint(tint),
         modifier = Modifier.size(size),
     )
-}
-
-@Composable
-private fun Eyebrow(text: String, modifier: Modifier = Modifier) {
-    Label(text, 14.sp, TextSecondary, FontWeight.Medium, modifier, letterSpacing = 0.2.sp)
-}
-
-@Composable
-private fun HairlineDivider(modifier: Modifier = Modifier) {
-    Box(
-        modifier.fillMaxWidth().height(1.dp)
-            .background(Brush.horizontalGradient(listOf(Hairline, HairlineFaint))),
-    )
-}
-
-@Composable
-private fun VerticalHairline() {
-    Box(Modifier.padding(horizontal = 20.dp).width(1.dp).fillMaxHeight(0.55f).background(Hairline))
 }
 
 @Composable
@@ -558,6 +571,14 @@ private fun Label(
         maxLines = 1,
         style = TextStyle(color = color, fontSize = size, fontWeight = weight, letterSpacing = letterSpacing),
     )
+}
+
+/** 테마 선택을 실제 다크 여부로 바꾼다. 자동이면 차량 화면 설정(시스템 다크 모드)을 따른다. */
+@Composable
+fun resolveDarkTheme(mode: ThemeMode): Boolean = when (mode) {
+    ThemeMode.AUTO -> isSystemInDarkTheme()
+    ThemeMode.LIGHT -> false
+    ThemeMode.DARK -> true
 }
 
 // ---- 표시 형식 ----
