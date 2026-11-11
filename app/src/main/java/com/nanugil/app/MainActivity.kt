@@ -26,6 +26,8 @@ import com.nanugil.app.data.fuel.OpinetClient
 import com.nanugil.app.data.mock.FakeGroupLocationRepository
 import com.nanugil.app.data.vehicle.settlementBlockReason
 import com.nanugil.app.ui.drive.GroupDriveScreen
+import com.nanugil.app.data.pay.PayLinkStore
+import com.nanugil.app.ui.settlement.PayLinkSetupActivity
 import com.nanugil.app.ui.settlement.SettlementActivity
 
 /**
@@ -40,6 +42,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 처음 켰을 때 한 번 운전자 송금 링크를 묻는다. 건너뛰면 정산 요청할 때 다시 묻는다.
+        if (savedInstanceState == null && !PayLinkStore(this).asked) startActivity(PayLinkSetupActivity.intent(this))
         val gearWatcher = nanugilApp.gearWatcher
         setContent {
             MaterialTheme {

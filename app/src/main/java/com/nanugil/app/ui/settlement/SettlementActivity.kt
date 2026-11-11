@@ -13,14 +13,20 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.nanugil.app.BuildConfig
 import com.nanugil.app.core.geo.Wgs84Point
 import com.nanugil.app.data.fuel.OpinetClient
 import com.nanugil.app.data.mock.FakeGroupLocationRepository
+import com.nanugil.app.data.pay.PayLinkStore
+import com.nanugil.app.data.pay.SettlementRequestStore
 import com.nanugil.app.data.vehicle.GearState
 import com.nanugil.app.data.vehicle.settlementBlockReason
 import com.nanugil.app.nanugilApp
+import com.nanugil.app.share.SettlementRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -35,6 +41,16 @@ import kotlinx.coroutines.withContext
 class SettlementActivity : ComponentActivity() {
 
     private val opinetClient = OpinetClient(BuildConfig.OPINET_API_KEY)
+    private val payLinks by lazy { PayLinkStore(this) }
+    private val requests by lazy { SettlementRequestStore(this) }
+
+    // 송금 링크 등록 화면에서 돌아오면 QR을 바로 보여 주도록 onResume마다 다시 읽는다.
+    private var payLink by mutableStateOf<String?>(null)
+
+    override fun onResume() {
+        super.onResume()
+        payLink = payLinks.link
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,6 +69,24 @@ class SettlementActivity : ComponentActivity() {
                             Toast.makeText(this@SettlementActivity, blockReason, Toast.LENGTH_SHORT).show()
                             finish()
                         }
+                    }
+
+                    // 보낸 정산 요청이 있으면 송금 화면부터 보여 준다(앱을 다시 켜도 이어진다).
+                    var request by remember { mutableStateOf(requests.load()) }
+                    val current = request
+                    if (current != null) {
+                        SettlementRequestScreen(
+                            request = current,
+                            payLink = payLink,
+                            onToggle = { i -> request = current.toggled(i).also(requests::save) },
+                            onRegisterLink = { startActivity(PayLinkSetupActivity.intent(this)) },
+                            onFinish = {
+                                requests.clear()
+                                request = null
+                            },
+                            onBack = ::finish,
+                        )
+                        return@Surface
                     }
 
                     // 차종은 '값 수정'의 차량 카드마다 고른다(따로 차종 선택 단계를 두지 않는다).
@@ -75,11 +109,12 @@ class SettlementActivity : ComponentActivity() {
                             }
                             myCarType(reported, recorder.fuel, recorder.battery)
                         },
-                        // TODO(팀장 결정): 송금 안내 방식(QR·계좌, 송금 순서)이 정해지면 Figma 09 "정산 요청 보냄" 화면으로 연결
-                        onRequestSettlement = {
-                            // 이번 운행 정산이 끝났으니 다음 운행 기록을 새로 시작한다.
+                        onRequestSettlement = { result, myId ->
+                            // 정산 결과를 확정해 저장한 뒤 운행 기록을 지운다(순서가 바뀌면 앱이 죽었을 때 둘 다 잃는다).
+                            val sent = SettlementRequest.of(result, myId).also(requests::save)
                             recorder.reset()
-                            Toast.makeText(this, "송금 안내 방식이 정해지면 연결됩니다.", Toast.LENGTH_SHORT).show()
+                            request = sent
+                            if (payLinks.link == null) startActivity(PayLinkSetupActivity.intent(this))
                         },
                     )
                 }

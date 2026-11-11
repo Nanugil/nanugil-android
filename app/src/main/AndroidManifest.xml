@@ -44,6 +44,11 @@
         <activity
             android:name=".ui.settlement.SettlementActivity"
             android:exported="false" />
+
+        <!-- 송금 링크 등록: 글자 입력 화면이라 distractionOptimized를 붙이지 않는다. -->
+        <activity
+            android:name=".ui.settlement.PayLinkSetupActivity"
+            android:exported="false" />
     </application>
 
 </manifest>

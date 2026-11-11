@@ -59,6 +59,8 @@ android {
 dependencies {
     implementation(libs.vehicle.sdk)
     implementation(libs.naver.map.sdk)
+    // 송금 링크 QR 생성 (순수 자바, 안드로이드 의존 없음)
+    implementation(libs.zxing.core)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

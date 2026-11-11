@@ -270,7 +270,7 @@ private fun carName(index: Int): String = "${'A' + index}차"
  * @param readMyFuelMl 내 차(A차) 현재 연료량(mL)을 읽는 함수.
  * @param readMyBatteryWh 내 차(A차) 현재 배터리 잔량(Wh)을 읽는 함수.
  *   두 함수 모두 있으면 A차의 출발·도착 칸에 "차에서 읽기"가 생기고, 실패하면 [IllegalStateException] 메시지를 보여 준다.
- * @param onRequestSettlement '정산 요청'을 눌렀을 때. 송금 안내 방식이 정해지기 전이라 지금은 안내만 띄운다.
+ * @param onRequestSettlement '정산 요청'을 눌렀을 때. 정산 결과와 이 차 운전자(A차) 이름을 넘긴다.
  * @param prefillMyCar 운행 중 기록한 값으로 A차(내 차) 칸을 채운다. 화면이 열릴 때 한 번만 적용한다.
  * @param readMyCarType 내 차 차종을 읽는 함수. 읽히면 A차 차종 버튼을 그 값으로 바꾼다.
  * @param loadNearbyStations 내 위치 근처 주유소(유종별)를 불러오는 함수. 있으면 근처 최저가가 유가 기본값이 되고,
@@ -283,7 +283,7 @@ fun SettlementScreen(
     readMyFuelMl: (suspend () -> Long)? = null,
     readMyBatteryWh: (suspend () -> Long)? = null,
     loadFuelPrices: (suspend () -> Map<FuelProduct, Int>)? = null,
-    onRequestSettlement: (Settlement) -> Unit = {},
+    onRequestSettlement: (Settlement, myDriverId: String) -> Unit = { _, _ -> },
     prefillMyCar: (CarInput) -> CarInput = { it },
     readMyCarType: (suspend () -> VehicleType?)? = null,
     loadNearbyStations: (suspend (FuelProduct) -> List<GasStation>)? = null,
@@ -417,7 +417,7 @@ fun SettlementScreen(
                             result = result,
                             cars = cars,
                             onEdit = { editing = true },
-                            onRequest = { onRequestSettlement(result) },
+                            onRequest = { onRequestSettlement(result, cars[0].driver.trim()) },
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -429,7 +429,7 @@ fun SettlementScreen(
 
 /** 위쪽 바: 돌아가기 · 화면 제목 (Title 40). */
 @Composable
-private fun Header(title: String, onBack: () -> Unit) {
+internal fun Header(title: String, onBack: () -> Unit) {
     val p = LocalSettlementPalette.current
     Panel(Modifier.fillMaxWidth().height(96.dp), RoundedCornerShape(24.dp)) {
         Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
