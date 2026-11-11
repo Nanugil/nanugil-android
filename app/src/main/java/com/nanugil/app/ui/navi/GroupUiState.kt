@@ -190,6 +190,7 @@ object MockGroups {
     private const val PRICE_LOWEST = 1_520L
 
     /** 08 도착: 정산 담당의 SettlementCalculator로 1/N과 송금 목록을 계산한다 */
+    // TODO(정산): 휘발유(mL·원/L) 목업. 시연 차량은 전기차라 #12 전기차 열·#14 전기차 정산(배터리 Wh·충전 단가)이 들어오면 바꾼다.
     fun settlement(basis: PriceBasis): SettlementUi {
         val price = if (basis == PriceBasis.AVERAGE) PRICE_AVERAGE else PRICE_LOWEST
         val aPassengers = listOf("정예린", "한도윤", "오지민")

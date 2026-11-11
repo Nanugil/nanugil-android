@@ -595,6 +595,10 @@ internal fun MeetupCard(
 }
 
 // ================= 08 도착 (정산 내역) =================
+// TODO(정산): #14(SettlementActivity)와 합칠 때 정한다 — 08은 화면 틀·흐름만 두고 값·계산·입력(차량 읽기, 근처 유가,
+//  값 수정, P단 게이트)은 #14 것을 쓴다. 통행료 수정처럼 글자를 넣는 칸은 P단에서만 연다.
+// TODO(정산): 시연 차량은 전기차라 배터리(Wh)·충전 단가(원/kWh)로 보여야 한다. #12 전기차 열, #14 전기차 정산이
+//  들어오면 MockGroups.settlement의 휘발유(mL·원/L) 목업을 바꾼다.
 
 @Composable
 internal fun ArrivalScreen(p: NaviPalette, s: SettlementUi, actions: GroupActions) {
@@ -706,6 +710,37 @@ internal fun SettleSentScreen(p: NaviPalette, s: SettlementUi, actions: GroupAct
                         Tag(p, if (rest.all { it.paid }) "송금 완료" else "확인 전", accent = rest.all { it.paid })
                     }
                 }
+            }
+        }
+    }
+}
+
+// ================= 주행 중 입력 막기 =================
+
+/**
+ * 주행 중(P단 아님)에 02 그룹 만들기·04 코드로 참여·05 운행 참가 대신 보여 주는 카드.
+ * NaviDriveActivity가 distractionOptimized라서 주행 중엔 글자 입력 화면을 열면 안 된다 (#9 기본 규칙, App Market 심사).
+ * 입력하던 값은 ViewModel에 남아 있어서 P단에 놓으면 그대로 이어서 쓴다.
+ */
+@Composable
+internal fun ParkOnlyCard(p: NaviPalette, gearUnknown: Boolean, onBack: () -> Unit) {
+    Box(Modifier.fillMaxSize().padding(start = OuterPad, top = CardTop)) {
+        Panel(p, Modifier.width(HalfLeft), CardShape) {
+            Column(Modifier.padding(InnerPad)) {
+                Box(
+                    Modifier.size(80.dp).clip(CircleShape).background(BrandAmber.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center,
+                ) { Label("P", 40.sp, BrandAmber, FontWeight.Bold) }
+                Title(
+                    p,
+                    if (gearUnknown) "기어 상태를 확인하고 있어요" else "정차 중에만 입력할 수 있어요",
+                    Modifier.padding(top = 22.dp),
+                )
+                Label(
+                    "차를 세우고 P단에 놓으면 이어서 입력할 수 있어요. 입력하던 내용은 그대로 있어요.",
+                    22.sp, p.textSecondary, modifier = Modifier.padding(top = 8.dp),
+                )
+                SecondaryButton(p, "돌아가기", onBack, Modifier.padding(top = 22.dp).width(200.dp))
             }
         }
     }

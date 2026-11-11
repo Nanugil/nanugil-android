@@ -151,6 +151,9 @@ internal val LightPalette = NaviPalette(
 
 internal val CardShape = GlassShape
 
+/** 글자를 입력하는 화면 (정차 중에만) */
+private val INPUT_SCREENS = setOf(AppScreen.CREATE_GROUP, AppScreen.JOIN_CODE, AppScreen.JOIN_SETUP)
+
 /**
  * 나누길 화면 (Figma "나누길 와이어프레임 v5").
  *
@@ -189,6 +192,10 @@ fun NaviDriveScreen(
     answerHeard: String = "",
     /** 합류 제안 음성 답변. auto=true면 제안이 뜰 때 자동으로 부른 것 */
     onVoiceAnswer: (auto: Boolean) -> Unit = {},
+    /** P단이면 true. 아니면 글자 입력 화면(02·04·05)을 막고, 검색은 말로만 받는다 */
+    canType: Boolean = true,
+    /** 기어를 아직 모르면 true (막는 안내 문구만 다르다) */
+    gearUnknown: Boolean = false,
 ) {
     val darkTheme = resolveDarkTheme(themeMode)
     val p = if (darkTheme) DarkPalette else LightPalette
@@ -199,7 +206,9 @@ fun NaviDriveScreen(
         if (carGlow && screen == AppScreen.DRIVE) CarGlow(Modifier.fillMaxSize())
 
         // ---- 화면별 카드 ----
-        when (screen) {
+        // 02·04·05는 글자를 입력하는 화면이라 정차 중(P단)에만 연다. 주행 중엔 안내 카드로 바꾸고, 입력한 값은 그대로 둔다.
+        val inputBlocked = !canType && screen in INPUT_SCREENS
+        if (inputBlocked) ParkOnlyCard(p, gearUnknown, groupActions.onBack) else when (screen) {
             AppScreen.HOME -> HomeScreen(p, navi, group, carsDriving, groupActions)
             AppScreen.CREATE_GROUP -> CreateGroupScreen(
                 p, group.createForm, navi.destinationName ?: MockGroups.DESTINATION, groupActions,
@@ -210,7 +219,7 @@ fun NaviDriveScreen(
             AppScreen.DRIVE -> {
                 val leftModifier = Modifier.align(Alignment.TopStart).padding(start = OuterPad, top = CardTop).width(559.dp)
                 if (search.open) {
-                    SearchPanel(p, search, searchActions, leftModifier)
+                    SearchPanel(p, search, searchActions, leftModifier, canType)
                 } else {
                     DestinationCard(
                         p = p,
@@ -265,6 +274,7 @@ fun NaviDriveScreen(
             SearchPanel(
                 p, search, searchActions,
                 Modifier.align(Alignment.TopStart).padding(start = OuterPad, top = CardTop).width(559.dp),
+                canType,
             )
         }
 
@@ -284,7 +294,8 @@ fun NaviDriveScreen(
         val chip = when {
             screen == AppScreen.DRIVE && navi.guiding -> TopChip.END_TRIP
             screen == AppScreen.LOBBY || screen == AppScreen.ARRIVAL -> TopChip.HOST
-            navi.guiding -> TopChip.DRIVING
+            // 안내 중이거나 기어가 P가 아니면(D·R·N) 주행 중
+            navi.guiding || (!canType && !gearUnknown) -> TopChip.DRIVING
             else -> TopChip.STOPPED
         }
         AppTopBar(
@@ -700,10 +711,19 @@ data class SearchActions(
  * 검색은 내장 내비가 한다. 검색어를 넘기면 내비 검색 화면이 열리고, 거기서 고르면 안내가 시작되면서 이 화면으로 돌아온다.
  */
 @Composable
-internal fun SearchPanel(p: NaviPalette, search: SearchUiState, actions: SearchActions, modifier: Modifier) {
+internal fun SearchPanel(
+    p: NaviPalette,
+    search: SearchUiState,
+    actions: SearchActions,
+    modifier: Modifier,
+    /** 주행 중(P단 아님)이면 자판을 띄우지 않고 마이크로만 검색한다 */
+    canType: Boolean = true,
+) {
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    LaunchedEffect(Unit) { if (!search.listening) focus.requestFocus() }
+    LaunchedEffect(canType) {
+        if (canType && !search.listening) focus.requestFocus() else keyboard?.hide()
+    }
 
     // 홈·그룹 만들기 카드 위에 겹쳐 뜨므로 불투명하게
     Panel(p, modifier, CardShape, solid = true) {
@@ -731,7 +751,8 @@ internal fun SearchPanel(p: NaviPalette, search: SearchUiState, actions: SearchA
                         value = shown,
                         onValueChange = actions.onQueryChange,
                         singleLine = true,
-                        readOnly = search.listening,
+                        readOnly = search.listening || !canType,
+                        enabled = canType || search.listening,
                         textStyle = TextStyle(color = p.textPrimary, fontSize = 30.sp),
                         cursorBrush = SolidColor(BrandPrimary),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -742,7 +763,12 @@ internal fun SearchPanel(p: NaviPalette, search: SearchUiState, actions: SearchA
                         modifier = Modifier.fillMaxWidth().focusRequester(focus),
                     )
                     if (shown.isEmpty()) {
-                        Label(if (search.listening) "듣고 있어요… 말씀하세요" else "장소·주소를 입력하세요", 30.sp, p.textSecondary)
+                        val hint = when {
+                            search.listening -> "듣고 있어요… 말씀하세요"
+                            !canType -> "주행 중엔 마이크로 말해 주세요"
+                            else -> "장소·주소를 입력하세요"
+                        }
+                        Label(hint, 30.sp, p.textSecondary)
                     }
                 }
                 Box(

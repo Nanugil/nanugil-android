@@ -1,5 +1,6 @@
 package com.nanugil.app.ui.navi
 
+import ai.pleos.playground.vehicle.Vehicle
 import android.app.Application
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
@@ -17,6 +18,7 @@ import com.nanugil.app.data.navi.NaviPlace
 import com.nanugil.app.data.navi.NaviState
 import com.nanugil.app.data.route.NaverDirectionsClient
 import com.nanugil.app.data.voice.VoiceSearch
+import com.nanugil.app.data.vehicle.VehicleGearWatcher
 import com.nanugil.app.data.vehicle.VehicleStatusSource
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -48,6 +50,9 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     // TODO(서버): 그룹 차량 위치·연료를 서버(실시간 동기화)에서 받는 구현으로 교체
     private val groupRepository: GroupLocationRepository = FakeGroupLocationRepository()
     private val vehicleStatus = VehicleStatusSource(app)
+    /** 기어(P단 여부) — 입력 화면을 정차 중에만 열기 위해 본다. 정산 화면(#14)과 같은 [VehicleGearWatcher] */
+    private val gearVehicle = Vehicle(app)
+    private val gearWatcher = VehicleGearWatcher(gearVehicle)
     private val tripCost = TripCostTracker(app, members = MockGroupDriveData.SHARE_MEMBERS)
     /** 내장 내비. 경로 요청·경유지 추가로 내비 화면이 앞에 나오면 이 화면으로 돌아온다. */
     private val navi = NaviController(app, returnTo = NaviDriveActivity::class.java)
@@ -96,7 +101,9 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
-    private val withGroup = combine(baseState, groupUi) { base, g -> base.copy(group = g) }
+    private val withGroup = combine(baseState, groupUi, gearWatcher.gear) { base, g, gear ->
+        base.copy(group = g, gear = gear)
+    }
 
     val uiState: StateFlow<NaviDriveUiState> =
         combine(withGroup, search, voice.state, restStopPhase, answering) { base, s, v, phase, answer ->
@@ -111,6 +118,8 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     init {
         navi.connect()
         vehicleStatus.start(viewModelScope)
+        gearVehicle.initialize()
+        gearWatcher.start()
         // 내장 내비에서 다음 회전·남은 거리·현재 위치를 1초마다, 목적지·경유지는 몇 초마다 다시 받는다.
         // (내비 화면에서 직접 안내를 시작·취소했을 수도 있어서 안내 중이 아닐 때도 목적지를 확인한다)
         viewModelScope.launch {
@@ -441,6 +450,7 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         vehicleStatus.stop()
+        gearVehicle.release()
         navi.release()
         voice.release()
     }

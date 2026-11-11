@@ -19,6 +19,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.nanugil.app.MainActivity
+import com.nanugil.app.data.vehicle.GearState
 import com.nanugil.app.ui.map.MapViewLifecycleBinder
 import com.naver.maps.map.MapView
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -35,6 +36,9 @@ import kotlinx.coroutines.launch
  * - 지도 그리기(경로선·주유소·목적지·그룹 차량 마커, 카메라): [DriveMapController]
  *
  * 라이트/다크 전환 등으로 Activity가 다시 만들어져도 ViewModel이 살아 있어 길안내가 끊기지 않는다.
+ *
+ * TODO(정산): 이 화면이 시작 화면이 되면서 기존 [MainActivity](#10 정산하기 버튼·정산 입력 화면)로 가는 길이 없어졌다.
+ *  #14(SettlementActivity, P단 게이트)와 08 도착 화면을 어떻게 합칠지 정산 담당과 정하기 전까지 MainActivity는 지우지 않는다.
  */
 class NaviDriveActivity : ComponentActivity() {
 
@@ -159,6 +163,8 @@ class NaviDriveActivity : ComponentActivity() {
                 onThemeModeChange = viewModel::setThemeMode,
                 search = ui.search,
                 searchActions = searchActions,
+                canType = ui.canType,
+                gearUnknown = ui.gear == GearState.UNKNOWN,
             )
             // 지도도 화면 테마에 맞춰 낮/밤으로
             val dark = resolveDarkTheme(ui.themeMode)
