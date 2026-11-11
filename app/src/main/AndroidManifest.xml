@@ -41,20 +41,20 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Nanugil">
+        <!-- 그룹 지도·정산 화면. 주행 화면의 차량 버튼으로 들어온다 (런처 아이콘 없음). -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
+            android:exported="false">
+            <!-- 지도는 주행 중에도 보는 화면이라 주행 중 사용 제한(UX Restrictions)에서 뺀다 -->
+            <meta-data
+                android:name="distractionOptimized"
+                android:value="true" />
         </activity>
 
-        <!-- TMAP식 주행 화면. 일반 Activity라 지도 끌기·확대·회전이 된다. -->
+        <!-- 앱 진입점(런처 아이콘은 이것 하나). TMAP식 주행 화면, 일반 Activity라 지도 끌기·확대·회전이 된다. -->
         <activity
             android:name=".ui.navi.NaviDriveActivity"
             android:exported="true"
-            android:label="@string/navi_label"
             android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

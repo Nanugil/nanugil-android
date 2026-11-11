@@ -27,11 +27,17 @@ data class TripCost(
  * - 통행료: 내장 내비가 알려 준 경로 통행료 × 지나온 비율 (요금소를 지날 때 실제로 내는 시점과는 다를 수 있다).
  *
  * 출발 기준값은 앱을 껐다 켜도 이어지도록 SharedPreferences에 둔다.
- * TODO(정산): 유가는 오피넷 주변 평균가, 그룹 전체 합산은 서버에서 받는다.
+ * TODO(정산): 그룹 전체 합산은 서버에서 받는다.
  */
 class TripCostTracker(context: Context, private val members: Int) {
 
     private val prefs = context.getSharedPreferences("trip_cost", Context.MODE_PRIVATE)
+
+    /**
+     * 휘발유 1L 가격(원). 기본값은 고정값이고, 정산 화면과 금액을 맞추려면 오피넷 평균가로 바꿔 넣는다.
+     * TODO(정산): 정산 쪽 OpinetClient.averagePrices()가 develop에 들어오면 그 값을 여기에 넣는다.
+     */
+    var fuelWonPerLiter: Double = DEFAULT_FUEL_WON_PER_L
 
     fun update(navi: NaviState, vehicle: VehicleStatus): TripCost {
         if (!navi.guiding) {
@@ -72,7 +78,7 @@ class TripCostTracker(context: Context, private val members: Int) {
             traveledKm / kmPerKwh * EV_WON_PER_KWH
         } else {
             val lPer100 = vehicle.fuelEconomyLPer100Km?.takeIf { it > 0 } ?: DEFAULT_L_PER_100KM
-            traveledKm * lPer100 / 100.0 * FUEL_WON_PER_L
+            traveledKm * lPer100 / 100.0 * fuelWonPerLiter
         }
 
         val toll = navi.tollFareWon ?: 0
@@ -103,8 +109,8 @@ class TripCostTracker(context: Context, private val members: Int) {
         // 차가 연비·전비를 주지 않을 때 쓰는 기본값 (중형 세단·전기차 평균 수준)
         const val DEFAULT_L_PER_100KM = 8.0f
         const val DEFAULT_EV_KM_PER_KWH = 5.0f
-        // TODO(정산): 오피넷 평균 유가·환경부 급속충전 단가로 바꾼다
-        const val FUEL_WON_PER_L = 1_700.0
+        // 오피넷 값을 받기 전에 쓰는 휘발유 가격. 충전 단가는 환경부 급속충전 기준.
+        const val DEFAULT_FUEL_WON_PER_L = 1_700.0
         const val EV_WON_PER_KWH = 347.2
     }
 }
