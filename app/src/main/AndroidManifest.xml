@@ -34,7 +34,16 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- 그룹 드라이브 지도: 주행 중에도 띄울 수 있는 화면 (AAOS 주행 중 사용 제한 대상 아님) -->
+            <meta-data
+                android:name="distractionOptimized"
+                android:value="true" />
         </activity>
+
+        <!-- 정산 입력: 글자 입력 화면이라 distractionOptimized를 붙이지 않는다. 주행 중에는 시스템이 가린다. -->
+        <activity
+            android:name=".ui.settlement.SettlementActivity"
+            android:exported="false" />
     </application>
 
 </manifest>

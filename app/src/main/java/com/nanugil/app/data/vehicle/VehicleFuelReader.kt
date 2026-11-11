@@ -25,15 +25,10 @@ fun fuelMlFromPercent(percent: Int, tankCapacityMl: Long): Long {
  * - 잔량(%): Pleos Vehicle SDK `getFuelPercent` (`pleos.car.permission.CAR_ENERGY`)
  * - 탱크 용량(mL): Pleos SDK에 없어 AAOS `INFO_FUEL_CAPACITY` (`android.car.permission.CAR_INFO`)
  *
- * [start]는 화면이 만들어질 때, [stop]은 없어질 때 부른다.
+ * [vehicle]은 앱 전체가 함께 쓰는 연결이다([com.nanugil.app.NanugilApplication.vehicle]). 여기서 release하지 않는다.
  * 리터를 바로 주는 AAOS `FUEL_LEVEL`은 기술 지원팀 검토가 끝나면 이 클래스 안에서 바꾼다.
  */
-class VehicleFuelReader(private val context: Context) {
-    private val vehicle = Vehicle(context)
-
-    fun start() = vehicle.initialize()
-
-    fun stop() = vehicle.release()
+class VehicleFuelReader(private val context: Context, private val vehicle: Vehicle) {
 
     /** @throws IllegalStateException 값을 읽지 못했을 때. 메시지는 화면에 그대로 보여 줄 문장이다. */
     suspend fun readFuelMl(): Long {
