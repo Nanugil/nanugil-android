@@ -58,6 +58,8 @@ data class NaviState(
     val afterNextTurn: NaviTurn? = null,
     /** 마지막 이벤트·오류를 사람이 읽을 수 있게 */
     val message: String? = null,
+    /** 내장 내비 경로가 새로 잡힐 때마다(안내 시작·재탐색·경유지 변경) 1씩 오른다. 경로선 다시 그리기용. */
+    val routeVersion: Int = 0,
 )
 
 /** 내장 내비가 알려 준 다음 회전. */
@@ -106,6 +108,7 @@ class NaviController(
             replanUntil = 0L
             _state.update {
                 it.copy(
+                    routeVersion = it.routeVersion + 1,
                     guiding = true,
                     destinationName = routeStartInfo.name.ifBlank { it.destinationName },
                     remainDistanceMeters = routeStartInfo.distance,
@@ -118,7 +121,7 @@ class NaviController(
         }
 
         override fun onReRouteEnded() {
-            _state.update { it.copy(message = "경로 재탐색 완료") }
+            _state.update { it.copy(message = "경로 재탐색 완료", routeVersion = it.routeVersion + 1) }
             refreshRoute()
         }
 
@@ -162,6 +165,7 @@ class NaviController(
             val added = waypointChangedInfo.cmdType == WaypointCmdType.ADD
             _state.update {
                 it.copy(
+                    routeVersion = it.routeVersion + 1,
                     tollFareWon = waypointChangedInfo.routeStartInfo.tollFare,
                     message = if (added) "${waypointChangedInfo.routeStartInfo.name} 경유지 추가됨" else "경유지 삭제됨",
                 )

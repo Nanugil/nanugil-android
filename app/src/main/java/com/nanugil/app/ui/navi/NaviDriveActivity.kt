@@ -32,7 +32,7 @@ import kotlinx.coroutines.launch
  * - 상태·로직: [NaviDriveViewModel] (내장 내비 연동, 차량 상태, 그룹, 유류비 N빵)
  * - 실제 길안내·음성 안내는 차량 내장 내비가 화면 뒤에서 한다. 이 화면은 다음 회전·도착 시간·남은 거리를 보여 준다.
  * - 지도 생명주기: [MapViewLifecycleBinder]
- * - 지도 그리기(주유소·목적지·그룹 차량 마커, 카메라): [DriveMapController]
+ * - 지도 그리기(경로선·주유소·목적지·그룹 차량 마커, 카메라): [DriveMapController]
  *
  * 라이트/다크 전환 등으로 Activity가 다시 만들어져도 ViewModel이 살아 있어 길안내가 끊기지 않는다.
  */
@@ -126,6 +126,7 @@ class NaviDriveActivity : ComponentActivity() {
                         controller.updateWaypoints(navi.waypointNames, navi.waypointPositions)
                     }
                 }
+                launch { viewModel.routePath.collect(controller::updateRoute) }
                 launch {
                     viewModel.uiState.map { it.groupCars }.distinctUntilChanged().collect { cars ->
                         controller.updateGroupCars(cars.filterNot { it.isMe })

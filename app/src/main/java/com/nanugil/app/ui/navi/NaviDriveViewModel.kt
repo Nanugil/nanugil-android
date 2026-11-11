@@ -15,6 +15,7 @@ import com.nanugil.app.data.mock.MockGroupDriveData
 import com.nanugil.app.data.navi.NaviController
 import com.nanugil.app.data.navi.NaviPlace
 import com.nanugil.app.data.navi.NaviState
+import com.nanugil.app.data.route.NaverDirectionsClient
 import com.nanugil.app.data.search.NaverPlaceSearchRepository
 import com.nanugil.app.data.search.PlaceResult
 import com.nanugil.app.data.search.PlaceSearchException
@@ -28,6 +29,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -52,6 +55,15 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     private val tripCost = TripCostTracker(app, members = MockGroupDriveData.SHARE_MEMBERS)
     /** 내장 내비. 경로 요청·경유지 추가로 내비 화면이 앞에 나오면 이 화면으로 돌아온다. */
     private val navi = NaviController(app, returnTo = NaviDriveActivity::class.java)
+    /**
+     * 내장 내비 SDK는 경로 좌표를 주지 않는다. 그래서 내비 경로가 바뀔 때만(안내 시작·경유지 추가·재탐색)
+     * 같은 출발·경유·목적지로 네이버 Directions 5를 한 번 불러 선을 그린다. 실제 안내 경로와 조금 다를 수 있다.
+     * TODO(보안): Client Secret이 APK에 들어간다 → 출시 전 서버 프록시로 옮긴다.
+     */
+    private val directions = NaverDirectionsClient(BuildConfig.NAVER_MAP_CLIENT_ID, BuildConfig.NAVER_MAP_CLIENT_SECRET)
+    private val _routePath = MutableStateFlow<List<Wgs84Point>>(emptyList())
+    /** 지도에 그릴 경로선 (현재 위치 → 경유지 → 목적지) */
+    val routePath: StateFlow<List<Wgs84Point>> = _routePath.asStateFlow()
     private val prefs = app.getSharedPreferences(PREFS_UI, Context.MODE_PRIVATE)
     private val placeSearch: PlaceSearchRepository = NaverPlaceSearchRepository(
         searchClientId = BuildConfig.NAVER_SEARCH_CLIENT_ID,
@@ -123,7 +135,36 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
         }
+        // 내비 경로가 바뀌면 경로선을 다시 받는다 (위치가 움직일 때마다 부르지 않는다 → 과금 최소화)
+        viewModelScope.launch {
+            navi.state
+                .map { s -> RouteKey(s.guiding, s.routeVersion, s.destinationPosition, s.waypointPositions, s.currentPosition != null) }
+                .distinctUntilChanged()
+                .collectLatest { key ->
+                    val start = navi.state.value.currentPosition
+                    val goal = key.destination
+                    if (!key.guiding || start == null || goal == null) {
+                        _routePath.value = emptyList()
+                        return@collectLatest
+                    }
+                    delay(ROUTE_DEBOUNCE_MS) // 경유지·목적지 정보가 연달아 들어오는 동안 기다렸다 한 번만 부른다
+                    _routePath.value = try {
+                        directions.drivingPath(start, goal, key.waypoints)
+                    } catch (e: Exception) {
+                        // 키가 없거나 실패하면 직선으로라도 이어서 보여 준다
+                        listOf(start) + key.waypoints + goal
+                    }
+                }
+        }
     }
+
+    private data class RouteKey(
+        val guiding: Boolean,
+        val version: Int,
+        val destination: Wgs84Point?,
+        val waypoints: List<Wgs84Point>,
+        val hasPosition: Boolean,
+    )
 
     // ---- 화면 이벤트 ----
 
@@ -242,5 +283,6 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         const val LIVE_INFO_INTERVAL_MS = 1_000L
         /** 목적지·경유지 재조회 주기 (LIVE_INFO_INTERVAL_MS 단위) */
         const val ROUTE_REFRESH_TICKS = 5
+        const val ROUTE_DEBOUNCE_MS = 1_500L
     }
 }
