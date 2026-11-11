@@ -15,11 +15,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import com.nanugil.app.BuildConfig
+import com.nanugil.app.core.geo.Wgs84Point
 import com.nanugil.app.data.fuel.OpinetClient
+import com.nanugil.app.data.mock.FakeGroupLocationRepository
 import com.nanugil.app.data.vehicle.GearState
 import com.nanugil.app.data.vehicle.settlementBlockReason
 import com.nanugil.app.nanugilApp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 /**
@@ -59,6 +62,7 @@ class SettlementActivity : ComponentActivity() {
                         readMyFuelMl = fuelReader::readFuelMl,
                         readMyBatteryWh = fuelReader::readBatteryWh,
                         loadFuelPrices = opinetClient::averagePrices,
+                        loadNearbyStations = { product -> opinetClient.findStationsAround(myPosition(), product = product) },
                         prefillMyCar = { car -> car.withRecorded(recorder.fuel, recorder.battery) },
                         readMyCarType = {
                             val reported = withContext(Dispatchers.IO) {
@@ -82,6 +86,10 @@ class SettlementActivity : ComponentActivity() {
             }
         }
     }
+
+    // shortcut: 지도 화면과 같은 가짜 그룹 데이터의 내 차 위치(서울시청)를 쓴다. feat/emulator_map이 머지되면 NaviController 현재 위치로 바꾼다.
+    private suspend fun myPosition(): Wgs84Point =
+        FakeGroupLocationRepository().observeGroup("demo").first().first { it.isMe }.position
 
     companion object {
         fun intent(context: Context) = Intent(context, SettlementActivity::class.java)

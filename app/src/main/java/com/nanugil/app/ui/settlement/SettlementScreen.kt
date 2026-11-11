@@ -35,6 +35,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nanugil.app.data.fuel.FuelProduct
+import com.nanugil.app.data.fuel.GasStation
+import com.nanugil.app.data.fuel.OpinetBrand
 import com.nanugil.app.data.fuel.OpinetException
 import com.nanugil.app.data.vehicle.RefillDetector
 import com.nanugil.app.share.Settlement
@@ -42,6 +44,9 @@ import com.nanugil.app.share.SettlementCalculator
 import com.nanugil.app.share.VehicleTrip
 import java.math.BigDecimal
 import java.math.RoundingMode
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 /**
@@ -216,13 +221,33 @@ internal fun exampleCars(type: VehicleType): List<CarInput> = listOf(
 
 
 
-/** 유가 칸을 어디서 채웠는지. 요약 카드의 "유가 기준"에 보여 준다. */
+/** 유가 칸을 어디서 채웠는지. 요약 카드의 "유가 기준"에 보여 준다. 근처 주유소는 고른 주유소 이름을 따로 보여 준다. */
 private enum class PriceSource(val text: String) {
     NONE("직접 입력"),
     LOADING("불러오는 중"),
+    NEARBY("근처 주유소"),
     OPINET("오피넷 전국 평균"),
     EXAMPLE("예시 유가 · 실제 값으로 고쳐 주세요"),
 }
+
+/** 근처 주유소를 찾는 유종. 하이브리드는 휘발유를 쓴다. */
+private val NEARBY_PRODUCTS = listOf(FuelProduct.GASOLINE, FuelProduct.DIESEL, FuelProduct.PREMIUM_GASOLINE)
+
+/** 주유소 목록 정렬. */
+internal enum class StationOrder(val label: String) {
+    NEAREST("가까운순"),
+    CHEAPEST("최저가순"),
+}
+
+/** 정렬한 주유소 목록. 같으면 다른 기준으로 한 번 더 정렬해 순서가 흔들리지 않게 한다. */
+internal fun List<GasStation>.sortedFor(order: StationOrder): List<GasStation> = when (order) {
+    StationOrder.NEAREST -> sortedWith(compareBy({ it.distanceMeters }, { it.priceWon }))
+    StationOrder.CHEAPEST -> sortedWith(compareBy({ it.priceWon }, { it.distanceMeters }))
+}
+
+/** 유종마다 기본으로 고르는 주유소: 근처 최저가(같으면 가까운 곳). */
+internal fun cheapestByProduct(stations: Map<FuelProduct, List<GasStation>>): Map<FuelProduct, GasStation> =
+    stations.mapNotNull { (product, list) -> list.sortedFor(StationOrder.CHEAPEST).firstOrNull()?.let { product to it } }.toMap()
 
 /** 입력값으로 바로 정산한다. 값이 비었거나 틀리면 결과 대신 고칠 내용을 돌려준다. */
 private fun settleOrMessage(cars: List<CarInput>): Pair<Settlement?, String?> = try {
@@ -248,6 +273,8 @@ private fun carName(index: Int): String = "${'A' + index}차"
  * @param onRequestSettlement '정산 요청'을 눌렀을 때. 송금 안내 방식이 정해지기 전이라 지금은 안내만 띄운다.
  * @param prefillMyCar 운행 중 기록한 값으로 A차(내 차) 칸을 채운다. 화면이 열릴 때 한 번만 적용한다.
  * @param readMyCarType 내 차 차종을 읽는 함수. 읽히면 A차 차종 버튼을 그 값으로 바꾼다.
+ * @param loadNearbyStations 내 위치 근처 주유소(유종별)를 불러오는 함수. 있으면 근처 최저가가 유가 기본값이 되고,
+ *   요약 카드의 "유가 기준"을 눌러 주유소를 직접 고를 수 있다. 실패하면 [loadFuelPrices](전국 평균)로 넘어간다.
  */
 @Composable
 fun SettlementScreen(
@@ -259,6 +286,7 @@ fun SettlementScreen(
     onRequestSettlement: (Settlement) -> Unit = {},
     prefillMyCar: (CarInput) -> CarInput = { it },
     readMyCarType: (suspend () -> VehicleType?)? = null,
+    loadNearbyStations: (suspend (FuelProduct) -> List<GasStation>)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val cars = remember {
@@ -267,22 +295,49 @@ fun SettlementScreen(
     }
     var readError by remember { mutableStateOf<String?>(null) }
     var prices by remember { mutableStateOf<Map<FuelProduct, Int>>(emptyMap()) }
-    var priceSource by remember { mutableStateOf(if (loadFuelPrices == null) PriceSource.NONE else PriceSource.LOADING) }
+    val loadsPrices = loadNearbyStations != null || loadFuelPrices != null
+    var priceSource by remember { mutableStateOf(if (loadsPrices) PriceSource.LOADING else PriceSource.NONE) }
+    var stations by remember { mutableStateOf<Map<FuelProduct, List<GasStation>>>(emptyMap()) }
+    var chosen by remember { mutableStateOf<Map<FuelProduct, GasStation>>(emptyMap()) }
     var editing by remember { mutableStateOf(false) }
+    var picking by remember { mutableStateOf(false) }
 
-    // 화면이 열리면 오피넷 전국 평균가로 유가 칸을 채운다. 사용자가 이미 고친 칸은 건드리지 않는다.
+    // 화면이 열리면 유가 칸을 채운다: 근처 최저가 → 전국 평균 → 예시값 순. 사용자가 이미 고친 칸은 건드리지 않는다.
     LaunchedEffect(Unit) {
-        val load = loadFuelPrices ?: return@LaunchedEffect
-        priceSource = try {
-            val loaded = load()
-            prices = loaded
-            cars.indices.forEach { i ->
-                val c = cars[i]
-                if (c.fuelPrice == c.type.defaultFuelPrice) cars[i] = c.copy(fuelPrice = c.type.priceText(loaded))
+        val nearby = loadNearbyStations?.let { load ->
+            coroutineScope {
+                NEARBY_PRODUCTS.map { product ->
+                    async { try { product to load(product) } catch (e: OpinetException) { null } }
+                }.awaitAll().filterNotNull().filter { it.second.isNotEmpty() }.toMap()
             }
-            PriceSource.OPINET
-        } catch (e: OpinetException) {
-            PriceSource.EXAMPLE
+        }.orEmpty()
+        val loaded = if (nearby.isNotEmpty()) {
+            stations = nearby
+            chosen = cheapestByProduct(nearby)
+            priceSource = PriceSource.NEARBY
+            chosen.mapValues { it.value.priceWon }
+        } else {
+            val load = loadFuelPrices ?: return@LaunchedEffect
+            try {
+                load().also { priceSource = PriceSource.OPINET }
+            } catch (e: OpinetException) {
+                priceSource = PriceSource.EXAMPLE
+                return@LaunchedEffect
+            }
+        }
+        prices = loaded
+        cars.indices.forEach { i ->
+            val c = cars[i]
+            if (c.fuelPrice == c.type.defaultFuelPrice) cars[i] = c.copy(fuelPrice = c.type.priceText(loaded))
+        }
+    }
+
+    // 주유소를 직접 고르면 그 유종을 쓰는 차의 유가를 모두 그 가격으로 바꾼다.
+    fun choose(product: FuelProduct, station: GasStation) {
+        chosen = chosen + (product to station)
+        prices = prices + (product to station.priceWon)
+        cars.indices.forEach { i ->
+            if (cars[i].type.opinetProduct == product) cars[i] = cars[i].copy(fuelPrice = station.priceWon.toString())
         }
     }
 
@@ -310,9 +365,22 @@ fun SettlementScreen(
     val palette = settlementPalette()
     CompositionLocalProvider(LocalSettlementPalette provides palette) {
         Column(Modifier.fillMaxSize().background(palette.background).padding(24.dp)) {
-            Header(title = if (editing) "값 수정" else "정산", onBack = if (editing) ({ editing = false }) else onBack)
+            Header(
+                title = when { picking -> "주유소 선택"; editing -> "값 수정"; else -> "정산" },
+                onBack = when { picking -> ({ picking = false }); editing -> ({ editing = false }); else -> onBack },
+            )
             Box(Modifier.padding(top = 20.dp).fillMaxSize()) {
-                if (editing) {
+                if (picking) {
+                    // 차들이 쓰는 유종만, 내 차(A차) 유종부터 보여 준다.
+                    val products = cars.mapNotNull { it.type.opinetProduct }.distinct().filter { it in stations }
+                    StationPicker(
+                        products = products,
+                        stations = stations,
+                        chosen = chosen,
+                        onChoose = ::choose,
+                        onDone = { picking = false },
+                    )
+                } else if (editing) {
                     EditPanel(
                         cars = cars,
                         prices = prices,
@@ -336,7 +404,15 @@ fun SettlementScreen(
                     }
                 } else {
                     Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                        SummaryCard(result, cars, priceSource, Modifier.weight(1f))
+                        // 근처 주유소 기준이면 내 차(A차) 유종의 고른 주유소를 보여 주고, 눌러서 바꿀 수 있다.
+                        val myStation = cars[0].type.opinetProduct?.let(chosen::get) ?: chosen.values.firstOrNull()
+                        SummaryCard(
+                            result, cars, priceSource,
+                            priceDetail = myStation?.takeIf { priceSource == PriceSource.NEARBY }
+                                ?.let { "${it.name} · %,d원/L · 바꾸기 ›".format(it.priceWon) },
+                            onPickStation = if (stations.isNotEmpty()) ({ picking = true }) else null,
+                            modifier = Modifier.weight(1f),
+                        )
                         TransfersCard(
                             result = result,
                             cars = cars,
@@ -365,7 +441,14 @@ private fun Header(title: String, onBack: () -> Unit) {
 
 /** Figma 08 왼쪽 카드: 1인 금액(Display 56), 총액·인원, 차량별 비용, 유가 기준. */
 @Composable
-private fun SummaryCard(result: Settlement, cars: List<CarInput>, priceSource: PriceSource, modifier: Modifier) {
+private fun SummaryCard(
+    result: Settlement,
+    cars: List<CarInput>,
+    priceSource: PriceSource,
+    priceDetail: String?,
+    onPickStation: (() -> Unit)?,
+    modifier: Modifier,
+) {
     val p = LocalSettlementPalette.current
     Panel(modifier) {
         Column(Modifier.padding(horizontal = 32.dp, vertical = 30.dp).verticalScroll(rememberScrollState())) {
@@ -403,11 +486,12 @@ private fun SummaryCard(result: Settlement, cars: List<CarInput>, priceSource: P
             Label("유가 기준", TextSize.Caption, p.textSecondary, modifier = Modifier.padding(top = 28.dp))
             Box(
                 Modifier.padding(top = 10.dp).fillMaxWidth().height(68.dp)
-                    .clip(RoundedCornerShape(14.dp)).background(p.field),
+                    .clip(RoundedCornerShape(14.dp)).background(p.field)
+                    .then(if (onPickStation != null) Modifier.clickable(onClick = onPickStation) else Modifier),
                 contentAlignment = Alignment.Center,
             ) {
                 Label(
-                    priceSource.text,
+                    priceDetail?.let { "${priceSource.text} · $it" } ?: priceSource.text,
                     TextSize.Caption,
                     if (priceSource == PriceSource.EXAMPLE) BrandAmber else p.textPrimary,
                     FontWeight.Bold,
@@ -480,6 +564,65 @@ private fun TransfersCard(
                 SecondaryButton("값 수정", onClick = onEdit, modifier = Modifier.weight(1f))
                 PrimaryButton("정산 요청", onClick = onRequest, modifier = Modifier.weight(1f))
             }
+        }
+    }
+}
+
+/**
+ * '주유소 선택' 패널: 내 위치 근처 주유소 목록. 가까운순·최저가순으로 정렬하고, 고르면 그 가격이 유가가 된다.
+ * 차들이 여러 유종을 쓰면 유종 버튼으로 바꿔 가며 고른다.
+ */
+@Composable
+private fun StationPicker(
+    products: List<FuelProduct>,
+    stations: Map<FuelProduct, List<GasStation>>,
+    chosen: Map<FuelProduct, GasStation>,
+    onChoose: (FuelProduct, GasStation) -> Unit,
+    onDone: () -> Unit,
+) {
+    val p = LocalSettlementPalette.current
+    var product by remember { mutableStateOf(products.firstOrNull()) }
+    var order by remember { mutableStateOf(StationOrder.CHEAPEST) }
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (products.size > 1) {
+                products.forEach { ChipButton(it.label, selected = it == product, onClick = { product = it }) }
+            }
+            Spacer(Modifier.weight(1f))
+            StationOrder.entries.forEach { ChipButton(it.label, selected = it == order, onClick = { order = it }) }
+        }
+        Panel(Modifier.fillMaxWidth().weight(1f)) {
+            val current = product
+            val list = current?.let { stations[it] }.orEmpty().sortedFor(order)
+            if (current == null || list.isEmpty()) {
+                Label("근처 주유소를 찾지 못했습니다.", TextSize.Body, p.textSecondary, modifier = Modifier.padding(32.dp))
+            } else {
+                Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
+                    list.forEach { station ->
+                        val selected = chosen[current]?.id == station.id
+                        Row(
+                            Modifier.fillMaxWidth().clickable { onChoose(current, station) }
+                                .background(if (selected) BrandPrimary.copy(alpha = 0.12f) else Color.Transparent)
+                                .padding(horizontal = 32.dp, vertical = 18.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Label(station.name, TextSize.Body, p.textPrimary, FontWeight.Bold)
+                                Label(
+                                    "%s · %.1fkm".format(OpinetBrand.displayName(station.brandCode), station.distanceMeters / 1000.0),
+                                    TextSize.Caption, p.textSecondary,
+                                )
+                            }
+                            if (selected) Label("선택됨", TextSize.Caption, BrandPrimary, FontWeight.Bold, Modifier.padding(end = 20.dp))
+                            Label("%,d원/L".format(station.priceWon), TextSize.Body, p.textPrimary, FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+        Row {
+            Spacer(Modifier.weight(1f))
+            PrimaryButton("완료", onClick = onDone, modifier = Modifier.width(220.dp))
         }
     }
 }

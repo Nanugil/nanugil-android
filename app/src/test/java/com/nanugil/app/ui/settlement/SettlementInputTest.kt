@@ -1,6 +1,8 @@
 package com.nanugil.app.ui.settlement
 
+import com.nanugil.app.core.geo.Wgs84Point
 import com.nanugil.app.data.fuel.FuelProduct
+import com.nanugil.app.data.fuel.GasStation
 import com.nanugil.app.data.vehicle.RefillDetector
 import com.nanugil.app.share.SettlementCalculator
 import com.nanugil.app.share.Transfer
@@ -51,6 +53,17 @@ class SettlementInputTest {
         assertEquals(VehicleType.ELECTRIC, myCarType(null, RefillDetector(), battery))
         // 기록이 없으면 차가 알려 준 대로
         assertEquals(VehicleType.DIESEL, myCarType(VehicleType.DIESEL, RefillDetector(), RefillDetector()))
+    }
+
+    @Test
+    fun stations_sortAndDefaultToCheapestNearby() {
+        fun st(id: String, price: Int, m: Int) = GasStation(id, id, "SKE", price, m, Wgs84Point(37.5, 127.0))
+        val list = listOf(st("near", 1_800, 300), st("cheap", 1_700, 2_000), st("cheapFar", 1_700, 4_000))
+        assertEquals(listOf("near", "cheap", "cheapFar"), list.sortedFor(StationOrder.NEAREST).map { it.id })
+        // 값이 같으면 가까운 곳이 먼저
+        assertEquals(listOf("cheap", "cheapFar", "near"), list.sortedFor(StationOrder.CHEAPEST).map { it.id })
+        assertEquals("cheap", cheapestByProduct(mapOf(FuelProduct.GASOLINE to list))[FuelProduct.GASOLINE]?.id)
+        assertEquals(emptyMap<FuelProduct, GasStation>(), cheapestByProduct(mapOf(FuelProduct.DIESEL to emptyList())))
     }
 
     @Test
