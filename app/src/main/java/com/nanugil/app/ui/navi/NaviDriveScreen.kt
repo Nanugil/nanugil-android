@@ -58,6 +58,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.nanugil.app.R
 import com.nanugil.app.data.fare.TripCost
 import com.nanugil.app.data.navi.NaviState
+import com.nanugil.app.data.navi.NaviTurn
+import ai.pleos.playground.navi.constants.TurnType
 import com.nanugil.app.data.vehicle.VehicleStatus
 import com.naver.maps.map.MapView
 import java.text.SimpleDateFormat
@@ -381,6 +383,9 @@ private fun DestinationCard(
 
             Label(navi.destinationName ?: "목적지", 36.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(top = 2.dp))
 
+            // 다음 회전: 내장 내비가 화면 뒤에서 안내하고, 우리는 그 정보(getTBTInfo)를 받아 보여 준다
+            navi.nextTurn?.let { TurnBanner(p, it, navi.afterNextTurn, Modifier.padding(top = 18.dp)) }
+
             val remainSeconds = navi.remainTimeSeconds
             if (remainSeconds != null) {
                 Row(Modifier.padding(top = 18.dp), verticalAlignment = Alignment.Bottom) {
@@ -413,6 +418,73 @@ private fun DestinationCard(
 }
 
 private enum class Marker { Current, Stop, Destination }
+
+/** "300m 앞 좌회전 · 성남시청 방면" 안내 + 그다음 회전 한 줄 */
+@Composable
+private fun TurnBanner(p: NaviPalette, turn: NaviTurn, after: NaviTurn?, modifier: Modifier) {
+    Column(modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(BrandPrimary).padding(22.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(84.dp).clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center,
+            ) { Label(turn.type.arrow(), 56.sp, Color.White, FontWeight.Bold) }
+            Column(Modifier.weight(1f).padding(start = 18.dp)) {
+                Label(formatKm(turn.distanceMeters.toInt()), 48.sp, Color.White, FontWeight.ExtraBold, letterSpacing = (-1).sp)
+                Label(turn.description.ifBlank { turn.type.korean() }, 26.sp, Color.White.copy(alpha = 0.92f))
+            }
+        }
+        if (after != null) {
+            Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Label("그다음", 22.sp, Color.White.copy(alpha = 0.75f))
+                Label(after.type.arrow(), 26.sp, Color.White, FontWeight.Bold, Modifier.padding(start = 10.dp))
+                Label(
+                    "${formatKm(after.distanceMeters.toInt())} ${after.type.korean()}",
+                    22.sp, Color.White.copy(alpha = 0.9f), modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+        }
+    }
+}
+
+/** 회전 종류 → 화살표 글자 (아이콘 리소스 없이 기본 글꼴로 그린다) */
+private fun TurnType.arrow(): String = when (this) {
+    TurnType.TURN_LEFT, TurnType.TURN_SHARP_L -> "←"
+    TurnType.TURN_RIGHT, TurnType.TURN_SHARP_R -> "→"
+    TurnType.TURN_KEEP_L, TurnType.TURN_EXIT_IC_L, TurnType.TURN_ENTER_IC_L,
+    TurnType.TURN_ENTER_UNDER_L, TurnType.TURN_AVOID_UNDER_L, TurnType.TURN_ENTER_OVER_L, TurnType.TURN_AVOID_OVER_L -> "↖"
+    TurnType.TURN_KEEP_R, TurnType.TURN_EXIT_IC_R, TurnType.TURN_ENTER_IC_R,
+    TurnType.TURN_ENTER_UNDER_R, TurnType.TURN_AVOID_UNDER_R, TurnType.TURN_ENTER_OVER_R, TurnType.TURN_AVOID_OVER_R -> "↗"
+    TurnType.TURN_UTURN -> "↶"
+    TurnType.TURN_ENTER_ROUNDABOUT_02, TurnType.TURN_ENTER_ROUNDABOUT_03, TurnType.TURN_ENTER_ROUNDABOUT_04,
+    TurnType.TURN_ENTER_ROUNDABOUT_06, TurnType.TURN_ENTER_ROUNDABOUT_08, TurnType.TURN_ENTER_ROUNDABOUT_09,
+    TurnType.TURN_ENTER_ROUNDABOUT_10, TurnType.TURN_ENTER_ROUNDABOUT_12, TurnType.TURN_EXIT_ROUNDABOUT -> "↻"
+    TurnType.TURN_ARRIVE, TurnType.TURN_WAY -> "●"
+    else -> "↑"
+}
+
+private fun TurnType.korean(): String = when (this) {
+    TurnType.TURN_LEFT -> "좌회전"
+    TurnType.TURN_SHARP_L -> "급좌회전"
+    TurnType.TURN_RIGHT -> "우회전"
+    TurnType.TURN_SHARP_R -> "급우회전"
+    TurnType.TURN_KEEP_L -> "왼쪽 유지"
+    TurnType.TURN_KEEP_R -> "오른쪽 유지"
+    TurnType.TURN_UTURN -> "유턴"
+    TurnType.TURN_ENTER_IC_L, TurnType.TURN_ENTER_IC_R, TurnType.TURN_ENTER_IC_C -> "고속도로 진입"
+    TurnType.TURN_EXIT_IC_L, TurnType.TURN_EXIT_IC_R, TurnType.TURN_EXIT_IC_C -> "고속도로 출구"
+    TurnType.TURN_ENTER_UNDER_L, TurnType.TURN_ENTER_UNDER_R, TurnType.TURN_ENTER_UNDER_C -> "지하차도 진입"
+    TurnType.TURN_AVOID_UNDER_L, TurnType.TURN_AVOID_UNDER_R, TurnType.TURN_AVOID_UNDER_C -> "지하차도 옆길"
+    TurnType.TURN_ENTER_OVER_L, TurnType.TURN_ENTER_OVER_R, TurnType.TURN_ENTER_OVER_C -> "고가도로 진입"
+    TurnType.TURN_AVOID_OVER_L, TurnType.TURN_AVOID_OVER_R, TurnType.TURN_AVOID_OVER_C -> "고가도로 옆길"
+    TurnType.TURN_EXIT_ROUNDABOUT -> "회전교차로 나가기"
+    TurnType.TURN_WAY -> "경유지"
+    TurnType.TURN_ARRIVE -> "목적지 도착"
+    TurnType.TURN_TUNNEL -> "터널"
+    TurnType.TURN_TOLL -> "요금소"
+    TurnType.TURN_ENTER_SERVICEAREA, TurnType.TURN_RESTAREA -> "휴게소"
+    TurnType.TURN_STRAIGHT, TurnType.TURN_DEVIDE_MERGE -> "직진"
+    else -> if (name.startsWith("TURN_ENTER_ROUNDABOUT")) "회전교차로" else "직진"
+}
 
 @Composable
 private fun TimelineRow(

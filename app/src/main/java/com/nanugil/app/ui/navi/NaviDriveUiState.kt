@@ -12,7 +12,7 @@ import com.nanugil.app.data.vehicle.VehicleStatus
  * ViewModel이 길안내·차량·그룹·정산·테마를 합쳐 만들고, 화면은 이것만 보고 그린다.
  */
 data class NaviDriveUiState(
-    val navi: NaviState = NaviState(connected = true),
+    val navi: NaviState = NaviState(),
     val vehicle: VehicleStatus = VehicleStatus(),
     /** 같은 그룹 차량 (내 차 포함) */
     val groupCars: List<CarState> = emptyList(),

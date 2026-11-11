@@ -18,10 +18,8 @@
     <!-- NAVI_CUSTOM_MAP: 앱에서 내장 내비의 장소 검색·안내 화면을 연다 -->
     <uses-permission android:name="pleos.car.permission.NAVI_CUSTOM_MAP" />
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- 내 차 위치(GPS): 내장 내비 위치가 멈춰 있어도 실제 위치로 지도·남은 거리·이동 거리를 갱신 -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <!-- 목적지 음성 검색 (마이크) -->
+    <!-- 내 차 위치는 내장 내비(NAVI_ROUTE, getCurrentLocationInfo)에서 받으므로 위치 권한은 쓰지 않는다 -->
+    <!-- 목적지 음성 검색 (마이크). dangerous 권한이라 App Market 심사 때 사용 사유 필요 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- Android 11+ 패키지 가시성: 내장 내비 앱을 실행하려면 선언해야 한다 -->

@@ -17,10 +17,12 @@ import ai.pleos.playground.navi.data.WaypointChangedInfo
 import ai.pleos.playground.navi.data.WaypointInfo
 import ai.pleos.playground.navi.helper.NaviHelper
 import ai.pleos.playground.navi.helper.listener.NaviHelperEventListener
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import com.nanugil.app.core.geo.Wgs84Point
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,21 +52,12 @@ data class NaviState(
     val currentPosition: Wgs84Point? = null,
     /** 차 진행 방향(도, 북=0) */
     val heading: Double = 0.0,
-    /** 다음 회전 안내 (차량 템플릿 화면용) */
+    /** 다음 회전 안내 (내장 내비 getTBTInfo) */
     val nextTurn: NaviTurn? = null,
-    /** 그다음 회전 (TMAP식 작은 보조 안내) */
+    /** 그다음 회전 (작은 보조 안내) */
     val afterNextTurn: NaviTurn? = null,
-    /** 우리 앱 자체 길안내의 다음 안내 (네이버 경로 안내 문구) */
-    val nextGuide: GuideBanner? = null,
     /** 마지막 이벤트·오류를 사람이 읽을 수 있게 */
     val message: String? = null,
-)
-
-/** 자체 길안내 화면의 다음 안내 카드. */
-data class GuideBanner(
-    val kind: com.nanugil.app.data.route.TurnKind,
-    val instruction: String,
-    val distanceMeters: Int,
 )
 
 /** 내장 내비가 알려 준 다음 회전. */
@@ -82,14 +75,21 @@ data class NaviPlace(
 )
 
 /**
- * Pleos NaviHelper SDK를 감싼다 (ADR-001: 실제 턴바이턴 안내는 차량 내장 내비가 한다).
+ * Pleos NaviHelper SDK를 감싼다 (ADR-002: 지도는 네이버, 실제 길안내·음성·재탐색은 차량 내장 내비).
  *
  * - 길안내 시작: [startRoute] → 내장 내비가 목적지까지 안내
  * - 합류 주유소: [addMeetupStop] → 안내 중이면 경유지 추가 + 재탐색, 아니면 그곳으로 바로 안내
+ * - 우리 화면 표시용: [requestLiveInfo]로 다음 회전(TBT)·남은 거리·시간·현재 위치를 받는다
+ *
+ * 경로 요청·경유지 추가 때는 내장 내비 화면이 앞으로 튀어나온다(에뮬레이터 확인).
+ * [returnTo]를 주면 요청을 보낸 뒤 그 화면으로 다시 돌아온다. 안내는 내비가 화면 뒤에서 계속한다.
  *
  * NaviHelper 콜백은 바인더 스레드에서 오므로 상태는 [StateFlow]로만 내보낸다.
  */
-class NaviController(context: Context) {
+class NaviController(
+    context: Context,
+    private val returnTo: Class<out Activity>? = null,
+) {
 
     private val appContext = context.applicationContext
     private val naviHelper = NaviHelper(appContext)
@@ -97,10 +97,13 @@ class NaviController(context: Context) {
     /** 우리가 경유지로 넣은 장소 이름 → 좌표 (내비가 좌표를 0,0으로 돌려줄 때 대신 쓴다) */
     private val addedStops = java.util.concurrent.ConcurrentHashMap<String, Wgs84Point>()
     private val _state = MutableStateFlow(NaviState())
+    /** 이 시각(elapsedRealtime)까지는 내비가 경로를 다시 잡는 중으로 본다 */
+    @Volatile private var replanUntil = 0L
     val state: StateFlow<NaviState> = _state.asStateFlow()
 
     private val listener = object : NaviHelperEventListener {
         override fun onRouteStarted(routeStartInfo: RouteStartInfo) {
+            replanUntil = 0L
             _state.update {
                 it.copy(
                     guiding = true,
@@ -122,6 +125,9 @@ class NaviController(context: Context) {
         override fun onDestinationInfo(destinationInfo: DestinationInfo) {
             // 안내 중이 아닐 때도 빈 목적지(이름 없음, 0m)가 온다 → 안내 없음으로 본다.
             if (destinationInfo.name.isBlank() && destinationInfo.remainDistance <= 0) {
+                // 경유지 추가·경로 요청 직후 내비는 기존 안내를 취소하고 미리보기를 거쳐 다시 안내한다(약 10초).
+                // 그 사이 빈 목적지가 와도 안내가 끝난 것으로 보지 않는다 (화면 깜빡임·유류비 초기화 방지).
+                if (SystemClock.elapsedRealtime() < replanUntil) return
                 _state.update {
                     it.copy(
                         guiding = false,
@@ -241,6 +247,7 @@ class NaviController(context: Context) {
 
     /** 내장 내비로 목적지 길안내를 시작한다. */
     fun startRoute(destination: NaviPlace) {
+        if (_state.value.guiding) replanUntil = SystemClock.elapsedRealtime() + REPLAN_GRACE_MS
         _state.update {
             it.copy(
                 destinationName = destination.name,
@@ -248,7 +255,29 @@ class NaviController(context: Context) {
                 message = "${destination.name} 경로 요청 중…",
             )
         }
-        withNaviOnScreen { safely("경로 요청") { naviHelper.requestRoute(destination.toRouteInfo()) } }
+        withNaviOnScreen {
+            safely("경로 요청") { naviHelper.requestRoute(destination.toRouteInfo()) }
+            returnToApp()
+        }
+    }
+
+    /**
+     * 내비 화면이 앞으로 나온 뒤 우리 화면으로 돌아온다.
+     * 내비가 요청을 받아 경로를 잡을 시간을 조금 주고 돌아온다 (너무 빨리 돌아오면 요청이 묻힐 수 있다).
+     */
+    private fun returnToApp() {
+        val target = returnTo ?: return
+        mainHandler.postDelayed({
+            try {
+                appContext.startActivity(
+                    Intent(appContext, target).addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
+                    ),
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "앱 화면으로 복귀 실패", e)
+            }
+        }, RETURN_DELAY_MS)
     }
 
     /**
@@ -282,6 +311,7 @@ class NaviController(context: Context) {
             return
         }
         addedStops[stop.name] = stop.position
+        replanUntil = SystemClock.elapsedRealtime() + REPLAN_GRACE_MS
         _state.update { it.copy(message = "${stop.name} 경유지 추가 중…") }
         safely("경유지 추가") {
             naviHelper.addWaypoint(
@@ -297,6 +327,8 @@ class NaviController(context: Context) {
             )
             naviHelper.requestReRoute()
         }
+        // 경유지를 넣으면 내비 화면이 매번 앞으로 튀어나온다 → 우리 화면으로 돌아온다
+        returnToApp()
     }
 
     /** 내장 내비의 장소 검색 화면을 키워드와 함께 연다. 사용자가 고른 곳으로 내비가 경로를 잡는다. */
@@ -317,12 +349,13 @@ class NaviController(context: Context) {
     }
 
     fun cancelRoute() {
+        replanUntil = 0L
         safely("안내 취소") { naviHelper.cancelRoute() }
     }
 
     /**
      * 주행 중 화면 갱신용: 현재 위치, 다음 회전, 남은 거리·시간을 다시 받는다.
-     * 차량 템플릿 화면이 보이는 동안 1초마다 부른다 (경유지는 바뀔 때만 refreshRoute로).
+     * 주행 화면이 보이는 동안 1초마다 부른다 (경유지는 바뀔 때만 refreshRoute로).
      */
     fun requestLiveInfo() {
         if (!_state.value.connected) return
@@ -390,5 +423,9 @@ class NaviController(context: Context) {
         const val NAVI_PACKAGE = "ai.umos.maps.android.navigation.app"
         /** 내비 화면이 뜨고 요청을 받을 수 있을 때까지 기다리는 시간 */
         const val NAVI_READY_DELAY_MS = 1_200L
+        /** 경로 요청·경유지 추가 뒤 우리 화면으로 돌아오기까지 기다리는 시간 */
+        const val RETURN_DELAY_MS = 2_000L
+        /** 경로를 다시 잡는 동안 "안내 없음"을 무시하는 최대 시간 */
+        const val REPLAN_GRACE_MS = 30_000L
     }
 }
