@@ -188,6 +188,9 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     /** 화면이 다시 보일 때: 내비 화면에서 안내를 바꾸고 돌아왔을 수 있으니 상태를 다시 맞춘다 */
     fun onScreenVisible() = navi.refreshRoute()
 
+    /** 화면이 가려질 때: 방금 보낸 요청 때문에 내비가 튀어나온 거라면 바로 돌아온다 */
+    fun onScreenHidden() = navi.onAppHidden()
+
     // ---- 시나리오 4단계: 내 차 연료 부족 → 휴게소 정차 제안 ----
 
     /** [제안]: 그룹에 휴게소 정차를 제안한다. 다른 차가 [합류]하면 두 차 모두 경유지가 추가된다. */

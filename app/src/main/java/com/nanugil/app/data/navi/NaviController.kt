@@ -1,6 +1,7 @@
 package com.nanugil.app.data.navi
 
 import ai.pleos.playground.navi.constants.NaviErrorCode
+import ai.pleos.playground.navi.constants.NavigationStatus
 import ai.pleos.playground.navi.constants.TurnType
 import ai.pleos.playground.navi.constants.WaypointCmdType
 import ai.pleos.playground.navi.constants.WaypointIndex
@@ -23,6 +24,7 @@ import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import com.nanugil.app.core.geo.Wgs84Point
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -101,10 +103,48 @@ class NaviController(
     private val _state = MutableStateFlow(NaviState())
     /** 이 시각(elapsedRealtime)까지는 내비가 경로를 다시 잡는 중으로 본다 */
     @Volatile private var replanUntil = 0L
+
+    // ---- 내비 화면을 띄우지 않고 요청하기 ----
+    /** 내장 내비가 알려 준 상태. FREE_DRIVE·ROUTE_DRIVE면 화면 뒤에서도 요청을 받는다. */
+    @Volatile private var naviStatus: NavigationStatus? = null
+    /** 이번 실행에서 내비가 우리 요청·조회에 응답한 적이 있는지 (상태 이벤트가 안 와도 준비된 것으로 본다) */
+    @Volatile private var naviResponded = false
+    /** 이 시각까지 우리 화면이 가려지면 내비가 튀어나온 것으로 보고 바로 돌아온다 */
+    @Volatile private var popWatchUntil = 0L
+
+    /**
+     * 내비가 요청을 받을 수 있는지.
+     * "navi not ready"는 부팅 뒤 내비 화면이 한 번도 안 떴을 때만 생긴다. 그래서 이번 부팅에서 내비가
+     * 준비된 걸 한 번 봤으면 기억해 두고(앱을 다시 켜도 유지), 다음 부팅 전까지는 내비를 띄우지 않는다.
+     */
+    private val naviReady: Boolean
+        get() = when (naviStatus) {
+            NavigationStatus.FREE_DRIVE, NavigationStatus.ROUTE_DRIVE -> true
+            NavigationStatus.INACTIVE, NavigationStatus.INITIALIZING -> false
+            null -> naviResponded || readyBoot() == bootCount()
+        }
+
+    private val prefs = appContext.getSharedPreferences("navi_controller", Context.MODE_PRIVATE)
+
+    private fun bootCount(): Int =
+        Settings.Global.getInt(appContext.contentResolver, Settings.Global.BOOT_COUNT, -1)
+
+    private fun readyBoot(): Int = prefs.getInt(KEY_READY_BOOT, -2)
+
+    /** 내비가 이번 부팅에서 준비됐다는 걸 기억한다 */
+    private fun markNaviReady() {
+        naviResponded = true
+        val boot = bootCount()
+        if (boot >= 0 && readyBoot() != boot) prefs.edit().putInt(KEY_READY_BOOT, boot).apply()
+    }
+
+    /** 내비가 요청을 받아 처리했다는 신호 */
+    private fun onNaviAck() = markNaviReady()
     val state: StateFlow<NaviState> = _state.asStateFlow()
 
     private val listener = object : NaviHelperEventListener {
         override fun onRouteStarted(routeStartInfo: RouteStartInfo) {
+            onNaviAck()
             replanUntil = 0L
             _state.update {
                 it.copy(
@@ -120,7 +160,20 @@ class NaviController(
             refreshRoute()
         }
 
+        override fun onRoutingCompleted() {
+            onNaviAck()
+        }
+
+        override fun onNavigationStatus(navigationStatus: NavigationStatus) {
+            Log.d(TAG, "navi status $navigationStatus")
+            naviStatus = navigationStatus
+            if (navigationStatus == NavigationStatus.FREE_DRIVE || navigationStatus == NavigationStatus.ROUTE_DRIVE) {
+                markNaviReady()
+            }
+        }
+
         override fun onReRouteEnded() {
+            onNaviAck()
             _state.update { it.copy(message = "경로 재탐색 완료", routeVersion = it.routeVersion + 1) }
             refreshRoute()
         }
@@ -148,6 +201,7 @@ class NaviController(
                 }
                 return
             }
+            markNaviReady()
             _state.update {
                 it.copy(
                     guiding = true,
@@ -162,6 +216,7 @@ class NaviController(
         }
 
         override fun onWaypointChanged(waypointChangedInfo: WaypointChangedInfo) {
+            onNaviAck()
             val added = waypointChangedInfo.cmdType == WaypointCmdType.ADD
             _state.update {
                 it.copy(
@@ -193,6 +248,7 @@ class NaviController(
         }
 
         override fun onTBTInfo(tbtInfoList: List<TBTInfo>) {
+            if (tbtInfoList.isNotEmpty()) markNaviReady()
             val turns = tbtInfoList.map { t -> NaviTurn(t.type, t.distance, t.description) }
             _state.update { it.copy(nextTurn = turns.getOrNull(0), afterNextTurn = turns.getOrNull(1)) }
         }
@@ -221,6 +277,7 @@ class NaviController(
         }
 
         override fun onError(errorCode: NaviErrorCode) {
+            onNaviAck()
             Log.w(TAG, "navi error $errorCode")
             _state.update { it.copy(message = errorCode.toKorean()) }
         }
@@ -259,19 +316,50 @@ class NaviController(
                 message = "${destination.name} 경로 요청 중…",
             )
         }
-        withNaviOnScreen {
-            safely("경로 요청") { naviHelper.requestRoute(destination.toRouteInfo()) }
-            returnToApp()
+        sendToNavi("경로 요청") { naviHelper.requestRoute(destination.toRouteInfo()) }
+    }
+
+    /**
+     * 내장 내비에 요청을 보낸다.
+     * - 내비가 이미 준비돼 있으면(FREE_DRIVE·ROUTE_DRIVE) 우리가 내비를 띄우지 않고 바로 보낸다.
+     *   단, 내비는 경로 요청·경유지 추가를 받으면 스스로 앞으로 나온다(에뮬레이터 확인, 요청 후 약 0.1초).
+     *   그래서 우리 화면이 가려지는 순간([onAppHidden]) 바로 돌아오고, 혹시 그 신호를 못 받으면 2초 뒤에 돌아온다.
+     * - 아직 준비 전(부팅 직후 "navi not ready")이면 내비를 먼저 띄우고 보낸 뒤 돌아온다.
+     */
+    private fun sendToNavi(action: String, request: () -> Unit) {
+        if (!naviReady) {
+            Log.d(TAG, "$action: 내비 준비 전 → 내비 화면을 띄우고 요청 (status=$naviStatus)")
+            withNaviOnScreen {
+                safely(action, request)
+                returnToApp()
+            }
+            return
         }
+        Log.d(TAG, "$action: 내비를 띄우지 않고 바로 요청 (status=$naviStatus)")
+        popWatchUntil = SystemClock.elapsedRealtime() + POP_WATCH_MS
+        safely(action, request)
+        returnToApp() // 안전장치: 가려짐 신호를 못 받았을 때. 이미 앞에 있으면 아무 일도 없다.
+    }
+
+    /**
+     * 우리 화면이 가려졌을 때(Activity onPause) 부른다.
+     * 방금 화면 뒤로 요청을 보낸 직후라면 내비가 튀어나온 것이므로 바로 돌아온다.
+     */
+    fun onAppHidden() {
+        if (SystemClock.elapsedRealtime() > popWatchUntil) return
+        popWatchUntil = 0L
+        Log.d(TAG, "요청 직후 내비가 앞으로 나옴 → 바로 복귀")
+        mainHandler.removeCallbacksAndMessages(RETURN_TOKEN)
+        returnToApp(QUICK_RETURN_DELAY_MS)
     }
 
     /**
      * 내비 화면이 앞으로 나온 뒤 우리 화면으로 돌아온다.
      * 내비가 요청을 받아 경로를 잡을 시간을 조금 주고 돌아온다 (너무 빨리 돌아오면 요청이 묻힐 수 있다).
      */
-    private fun returnToApp() {
+    private fun returnToApp(delayMs: Long = RETURN_DELAY_MS) {
         val target = returnTo ?: return
-        mainHandler.postDelayed({
+        mainHandler.postAtTime({
             try {
                 appContext.startActivity(
                     Intent(appContext, target).addFlags(
@@ -281,7 +369,7 @@ class NaviController(
             } catch (e: Exception) {
                 Log.w(TAG, "앱 화면으로 복귀 실패", e)
             }
-        }, RETURN_DELAY_MS)
+        }, RETURN_TOKEN, SystemClock.uptimeMillis() + delayMs)
     }
 
     /**
@@ -317,7 +405,7 @@ class NaviController(
         addedStops[stop.name] = stop.position
         replanUntil = SystemClock.elapsedRealtime() + REPLAN_GRACE_MS
         _state.update { it.copy(message = "${stop.name} 경유지 추가 중…") }
-        safely("경유지 추가") {
+        sendToNavi("경유지 추가") {
             naviHelper.addWaypoint(
                 RequestWaypointInfo(
                     latitude = stop.position.latitude,
@@ -331,8 +419,6 @@ class NaviController(
             )
             naviHelper.requestReRoute()
         }
-        // 경유지를 넣으면 내비 화면이 매번 앞으로 튀어나온다 → 우리 화면으로 돌아온다
-        returnToApp()
     }
 
     /** 내장 내비의 장소 검색 화면을 키워드와 함께 연다. 사용자가 고른 곳으로 내비가 경로를 잡는다. */
@@ -354,7 +440,10 @@ class NaviController(
 
     fun cancelRoute() {
         replanUntil = 0L
+        // 안내 취소도 내비 화면을 앞으로 띄운다 → 경로 요청과 같이 바로 돌아온다
+        popWatchUntil = SystemClock.elapsedRealtime() + POP_WATCH_MS
         safely("안내 취소") { naviHelper.cancelRoute() }
+        returnToApp()
     }
 
     /**
@@ -431,5 +520,12 @@ class NaviController(
         const val RETURN_DELAY_MS = 2_000L
         /** 경로를 다시 잡는 동안 "안내 없음"을 무시하는 최대 시간 */
         const val REPLAN_GRACE_MS = 30_000L
+        /** 복귀 예약을 한 번에 지우기 위한 표식 */
+        val RETURN_TOKEN = Any()
+        const val KEY_READY_BOOT = "ready_boot_count"
+        /** 요청 직후 이 시간 안에 우리 화면이 가려지면 내비가 튀어나온 것으로 본다 */
+        const val POP_WATCH_MS = 6_000L
+        /** 내비가 튀어나왔을 때 돌아오기까지 (내비가 요청을 받을 틈) */
+        const val QUICK_RETURN_DELAY_MS = 150L
     }
 }

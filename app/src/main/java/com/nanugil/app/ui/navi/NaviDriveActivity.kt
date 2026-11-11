@@ -169,6 +169,13 @@ class NaviDriveActivity : ComponentActivity() {
         viewModel.onScreenVisible()
     }
 
+    override fun onPause() {
+        super.onPause()
+        // 내비 요청 직후 내비 화면이 앞으로 튀어나왔으면 바로 돌아오게 알린다
+        // (onStop보다 0.5초쯤 먼저 온다. 요청 직후 몇 초 동안만 반응한다)
+        if (!isChangingConfigurations) viewModel.onScreenHidden()
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         mapBinder.onSaveInstanceState(outState)
