@@ -78,7 +78,36 @@ class NaviDriveActivity : ComponentActivity() {
             onSubmit = { viewModel.submitSearch() },
             onVoice = ::startVoiceSearch,
             onStopVoice = viewModel::stopVoiceSearch,
-            onSelect = viewModel::selectPlace,
+        )
+    }
+
+    private val groupActions by lazy {
+        GroupActions(
+            onTab = viewModel::selectTab,
+            onBack = viewModel::back,
+            onOpenDrive = viewModel::openDrive,
+            onOpenCreate = viewModel::openCreateGroup,
+            onOpenJoin = viewModel::openJoin,
+            onOpenGroup = viewModel::openGroup,
+            onCreateFormChange = viewModel::updateCreateForm,
+            onCreate = viewModel::createGroup,
+            onSearchDestination = viewModel::openSearch,
+            onNewCode = viewModel::newInviteCode,
+            onAddPassenger = viewModel::addPassenger,
+            onStartTrip = viewModel::startTrip,
+            onCodeKey = viewModel::typeCode,
+            onCodeDelete = viewModel::deleteCode,
+            onJoin = viewModel::joinGroup,
+            onCarNameChange = viewModel::setCarName,
+            onTogglePassenger = viewModel::togglePassenger,
+            onDepart = viewModel::departJoin,
+            onPriceBasis = viewModel::setPriceBasis,
+            onEditToll = {
+                // TODO(정산): 통행료 직접 수정 화면 (정산 담당)
+                Toast.makeText(this, "통행료 수정은 정산 화면에서 이어서 만들어요", Toast.LENGTH_SHORT).show()
+            },
+            onRequestSettlement = viewModel::requestSettlement,
+            onGoHome = viewModel::goHome,
         )
     }
 
@@ -103,6 +132,7 @@ class NaviDriveActivity : ComponentActivity() {
                 navi = ui.navi,
                 vehicle = ui.vehicle,
                 carsDriving = ui.carsDriving,
+                groupCars = ui.groupCars,
                 proposal = ui.proposal,
                 cost = ui.cost,
                 routeError = ui.navi.message?.takeIf { "실패" in it || "오류" in it },
@@ -116,11 +146,11 @@ class NaviDriveActivity : ComponentActivity() {
                 answerListening = ui.answerListening,
                 answerHeard = ui.answerHeard,
                 onVoiceAnswer = ::startVoiceAnswer,
+                group = ui.group,
+                groupActions = groupActions,
                 onZoomIn = { drive?.zoomBy(1.0) },
                 onZoomOut = { drive?.zoomBy(-1.0) },
                 onRecenter = { drive?.recenter() },
-                onHome = { drive?.recenter() },
-                onCars = { startActivity(Intent(this, MainActivity::class.java)) },
                 carGlow = following && ui.navi.guiding,
                 themeMode = ui.themeMode,
                 onThemeModeChange = viewModel::setThemeMode,

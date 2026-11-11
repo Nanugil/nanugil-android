@@ -156,6 +156,7 @@ class NaviController(
                 returnWhenStarted = false
                 Log.d(TAG, "안내 시작됨 → 나누길 화면으로 복귀")
                 returnToApp(QUICK_RETURN_DELAY_MS)
+                NaviWaitService.stop(appContext)
             }
             replanUntil = 0L
             _state.update {
@@ -314,6 +315,7 @@ class NaviController(
     /** 액티비티 onDestroy에서 부른다. */
     fun release() {
         mainHandler.removeCallbacksAndMessages(null)
+        NaviWaitService.stop(appContext)
         naviHelper.removeListener(listener)
         naviHelper.release()
     }
@@ -463,14 +465,22 @@ class NaviController(
         }
     }
 
-    /** 내장 내비의 장소 검색 화면을 키워드와 함께 연다. 사용자가 고른 곳으로 내비가 경로를 잡는다. */
+    /**
+     * 내장 내비의 장소 검색 화면을 키워드와 함께 연다. 사용자가 고른 곳으로 내비가 경로를 잡고,
+     * 안내가 시작되면([onRouteStarted]) 우리 화면으로 돌아온다. 검색 화면은 운전자가 골라야 하므로 바로 돌아오지 않는다.
+     */
     fun searchPlace(keyword: String) {
         if (keyword.isBlank()) return
         val query = keyword.trim()
         _state.update { it.copy(message = "내비에서 '$query' 검색 중…") }
-        withNaviOnScreen {
-            safely("장소 검색") { naviHelper.requestNavigationScreen(NavigationScreenRequest.SearchPlace(query)) }
-        }
+        mainHandler.removeCallbacksAndMessages(START_WATCH_TOKEN)
+        popWatchUntil = 0L
+        waitingForStart = true
+        returnWhenStarted = true
+        // 내비 검색 화면에서 고르는 동안 앱이 얼면 "안내 시작" 이벤트를 못 받는다 → 잠깐 포그라운드 서비스로 붙잡는다
+        NaviWaitService.start(appContext)
+        val open = { safely("장소 검색") { naviHelper.requestNavigationScreen(NavigationScreenRequest.SearchPlace(query)) } }
+        if (naviReady) open() else withNaviOnScreen(open)
     }
 
     /** 내장 내비 안내 화면을 앞으로 띄운다. */
@@ -484,6 +494,7 @@ class NaviController(
         replanUntil = 0L
         waitingForStart = false
         returnWhenStarted = false
+        NaviWaitService.stop(appContext)
         mainHandler.removeCallbacksAndMessages(START_WATCH_TOKEN)
         // 안내 취소도 내비 화면을 앞으로 띄운다 → 경로 요청과 같이 바로 돌아온다
         popWatchUntil = SystemClock.elapsedRealtime() + POP_WATCH_MS
