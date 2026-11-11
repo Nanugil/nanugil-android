@@ -22,14 +22,35 @@ class SettlementInputTest {
         assertEquals("30", car.refueledL)
         assertEquals("52.5", car.endFuelL)
 
-        // 배터리 기록만 있으면 전기차로 바뀐다
         val ev = gasoline("지수", "", "1", "1").withRecorded(RefillDetector(), RefillDetector(start = 70_000, latest = 55_000, added = 10_000))
-        assertEquals(VehicleType.ELECTRIC, ev.type)
         assertEquals("10", ev.chargedKwh)
 
         // 기록이 없으면 그대로
         val untouched = gasoline("지수", "", "40", "30")
         assertEquals(untouched, untouched.withRecorded(RefillDetector(), RefillDetector()))
+    }
+
+    @Test
+    fun vehicleTypeFromFuelTypes_mapsCarInfo() {
+        // android.car.FuelType 값: UNLEADED 1, DIESEL_1 3, LPG 7, ELECTRIC 10
+        assertEquals(VehicleType.ELECTRIC, vehicleTypeFromFuelTypes(intArrayOf(10)))
+        assertEquals(VehicleType.HYBRID, vehicleTypeFromFuelTypes(intArrayOf(1, 10)))
+        assertEquals(VehicleType.GASOLINE, vehicleTypeFromFuelTypes(intArrayOf(1)))
+        assertEquals(VehicleType.DIESEL, vehicleTypeFromFuelTypes(intArrayOf(3)))
+        assertEquals(null, vehicleTypeFromFuelTypes(intArrayOf(7)))
+        assertEquals(null, vehicleTypeFromFuelTypes(intArrayOf()))
+    }
+
+    @Test
+    fun myCarType_correctsReportedTypeWithTripLog() {
+        val fuel = RefillDetector(start = 40_000, latest = 30_000)
+        val battery = RefillDetector(start = 10_000, latest = 8_000)
+        // 일반 하이브리드는 휘발유로만 알려 줄 수 있다: 배터리도 기록되면 하이브리드
+        assertEquals(VehicleType.HYBRID, myCarType(VehicleType.GASOLINE, fuel, battery))
+        // 차 정보를 못 읽어도 배터리만 기록되면 전기차
+        assertEquals(VehicleType.ELECTRIC, myCarType(null, RefillDetector(), battery))
+        // 기록이 없으면 차가 알려 준 대로
+        assertEquals(VehicleType.DIESEL, myCarType(VehicleType.DIESEL, RefillDetector(), RefillDetector()))
     }
 
     @Test

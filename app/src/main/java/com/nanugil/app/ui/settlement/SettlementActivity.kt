@@ -3,6 +3,7 @@ package com.nanugil.app.ui.settlement
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,6 +19,8 @@ import com.nanugil.app.data.fuel.OpinetClient
 import com.nanugil.app.data.vehicle.GearState
 import com.nanugil.app.data.vehicle.settlementBlockReason
 import com.nanugil.app.nanugilApp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * 정산 입력 화면.
@@ -57,6 +60,17 @@ class SettlementActivity : ComponentActivity() {
                         readMyBatteryWh = fuelReader::readBatteryWh,
                         loadFuelPrices = opinetClient::averagePrices,
                         prefillMyCar = { car -> car.withRecorded(recorder.fuel, recorder.battery) },
+                        readMyCarType = {
+                            val reported = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    val types = fuelReader.readFuelTypes()
+                                    vehicleTypeFromFuelTypes(types).also { Log.i("SettlementActivity", "차 연료 종류 ${types.toList()} → $it") }
+                                }
+                                    .onFailure { Log.w("SettlementActivity", "연료 종류 읽기 실패", it) }
+                                    .getOrNull()
+                            }
+                            myCarType(reported, recorder.fuel, recorder.battery)
+                        },
                         // TODO(팀장 결정): 송금 안내 방식(QR·계좌, 송금 순서)이 정해지면 Figma 09 "정산 요청 보냄" 화면으로 연결
                         onRequestSettlement = {
                             // 이번 운행 정산이 끝났으니 다음 운행 기록을 새로 시작한다.

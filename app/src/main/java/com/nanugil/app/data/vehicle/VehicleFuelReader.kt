@@ -89,21 +89,33 @@ class VehicleFuelReader(private val context: Context, private val vehicle: Vehic
         )
     }
 
-    internal fun readTankCapacityMl(): Long {
+    internal fun readTankCapacityMl(): Long = withCarProperty("탱크 용량") { manager ->
+        val ml = manager.getFloatProperty(VehiclePropertyIds.INFO_FUEL_CAPACITY, 0)
+        check(ml > 0f) { "차량이 탱크 용량을 주지 않았습니다." }
+        ml.roundToLong()
+    }
+
+    /**
+     * 차가 쓰는 연료 종류 목록. AAOS `INFO_FUEL_TYPE` (`android.car.permission.CAR_INFO`).
+     * Pleos SDK에는 FuelType 상수만 있고 내 차 값을 주는 API가 없다. 값은 [android.car.FuelType] 상수다.
+     */
+    fun readFuelTypes(): IntArray = withCarProperty("연료 종류") { manager ->
+        manager.getIntArrayProperty(VehiclePropertyIds.INFO_FUEL_TYPE, 0)
+    }
+
+    /** 차량 속성 서비스에 잠깐 붙어 [block]을 실행하고 끊는다. 연결을 기다리므로 메인 스레드에서 부르지 않는다. */
+    private fun <T> withCarProperty(what: String, block: (CarPropertyManager) -> T): T {
         val car = try {
             Car.createCar(context)
         } catch (e: LinkageError) {
             null // android.car 라이브러리가 없는 기기 (일반 휴대폰 등)
-        } ?: throw IllegalStateException("차량 서비스에 연결하지 못해 탱크 용량을 읽지 못했습니다.")
+        } ?: throw IllegalStateException("차량 서비스에 연결하지 못해 ${what}을(를) 읽지 못했습니다.")
         try {
-            val manager = car.getCarManager(Car.PROPERTY_SERVICE) as CarPropertyManager
-            val ml = manager.getFloatProperty(VehiclePropertyIds.INFO_FUEL_CAPACITY, 0)
-            check(ml > 0f) { "차량이 탱크 용량을 주지 않았습니다." }
-            return ml.roundToLong()
+            return block(car.getCarManager(Car.PROPERTY_SERVICE) as CarPropertyManager)
         } catch (e: IllegalStateException) {
             throw e
         } catch (e: Exception) {
-            throw IllegalStateException("탱크 용량을 읽지 못했습니다: ${e.message}", e)
+            throw IllegalStateException("${what}을(를) 읽지 못했습니다: ${e.message}", e)
         } finally {
             car.disconnect()
         }

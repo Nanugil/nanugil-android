@@ -1,5 +1,6 @@
 package com.nanugil.app.ui.settlement
 
+import android.car.FuelType
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -81,6 +82,36 @@ enum class VehicleType(
     HYBRID("하이브리드", usesFuel = true, usesBattery = true, defaultFuelPrice = "1700", opinetProduct = FuelProduct.GASOLINE),
 }
 
+/**
+ * 차가 알려 준 연료 종류(AAOS `INFO_FUEL_TYPE`, [FuelType] 상수)로 차종을 정한다. 모르는 조합이면 null.
+ * 고급휘발유는 차가 따로 알려 주지 않아 휘발유로 본다. 충전구 없는 일반 하이브리드는 휘발유로만 나올 수 있다.
+ */
+internal fun vehicleTypeFromFuelTypes(types: IntArray): VehicleType? {
+    val electric = FuelType.ELECTRIC in types
+    val gasoline = FuelType.UNLEADED in types || FuelType.LEADED in types
+    val diesel = FuelType.DIESEL_1 in types || FuelType.DIESEL_2 in types || FuelType.BIODIESEL in types
+    return when {
+        electric && (gasoline || diesel) -> VehicleType.HYBRID
+        electric -> VehicleType.ELECTRIC
+        gasoline -> VehicleType.GASOLINE
+        diesel -> VehicleType.DIESEL
+        else -> null
+    }
+}
+
+private val RefillDetector.isRecorded get() = start != null && latest != null
+
+/**
+ * 내 차 차종. 차가 알려 준 차종([reported])을 운행 기록으로 보정한다.
+ * 연료와 배터리가 둘 다 기록되면 하이브리드(일반 하이브리드가 휘발유로만 알려 주는 경우),
+ * 배터리만 기록되면 전기차로 본다.
+ */
+internal fun myCarType(reported: VehicleType?, fuel: RefillDetector, battery: RefillDetector): VehicleType? = when {
+    fuel.isRecorded && battery.isRecorded -> VehicleType.HYBRID
+    battery.isRecorded && reported != VehicleType.HYBRID -> VehicleType.ELECTRIC
+    else -> reported
+}
+
 internal fun VehicleType.priceText(prices: Map<FuelProduct, Int>): String =
     opinetProduct?.let(prices::get)?.toString() ?: defaultFuelPrice
 
@@ -103,24 +134,15 @@ data class CarInput(
     fun withType(newType: VehicleType, prices: Map<FuelProduct, Int> = emptyMap()) =
         copy(type = newType, fuelPrice = newType.priceText(prices))
 
-    /**
-     * 운행 중 기록한 값(출발, 주유·충전량, 현재)을 칸에 넣는다. 기록이 없는 쪽은 그대로 둔다.
-     * 연료 기록만 있으면 연료차, 배터리 기록만 있으면 전기차로 바꾼다. 둘 다 있으면 하이브리드다.
-     */
+    /** 운행 중 기록한 값(출발, 주유·충전량, 현재)을 칸에 넣는다. 기록이 없는 쪽은 그대로 둔다. 차종은 [myCarType]이 정한다. */
     fun withRecorded(fuel: RefillDetector, battery: RefillDetector): CarInput {
-        val hasFuel = fuel.start != null && fuel.latest != null
-        val hasBattery = battery.start != null && battery.latest != null
-        var car = when {
-            hasFuel && hasBattery -> copy(type = VehicleType.HYBRID)
-            hasBattery -> copy(type = VehicleType.ELECTRIC)
-            else -> this
-        }
-        if (hasFuel) car = car.copy(
+        var car = this
+        if (fuel.isRecorded) car = car.copy(
             startFuelL = milliToDecimalText(fuel.start!!),
             refueledL = milliToDecimalText(fuel.added),
             endFuelL = milliToDecimalText(fuel.latest!!),
         )
-        if (hasBattery) car = car.copy(
+        if (battery.isRecorded) car = car.copy(
             startBatteryKwh = milliToDecimalText(battery.start!!),
             chargedKwh = milliToDecimalText(battery.added),
             endBatteryKwh = milliToDecimalText(battery.latest!!),
@@ -225,6 +247,7 @@ private fun carName(index: Int): String = "${'A' + index}차"
  *   두 함수 모두 있으면 A차의 출발·도착 칸에 "차에서 읽기"가 생기고, 실패하면 [IllegalStateException] 메시지를 보여 준다.
  * @param onRequestSettlement '정산 요청'을 눌렀을 때. 송금 안내 방식이 정해지기 전이라 지금은 안내만 띄운다.
  * @param prefillMyCar 운행 중 기록한 값으로 A차(내 차) 칸을 채운다. 화면이 열릴 때 한 번만 적용한다.
+ * @param readMyCarType 내 차 차종을 읽는 함수. 읽히면 A차 차종 버튼을 그 값으로 바꾼다.
  */
 @Composable
 fun SettlementScreen(
@@ -235,6 +258,7 @@ fun SettlementScreen(
     loadFuelPrices: (suspend () -> Map<FuelProduct, Int>)? = null,
     onRequestSettlement: (Settlement) -> Unit = {},
     prefillMyCar: (CarInput) -> CarInput = { it },
+    readMyCarType: (suspend () -> VehicleType?)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val cars = remember {
@@ -260,6 +284,12 @@ fun SettlementScreen(
         } catch (e: OpinetException) {
             PriceSource.EXAMPLE
         }
+    }
+
+    // 내 차 차종을 읽어 A차 차종 버튼을 맞춘다. 못 읽으면 그대로 둔다(직접 고르면 된다).
+    LaunchedEffect(Unit) {
+        val type = readMyCarType?.invoke() ?: return@LaunchedEffect
+        if (type != cars[0].type) cars[0] = cars[0].withType(type, prices)
     }
 
     // 차량 값은 이 기기가 달린 차(A차)에서만 읽을 수 있다.
