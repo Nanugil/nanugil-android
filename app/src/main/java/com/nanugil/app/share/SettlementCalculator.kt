@@ -141,10 +141,9 @@ object SettlementCalculator {
      * 1. 차량별 비용을 구해 운전자가 낸 돈으로 본다.
      * 2. 1인 부담액 = 전체 비용 ÷ 전체 인원을 [roundingUnitWon] 단위로 내림한다.
      *    내림으로 남은 금액은 받을 사람들이 나눠서 덜 받는다. 원 단위 처리 정책은 팀에서 아직 정하지 않아 단위만 바꿀 수 있게 했다.
-     * 3. 같은 차 동승자는 그 차 운전자가 받을 돈이 남아 있는 만큼 먼저 그 운전자에게 보낸다.
-     *    운전자가 오히려 보낼 사람이면 동승자를 운전자에게 거쳐 보내게 하지 않는다(운전자가 남의 돈을 대신 전달하지 않도록).
-     *    남은 잔액은 금액이 큰 사람끼리 먼저 짝지어 보낸다.
-     *    비용을 적게 낸 운전자도 부담액보다 덜 냈으면 다른 운전자에게 보낸다.
+     * 3. 동승자는 모두 똑같이 1인 부담액 전액을 자기 차 운전자에게 보낸다. 동승자가 보낼 상대는 항상 한 명이다.
+     *    그다음 운전자끼리 남은 잔액을 금액이 큰 사람끼리 먼저 짝지어 정산한다.
+     *    그래서 운전자가 다른 차 몫까지 받아 넘겨주는 경우가 생긴다.
      *
      * @param trips 그룹의 차량 기록. 비어 있으면 안 되고, 한 사람이 두 차에 들어가면 안 된다.
      * @param roundingUnitWon 1인 부담액의 단위(원). 1이면 원 단위, 10이면 10원 단위로 내림한다.
@@ -218,18 +217,17 @@ object SettlementCalculator {
         val remaining = LinkedHashMap(balances)
         val transfers = mutableListOf<Transfer>()
 
-        fun pay(from: String, to: String) {
-            val amount = minOf(-remaining.getValue(from), remaining.getValue(to))
+        fun pay(from: String, to: String, amount: Long = minOf(-remaining.getValue(from), remaining.getValue(to))) {
             if (amount <= 0) return
             transfers += Transfer(from, to, amount)
             remaining[from] = remaining.getValue(from) + amount
             remaining[to] = remaining.getValue(to) - amount
         }
 
-        // 1차: 같은 차 동승자 → 그 차 운전자 (운전자가 받을 돈이 있는 만큼만)
-        trips.forEach { trip -> trip.passengerIds.forEach { pay(it, trip.driverId) } }
+        // 1차: 동승자 → 자기 차 운전자, 부담액 전액. 나머지는 받을 사람(운전자)만 흡수하므로 동승자 잔액은 늘 −부담액이다
+        trips.forEach { trip -> trip.passengerIds.forEach { pay(it, trip.driverId, -remaining.getValue(it)) } }
 
-        // 2차: 남은 잔액이 큰 사람끼리 먼저 짝지어 한 사람이 여러 번 나눠 보내는 일을 줄인다(동점이면 입력 순서)
+        // 2차: 운전자끼리. 잔액이 큰 사람끼리 먼저 짝지어 한 사람이 여러 번 나눠 보내는 일을 줄인다(동점이면 입력 순서)
         val debtors = remaining.filterValues { it < 0 }.entries.sortedBy { it.value }.map { it.key }
         val creditors = remaining.filterValues { it > 0 }.entries.sortedByDescending { it.value }.map { it.key }
         for (debtor in debtors) {

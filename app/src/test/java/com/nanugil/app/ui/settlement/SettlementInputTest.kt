@@ -34,8 +34,8 @@ class SettlementInputTest {
             listOf(
                 Transfer("민호", "지수", 6_800),
                 Transfer("서연", "지수", 6_800),
-                Transfer("다은", "현우", 5_200),
-                Transfer("다은", "지수", 1_600),
+                Transfer("다은", "현우", 6_800),
+                Transfer("현우", "지수", 1_600),
             ),
             result.transfers,
         )

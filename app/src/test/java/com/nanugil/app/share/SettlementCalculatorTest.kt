@@ -70,18 +70,18 @@ class SettlementCalculatorTest {
     }
 
     @Test
-    fun settle_passengersPayOwnDriverFirst() {
+    fun settle_passengersPayFullShareToOwnDriver_thenDriversSettle() {
         val result = SettlementCalculator.settle(docExample)
 
-        // A 동승자 3명 = 20,250원이 A 몫 15,250원보다 많으므로 p3가 일부를 B에게 보낸다
+        // A 동승자 3명 = 20,250원이 A 몫 15,250원보다 많으므로 A가 남는 5,000원을 B에게 넘긴다
         val expected = listOf(
             Transfer("p1", "a", 6_750),
             Transfer("p2", "a", 6_750),
-            Transfer("p3", "a", 1_750),
+            Transfer("p3", "a", 6_750),
             Transfer("p4", "b", 6_750),
             Transfer("p5", "b", 6_750),
             Transfer("p6", "b", 6_750),
-            Transfer("p3", "b", 5_000),
+            Transfer("a", "b", 5_000),
         )
         assertEquals(expected, result.transfers)
         assertTransfersBalance(result)
@@ -112,8 +112,14 @@ class SettlementCalculatorTest {
         assertEquals(10_000L, result.perPersonShareWon)
         assertEquals(-10_000L, result.balancesWon["b"])
         assertEquals(30_000L, result.balancesWon["a"])
+        // p2도 자기 차 운전자 b에게 보내고, b가 받은 돈까지 a에게 넘긴다
+        val expected = listOf(
+            Transfer("p1", "a", 10_000),
+            Transfer("p2", "b", 10_000),
+            Transfer("b", "a", 20_000),
+        )
+        assertEquals(expected, result.transfers)
         assertTransfersBalance(result)
-        assertTrue(result.transfers.none { it.toId == "b" })
     }
 
     @Test
@@ -213,7 +219,7 @@ class SettlementCalculatorTest {
 
     @Test
     fun settle_secondPass_matchesLargestBalancesFirst() {
-        // 1인 100원. a +75, b +75, c −20, d −30, p −100 (p는 c 차에 탔지만 c도 보낼 사람)
+        // 1인 100원. a +75, b +75, c −20, d −30, p −100. p가 c에게 100원을 보내 c는 −120이 된다
         val trips = listOf(
             VehicleTrip("A", "a", startFuelMl = 0, endFuelMl = 0, fuelPriceWonPerLiter = 0, tollWon = 175),
             VehicleTrip("B", "b", startFuelMl = 0, endFuelMl = 0, fuelPriceWonPerLiter = 0, tollWon = 175),
@@ -224,10 +230,10 @@ class SettlementCalculatorTest {
         val result = SettlementCalculator.settle(trips)
 
         val expected = listOf(
-            Transfer("p", "a", 75),
-            Transfer("p", "b", 25),
+            Transfer("p", "c", 100),
+            Transfer("c", "a", 75),
+            Transfer("c", "b", 45),
             Transfer("d", "b", 30),
-            Transfer("c", "b", 20),
         )
         assertEquals(expected, result.transfers)
         assertTransfersBalance(result)
