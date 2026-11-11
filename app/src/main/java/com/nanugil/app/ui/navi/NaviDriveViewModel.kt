@@ -16,10 +16,6 @@ import com.nanugil.app.data.navi.NaviController
 import com.nanugil.app.data.navi.NaviPlace
 import com.nanugil.app.data.navi.NaviState
 import com.nanugil.app.data.route.NaverDirectionsClient
-import com.nanugil.app.data.search.NaverPlaceSearchRepository
-import com.nanugil.app.data.search.PlaceResult
-import com.nanugil.app.data.search.PlaceSearchException
-import com.nanugil.app.data.search.PlaceSearchRepository
 import com.nanugil.app.data.voice.VoiceSearch
 import com.nanugil.app.data.vehicle.VehicleStatusSource
 import kotlinx.coroutines.Job
@@ -65,15 +61,8 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     /** 지도에 그릴 경로선 (현재 위치 → 경유지 → 목적지) */
     val routePath: StateFlow<List<Wgs84Point>> = _routePath.asStateFlow()
     private val prefs = app.getSharedPreferences(PREFS_UI, Context.MODE_PRIVATE)
-    private val placeSearch: PlaceSearchRepository = NaverPlaceSearchRepository(
-        searchClientId = BuildConfig.NAVER_SEARCH_CLIENT_ID,
-        searchClientSecret = BuildConfig.NAVER_SEARCH_CLIENT_SECRET,
-        ncpClientId = BuildConfig.NAVER_MAP_CLIENT_ID,
-        ncpClientSecret = BuildConfig.NAVER_MAP_CLIENT_SECRET,
-    )
     private val voice = VoiceSearch(app)
     private val search = MutableStateFlow(SearchUiState())
-    private var searchJob: Job? = null
 
     // ---- 화면 전용 상태 ----
     /** 합류 제안을 수락하거나 건너뛰면 다시 띄우지 않는다 */
@@ -82,6 +71,8 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     private val restStopPhase = MutableStateFlow(RestStopPhase.NONE)
     /** 음성 인식이 합류 팝업 답변용인지 (아니면 목적지 검색용) */
     private val answering = MutableStateFlow(false)
+    /** 와이어프레임 v5 화면 흐름. TODO(서버): 그룹·초대 코드·멤버·송금 상태를 서버와 동기화 */
+    private val groupUi = MutableStateFlow(GroupUiState())
     private val themeMode = MutableStateFlow(loadThemeMode())
 
     private val groupCars: StateFlow<List<CarState>> = groupRepository.observeGroup(GROUP_ID)
@@ -105,8 +96,10 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    private val withGroup = combine(baseState, groupUi) { base, g -> base.copy(group = g) }
+
     val uiState: StateFlow<NaviDriveUiState> =
-        combine(baseState, search, voice.state, restStopPhase, answering) { base, s, v, phase, answer ->
+        combine(withGroup, search, voice.state, restStopPhase, answering) { base, s, v, phase, answer ->
             base.copy(
                 search = if (answer) s else s.copy(listening = v.listening, partial = v.partial, error = v.error ?: s.error),
                 suggestion = restStopSuggestion(base, phase),
@@ -178,9 +171,159 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- 화면 이벤트 ----
 
+    init {
+        // 내장 내비가 "목적지 도착"을 알리면 08 도착(정산) 화면을 연다.
+        // TODO(정산): 시나리오 7단계대로 P단(주차)일 때만 연다 (Vehicle SDK 기어 상태)
+        viewModelScope.launch {
+            var wasGuiding = false
+            navi.state.collect { s ->
+                if (wasGuiding && !s.guiding && s.message == "목적지 도착") {
+                    groupUi.value = groupUi.value.copy(screen = AppScreen.ARRIVAL)
+                }
+                wasGuiding = s.guiding
+            }
+        }
+    }
+
+    // ---- 와이어프레임 v5 화면 흐름 ----
+
+    private fun go(screen: AppScreen) {
+        groupUi.value = groupUi.value.copy(screen = screen)
+    }
+
+    /** 위쪽 탭: 드라이브(안내 중이면 주행 화면, 아니면 홈) · 내 차 · 정산(보냈으면 보낸 화면) */
+    fun selectTab(tab: NaviTab) {
+        val g = groupUi.value
+        go(
+            when (tab) {
+                NaviTab.DRIVE -> if (navi.state.value.guiding) AppScreen.DRIVE else AppScreen.HOME
+                NaviTab.CAR -> AppScreen.CAR
+                NaviTab.SETTLE -> if (g.screen == AppScreen.SETTLE_SENT) AppScreen.SETTLE_SENT else AppScreen.ARRIVAL
+            },
+        )
+    }
+
+    fun back() {
+        go(
+            when (groupUi.value.screen) {
+                AppScreen.JOIN_SETUP -> AppScreen.JOIN_CODE
+                else -> AppScreen.HOME
+            },
+        )
+    }
+
+    fun openDrive() = go(AppScreen.DRIVE)
+
+    fun openCreateGroup() = go(AppScreen.CREATE_GROUP)
+
+    fun openJoin() {
+        groupUi.value = groupUi.value.copy(screen = AppScreen.JOIN_CODE, join = JoinState())
+    }
+
+    /** 홈 "내 그룹"에서 고르면 그 그룹 대기실 (목업: MT 그룹) */
+    fun openGroup(summary: GroupSummary) {
+        val group = groupUi.value.group?.takeIf { it.name == summary.name }
+            ?: MockGroups.mtGroup.copy(name = summary.name, logo = summary.logo)
+        groupUi.value = groupUi.value.copy(group = group, screen = AppScreen.LOBBY)
+    }
+
+    fun updateCreateForm(form: CreateGroupForm) {
+        groupUi.value = groupUi.value.copy(createForm = form)
+    }
+
+    /** [만들고 코드 받기]: 나를 방장(운전)으로 넣고 초대 코드를 만든다 */
+    fun createGroup() {
+        val form = groupUi.value.createForm
+        val me = GroupMember(form.myName.ifBlank { "나" }, driver = true, host = true, car = "A차")
+        val group = GroupInfo(
+            name = form.name.trim(),
+            destinationName = navi.state.value.destinationName ?: MockGroups.DESTINATION,
+            code = MockGroups.newCode(),
+            logo = form.logo,
+            members = listOf(me) + MockGroups.mtGroup.members.drop(1),
+            cars = 2,
+        )
+        groupUi.value = groupUi.value.copy(group = group, screen = AppScreen.LOBBY)
+    }
+
+    fun newInviteCode() {
+        val g = groupUi.value.group ?: return
+        groupUi.value = groupUi.value.copy(group = g.copy(code = MockGroups.newCode()))
+    }
+
+    /** [동승자 추가] (목업: 다음 사람이 들어온다) */
+    fun addPassenger() {
+        val g = groupUi.value.group ?: return
+        val next = MockGroups.extraPassengers.firstOrNull { c -> g.members.none { it.name == c.name } } ?: return
+        groupUi.value = groupUi.value.copy(group = g.copy(members = g.members + next))
+    }
+
+    /** [운행 시작]: 그룹 목적지로 내장 내비 안내를 시작하고 주행 화면으로 */
+    fun startTrip() {
+        groupUi.value = groupUi.value.copy(tripStarted = true, screen = AppScreen.DRIVE)
+        startRoute()
+    }
+
+    fun typeCode(ch: Char) {
+        val j = groupUi.value.join
+        if (j.code.length >= MockGroups.CODE_LENGTH) return
+        val code = j.code + ch
+        // TODO(서버): 코드로 그룹을 찾는다. 지금은 6자리가 되면 시연용 MT 그룹을 찾은 것으로 한다.
+        val found = if (code.length == MockGroups.CODE_LENGTH) MockGroups.mtGroup.copy(members = MockGroups.mtGroup.members.take(3)) else null
+        groupUi.value = groupUi.value.copy(join = j.copy(code = code, found = found))
+    }
+
+    fun deleteCode() {
+        val j = groupUi.value.join
+        groupUi.value = groupUi.value.copy(join = j.copy(code = j.code.dropLast(1), found = null))
+    }
+
+    /** [참여하기] → 05 운행 참가 */
+    fun joinGroup() {
+        val j = groupUi.value.join
+        if (j.found == null) return
+        groupUi.value = groupUi.value.copy(
+            screen = AppScreen.JOIN_SETUP,
+            join = j.copy(passengers = MockGroups.joinPassengers),
+        )
+    }
+
+    fun setCarName(name: String) {
+        val j = groupUi.value.join
+        groupUi.value = groupUi.value.copy(join = j.copy(carName = name))
+    }
+
+    fun togglePassenger(name: String) {
+        val j = groupUi.value.join
+        groupUi.value = groupUi.value.copy(
+            join = j.copy(
+                passengers = j.passengers.map { c ->
+                    if (c.member.name == name && c.takenBy == null) c.copy(selected = !c.selected) else c
+                },
+            ),
+        )
+    }
+
+    /** [동승자 n명과 출발]: 찾은 그룹으로 운행을 시작한다 */
+    fun departJoin() {
+        val j = groupUi.value.join
+        groupUi.value = groupUi.value.copy(group = j.found, tripStarted = true, screen = AppScreen.DRIVE)
+        startRoute()
+    }
+
+    fun setPriceBasis(basis: PriceBasis) {
+        groupUi.value = groupUi.value.copy(settlement = MockGroups.settlement(basis))
+    }
+
+    /** [정산 요청] TODO(정산): 정산 담당 화면·송금 요청과 연결 */
+    fun requestSettlement() = go(AppScreen.SETTLE_SENT)
+
+    fun goHome() = go(AppScreen.HOME)
+
     fun startRoute() {
         // TODO(서버): 그룹 목적지를 서버에서 받는다. 지금은 데모용 고정 목적지.
-        navi.startRoute(NaviPlace(name = "가평 펜션", position = MockGroupDriveData.DESTINATION))
+        val name = groupUi.value.group?.destinationName ?: MockGroups.DESTINATION
+        navi.startRoute(NaviPlace(name = name, position = MockGroupDriveData.DESTINATION))
     }
 
     fun stopRoute() = navi.cancelRoute()
@@ -260,7 +403,6 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun closeSearch() {
-        searchJob?.cancel()
         voice.stop()
         search.value = SearchUiState()
     }
@@ -270,23 +412,18 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         search.value = search.value.copy(query = query, error = null)
     }
 
-    /** 검색창 글자로 장소 검색 (내 위치에서 가까운 순) */
+    /**
+     * 검색은 내장 내비가 한다: 검색어로 내비 검색 화면을 열고, 운전자가 결과를 고르면 내비가 안내를 시작하고
+     * 그 순간 나누길 화면으로 돌아온다. (내비 SDK는 검색 결과를 앱에 돌려주지 않아서 결과 목록은 내비 화면에서 고른다)
+     */
     fun submitSearch(query: String = search.value.query) {
         val q = query.trim()
         if (q.isEmpty()) return
-        searchJob?.cancel()
-        search.value = search.value.copy(query = q, searching = true, error = null)
-        searchJob = viewModelScope.launch {
-            search.value = try {
-                val results = placeSearch.search(q, navi.state.value.currentPosition)
-                search.value.copy(results = results, searching = false, searched = true)
-            } catch (e: PlaceSearchException) {
-                search.value.copy(results = emptyList(), searching = false, searched = true, error = e.message)
-            }
-        }
+        closeSearch()
+        navi.searchPlace(q)
     }
 
-    /** 마이크 버튼: 말이 끝나면 인식된 글자로 바로 검색 (마이크 권한은 화면에서 먼저 받는다) */
+    /** 마이크 버튼: 말이 끝나면 인식된 글자로 바로 내비 검색 (마이크 권한은 화면에서 먼저 받는다) */
     fun startVoiceSearch() {
         search.value = search.value.copy(open = true, error = null)
         voice.start { text ->
@@ -296,12 +433,6 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun stopVoiceSearch() = voice.stop()
-
-    /** 검색 결과를 고르면 내장 내비로 그곳까지 길안내 시작 */
-    fun selectPlace(place: PlaceResult) {
-        closeSearch()
-        navi.startRoute(NaviPlace(name = place.name, position = place.position, address = place.address))
-    }
 
     fun setThemeMode(mode: ThemeMode) {
         themeMode.value = mode

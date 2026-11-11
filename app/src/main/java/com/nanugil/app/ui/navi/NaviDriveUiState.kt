@@ -4,7 +4,6 @@ import com.nanugil.app.data.fare.TripCost
 import com.nanugil.app.data.group.CarState
 import com.nanugil.app.data.mock.MockGroupDriveData
 import com.nanugil.app.data.navi.NaviState
-import com.nanugil.app.data.search.PlaceResult
 import com.nanugil.app.data.vehicle.VehicleStatus
 
 /**
@@ -27,6 +26,8 @@ data class NaviDriveUiState(
     val cost: TripCost = TripCost(0.0, 0, 0, MockGroupDriveData.SHARE_MEMBERS),
     val themeMode: ThemeMode = ThemeMode.AUTO,
     val search: SearchUiState = SearchUiState(),
+    /** 와이어프레임 v5 화면 흐름 (홈 · 그룹 만들기 · 초대 코드 · 참여 · 주행 · 정산) */
+    val group: GroupUiState = GroupUiState(),
 ) {
     val carsDriving: Int get() = groupCars.size
 }
@@ -45,10 +46,6 @@ data class RestStopSuggestion(
 data class SearchUiState(
     val open: Boolean = false,
     val query: String = "",
-    val results: List<PlaceResult> = emptyList(),
-    val searching: Boolean = false,
-    /** 한 번이라도 검색했는지 (결과 없음 안내용) */
-    val searched: Boolean = false,
     val error: String? = null,
     val listening: Boolean = false,
     /** 음성 인식 중 실시간 글자 */
