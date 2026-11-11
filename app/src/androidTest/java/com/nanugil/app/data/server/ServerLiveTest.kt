@@ -1,5 +1,6 @@
 package com.nanugil.app.data.server
 
+import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.nanugil.app.BuildConfig
 import com.nanugil.app.data.group.CarState
@@ -54,10 +55,13 @@ class ServerLiveTest {
     fun groupInviteTripAndLocation() = runBlocking {
         assumeTrue("local.properties에 Supabase 키가 없음", BuildConfig.SUPABASE_URL.isNotBlank())
         withTimeout(60_000) {
+            Log.i("ServerLiveTest", "step G1·G2")
             // G1·G2
             val group = GroupTripApi.createGroup("앱 시험", Place("가평", 37.83, 127.51), "A")
             assertTrue(group.inviteCode.matches(Regex("^[A-HJ-NP-Z2-9]{6}$")))
             assertNull(GroupTripApi.myGroups().first { it.group.id == group.id }.activeTrip)
+
+            Log.i("ServerLiveTest", "step I3 오류 변환")
 
             // I3 오류 변환, I2 (B가 코드로 참여)
             expectError("INVALID_CODE") { GroupTripApi.previewInvite("ZZZZZZ") }
@@ -68,6 +72,8 @@ class ServerLiveTest {
             assertEquals(2, members.size)
             val bMemberId = members.first { it.displayName == "B" }.id
 
+            Log.i("ServerLiveTest", "step T5: 운행")
+
             // T5: 운행 시작 알림을 받는다
             val changed = async { GroupTripApi.tripChanges(group.id).first() }
             delay(2_000) // 구독이 붙을 때까지
@@ -76,9 +82,13 @@ class ServerLiveTest {
             assertEquals(trip.id, GroupTripApi.myGroups().first { it.group.id == group.id }.activeTrip?.id)
             expectError("TRIP_ALREADY_ACTIVE") { GroupTripApi.startTrip(group.id) }
 
+            Log.i("ServerLiveTest", "step T2")
+
             // T2
             GroupTripApi.joinTrip(trip.id, "A차", FuelType.EV)
             b.postgrest.rpc("join_trip", buildJsonObject { put("p_trip_id", trip.id); put("p_vehicle_label", "B차"); put("p_fuel_type", "GASOLINE") })
+
+            Log.i("ServerLiveTest", "step R1~R3")
 
             // R1~R3: B가 보낸 위치를 앱 저장소가 CarState로 받는다
             val received = CompletableDeferred<CarState>()
@@ -89,22 +99,29 @@ class ServerLiveTest {
             delay(2_000)
             bChannel.broadcast(SupabaseGroupLocationRepository.CAR_STATE_EVENT,
                 CarStateMessage(bMemberId, 37.6, 127.2, 80, 30, 70, DriveStatus.DRIVING, System.currentTimeMillis()))
+            Log.i("ServerLiveTest", "step broadcast sent, waiting")
             val car = received.await()
             assertEquals("B", car.driverName)
             assertEquals(37.6, car.position.latitude, 1e-9)
             watching.cancel()
             b.realtime.removeChannel(bChannel)
 
+            Log.i("ServerLiveTest", "step I4·T7")
+
             // I4·T7
             val passenger = GroupTripApi.addPassenger(group.id, "할머니")
             assertEquals(1, GroupTripApi.setTripPassengers(trip.id, listOf(passenger.id)).size)
             assertEquals(3, GroupTripApi.tripMembers(trip.id).size)
+
+            Log.i("ServerLiveTest", "step T6·T8")
 
             // T6·T8
             expectError("NOT_ARRIVED") { GroupTripApi.saveTripCost(trip.id, TripCostInput()) }
             GroupTripApi.markArrived(trip.id)
             val cost = GroupTripApi.saveTripCost(trip.id, TripCostInput(startBatteryWh = 60_000, endBatteryWh = 41_000, appliedPricePerKwh = 347))
             assertEquals(41_000L, cost.endBatteryWh)
+
+            Log.i("ServerLiveTest", "step T4")
 
             // T4
             GroupTripApi.endTrip(trip.id)

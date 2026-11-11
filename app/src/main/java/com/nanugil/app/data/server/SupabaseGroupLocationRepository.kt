@@ -9,8 +9,10 @@ import io.github.jan.supabase.realtime.broadcastFlow
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 
@@ -22,41 +24,100 @@ import kotlinx.serialization.Serializable
 class SupabaseGroupLocationRepository : GroupLocationRepository {
 
     private var sendChannel: RealtimeChannel? = null
+    private var lastSent: CarStateMessage? = null
 
-    /** 진행 중 운행의 다른 차들 상태. 내 메시지는 돌아오지 않는다. 운행이 없으면 아무것도 내보내지 않고 끝난다. */
+    /**
+     * 진행 중 운행의 다른 차들 상태. 내 메시지는 돌아오지 않는다. 운행이 없으면 아무것도 내보내지 않고 끝난다.
+     * 1분 넘게 소식이 없는 차(앱을 끈 차)는 목록에서 뺀다. 모르는 차가 오면 멤버 목록을 다시 읽는다.
+     */
     override fun observeGroup(groupId: String): Flow<List<CarState>> = flow {
         val trip = GroupTripApi.activeTrip(groupId) ?: return@flow
-        val names = GroupTripApi.members(groupId).associate { it.id to it.displayName }
+        var names = GroupTripApi.members(groupId).associate { it.id to it.displayName }
+        val reloadedFor = mutableSetOf<String>() // 같은 carId로 멤버 목록을 계속 다시 읽지 않게
         val channel = Supabase.client.channel(trip.channel) { isPrivate = true }
         val messages = channel.broadcastFlow<CarStateMessage>(CAR_STATE_EVENT)
         channel.subscribe(blockUntilSubscribed = true)
         sendChannel = channel
 
-        val latest = linkedMapOf<String, CarStateMessage>()
+        val board = CarBoard()
+        val ticks = flow { while (true) { delay(STALE_CHECK_MS); emit(null) } }
         try {
-            messages.collect { msg ->
-                // 늦게 도착한 옛 메시지는 버린다 (sentAt)
-                if ((latest[msg.carId]?.sentAt ?: Long.MIN_VALUE) > msg.sentAt) return@collect
-                latest[msg.carId] = msg
-                emit(latest.values.map { it.toCarState(names[it.carId] ?: "") })
+            merge(messages, ticks).collect { msg ->
+                val now = System.currentTimeMillis()
+                var changed = board.dropStale(now)
+                if (msg != null && board.put(msg, now)) {
+                    changed = true
+                    if (msg.carId !in names && reloadedFor.add(msg.carId)) {
+                        names = GroupTripApi.members(groupId).associate { it.id to it.displayName }
+                    }
+                }
+                if (changed) emit(board.messages.map { it.toCarState(names[it.carId] ?: "") })
             }
         } finally {
             sendChannel = null
+            lastSent = null
             withContext(NonCancellable) { Supabase.client.realtime.removeChannel(channel) }
         }
     }
 
     /**
      * R2. 내 차 상태 보내기. [observeGroup]을 구독하는 동안만 보낼 수 있다.
-     * 3초 간격으로 부르고, 정차 중에는 부르지 않고 정차로 바뀔 때 한 번만 부른다 (ADR-001).
+     * 위치가 바뀔 때마다 불러도 된다. 보낼 때가 아니면 보내지 않고 false ([shouldSendCarState]).
      */
-    suspend fun sendCarState(message: CarStateMessage) {
-        sendChannel?.broadcast(CAR_STATE_EVENT, message)
+    suspend fun sendCarState(message: CarStateMessage): Boolean {
+        val channel = sendChannel ?: return false
+        if (!shouldSendCarState(lastSent, message)) return false
+        channel.broadcast(CAR_STATE_EVENT, message)
+        lastSent = message
+        return true
     }
 
     companion object {
         const val CAR_STATE_EVENT = "car_state"
+
+        /** 주행 중 보내는 간격 (ADR-001) */
+        const val DRIVING_INTERVAL_MS = 3_000L
+
+        /** 정차 중에도 이 간격으로 한 번씩 보낸다. 나중에 들어온 차도 서 있는 차를 볼 수 있게. */
+        const val STOPPED_INTERVAL_MS = 30_000L
+
+        /** 이 시간 넘게 소식이 없으면 끊긴 차로 보고 뺀다. 정차 간격(30초)보다 길어야 한다. */
+        const val STALE_AFTER_MS = 60_000L
+        private const val STALE_CHECK_MS = 10_000L
     }
+}
+
+/**
+ * R2를 지금 보낼지. 주행 중 3초마다, 상태가 바뀌면(정차로 바뀌는 순간 등) 바로,
+ * 정차·휴게소 중에는 30초마다. 전송 횟수를 무료 한도 안에 두려는 규칙이다 (ADR-001).
+ */
+fun shouldSendCarState(last: CarStateMessage?, next: CarStateMessage): Boolean {
+    if (last == null || last.driveStatus != next.driveStatus) return true
+    val interval = if (next.driveStatus == DriveStatus.DRIVING) {
+        SupabaseGroupLocationRepository.DRIVING_INTERVAL_MS
+    } else {
+        SupabaseGroupLocationRepository.STOPPED_INTERVAL_MS
+    }
+    return next.sentAt - last.sentAt >= interval
+}
+
+/** 받은 차량 상태 모음. 순서가 뒤바뀐 옛 메시지는 버리고, 오래 소식 없는 차는 뺀다. 시각은 받은 쪽 시계 기준. */
+internal class CarBoard(private val staleAfterMs: Long = SupabaseGroupLocationRepository.STALE_AFTER_MS) {
+    private class Entry(val message: CarStateMessage, val receivedAt: Long)
+
+    private val latest = linkedMapOf<String, Entry>()
+
+    val messages: List<CarStateMessage> get() = latest.values.map { it.message }
+
+    /** 새 메시지를 넣는다. 같은 차의 더 최근 메시지가 이미 있으면 버리고 false. */
+    fun put(message: CarStateMessage, receivedAt: Long): Boolean {
+        if ((latest[message.carId]?.message?.sentAt ?: Long.MIN_VALUE) > message.sentAt) return false
+        latest[message.carId] = Entry(message, receivedAt)
+        return true
+    }
+
+    /** [staleAfterMs] 넘게 소식 없는 차를 뺀다. 뺀 차가 있으면 true. */
+    fun dropStale(now: Long): Boolean = latest.values.removeAll { now - it.receivedAt > staleAfterMs }
 }
 
 /** R2 메시지 (docs/group-trip-api.md "실시간 위치 연결"). carId는 운전자 멤버 ID. */
