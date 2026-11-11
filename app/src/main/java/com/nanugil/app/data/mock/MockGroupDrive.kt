@@ -27,6 +27,13 @@ object MockGroupDriveData {
     val CAR_B = MockCar(id = "car-b", driverName = "운전자 B", speedKmh = 88, startFuelPercent = 30, fuelDropPerTick = 1, startDelayTicks = 3)
 
     val CARS = listOf(CAR_A, CAR_B)
+
+    /** 연료 부족 차량이 생기면 제안하는 합류 지점 (서울양양고속도로 가평휴게소 부근, 좌표는 대략값) */
+    val MEETUP_NAME = "가평휴게소"
+    val MEETUP_POSITION = Wgs84Point(37.6766, 127.4813)
+
+    /** TODO(서버): 그룹 인원은 서버에서 받는다. 지금은 2대 · 8명 시연값 */
+    const val SHARE_MEMBERS = 8
 }
 
 data class MockCar(

@@ -1,0 +1,8 @@
+<!-- 내 차 위치: TMAP식 진행 방향 화살표 (파란 원 + 흰 화살표) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="56dp" android:height="56dp"
+    android:viewportWidth="56" android:viewportHeight="56">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M28,2a26,26 0,1 1,0 52a26,26 0,1 1,0 -52z" />
+    <path android:fillColor="#FF1E6BFF" android:pathData="M28,6a22,22 0,1 1,0 44a22,22 0,1 1,0 -44z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M28,12L40,42L28,35L16,42Z" />
+</vector>
