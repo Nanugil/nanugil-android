@@ -1,13 +1,31 @@
 package com.nanugil.app.ui.navi
 
+import android.animation.ValueAnimator
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PointF
+import android.graphics.RectF
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.text.SpannableStringBuilder
+import android.text.style.ForegroundColorSpan
+import android.util.TypedValue
+import android.view.View
+import android.view.animation.LinearInterpolator
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import com.nanugil.app.BuildConfig
 import com.nanugil.app.R
 import com.nanugil.app.core.geo.Wgs84Point
+import com.nanugil.app.core.geo.bearingTo
 import com.nanugil.app.core.geo.distanceTo
+import com.nanugil.app.core.geo.offset
+import com.nanugil.app.data.group.CarState
 import com.nanugil.app.data.navi.NaviState
 import com.naver.maps.geometry.LatLng
 import com.naver.maps.geometry.LatLngBounds
@@ -15,10 +33,12 @@ import com.naver.maps.map.CameraAnimation
 import com.naver.maps.map.CameraPosition
 import com.naver.maps.map.CameraUpdate
 import com.naver.maps.map.NaverMap
+import com.naver.maps.map.overlay.InfoWindow
 import com.naver.maps.map.overlay.Marker
 import com.naver.maps.map.overlay.OverlayImage
 import com.naver.maps.map.overlay.PathOverlay
 import com.naver.maps.map.util.MarkerIcons
+import kotlin.math.roundToInt
 
 /**
  * 주행 화면 지도 제어: 내 차 따라가기(TMAP식 3D 진행 방향 시점), 경로선, 목적지.
@@ -46,23 +66,36 @@ class DriveMapController(context: Context, private val map: NaverMap) {
         // 지나온 구간은 회색 (progress 앞쪽)
         passedColor = 0x995C6370.toInt()
         passedOutlineColor = 0x1A5C6370
-        width = 14
-        outlineWidth = 14
+        // 두께는 줌에 맞춰 [fitRouteWidth]가 정한다 (축소하면 가늘게)
     }
     /** 손으로 지도를 움직이면 따라가기를 끈다 (init보다 먼저 선언해야 한다) */
     private val cameraListener = NaverMap.OnCameraChangeListener { reason, _ ->
         if (reason == CameraUpdate.REASON_GESTURE) setFollowing(false)
+        fitRouteWidth()
+    }
+
+    /**
+     * 경로선 두께를 줌에 맞춘다. 경로선은 줌과 상관없이 같은 픽셀 두께라, 그대로 두면 축소할수록 도로보다 굵어 보인다.
+     * 줌 [ROUTE_ZOOM_FAR] 이하에서 가장 가늘고, [ROUTE_ZOOM_NEAR] 이상에서 가장 굵다.
+     */
+    private fun fitRouteWidth() {
+        val t = ((map.cameraPosition.zoom - ROUTE_ZOOM_FAR) / (ROUTE_ZOOM_NEAR - ROUTE_ZOOM_FAR)).coerceIn(0.0, 1.0)
+        val width = dp((ROUTE_WIDTH_FAR_DP + (ROUTE_WIDTH_NEAR_DP - ROUTE_WIDTH_FAR_DP) * t).roundToInt())
+        val outline = dp((ROUTE_OUTLINE_FAR_DP + (ROUTE_OUTLINE_NEAR_DP - ROUTE_OUTLINE_FAR_DP) * t).roundToInt())
+        if (routeOverlay.width != width) routeOverlay.width = width
+        if (routeOverlay.outlineWidth != outline) routeOverlay.outlineWidth = outline
     }
     /** 경로선 각 꼭짓점까지의 누적 거리(m). 지나온 비율 계산용 */
     private var routeCumulative: DoubleArray = DoubleArray(0)
     private val destinationMarker = Marker().apply {
         icon = MarkerIcons.BLACK
-        // 어두운 지도에서 잘 보이게 흰 핀 + 흰 글씨
+        // 어두운 지도에서 잘 보이게 흰 핀
         iconTintColor = 0xFFFFFFFF.toInt()
-        captionColor = 0xFFFFFFFF.toInt()
-        captionHaloColor = 0xFF111216.toInt()
         zIndex = 100
     }
+    /** 목적지 이름표 (핀 바로 아래) */
+    private val destinationLabel = labelMarker(zIndex = 99)
+    private var destinationName: String = "목적지"
 
     init {
         map.uiSettings.apply {
@@ -85,6 +118,9 @@ class DriveMapController(context: Context, private val map: NaverMap) {
         }
         // 손으로 지도를 움직이면 따라가기를 멈춘다 (안 그러면 1초 뒤 내 차로 끌려간다)
         map.addOnCameraChangeListener(cameraListener)
+        fitRouteWidth()
+        // 빈 지도를 누르면 일행 차 팝업을 닫는다 (closeCarInfo는 누를 때 불리므로 init 순서와 상관없다)
+        map.onMapClickListener = NaverMap.OnMapClickListener { _, _ -> closeCarInfo() }
     }
 
     /**
@@ -120,14 +156,23 @@ class DriveMapController(context: Context, private val map: NaverMap) {
         val ink = if (dark) 0xFFFFFFFF.toInt() else 0xFF0F172A.toInt()
         val halo = if (dark) 0xFF111216.toInt() else 0xFFFFFFFF.toInt()
         destinationMarker.iconTintColor = ink
-        destinationMarker.captionColor = ink
-        destinationMarker.captionHaloColor = halo
-        groupMarkers.values.forEach { it.iconTintColor = ink }
         groupInk = ink
+        groupHalo = halo
+        groupSubInk = if (dark) 0xFFD1D5DB.toInt() else 0xFF475569.toInt()
+        // 이름표는 테마 색으로 다시 그린다
+        destinationLabel.icon = labelImage(destinationName, topGapDp = 4)
+        waypointLabels.forEachIndexed { i, m -> m.icon = labelImage(waypointNames.getOrElse(i) { "" }, topGapDp = 30) }
+        groupCars.values.forEach(::styleGroupMarker)
+        if (selectedCarId != null) carInfo.invalidate()
     }
 
-    private val groupMarkers = mutableMapOf<String, Marker>()
+    private val groupCars = mutableMapOf<String, GroupCar>()
+    private var selectedCarId: String? = null
+    private val iconCache = mutableMapOf<Pair<Int, Boolean>, OverlayImage>()
+    private val labelCache = mutableMapOf<LabelKey, OverlayImage>()
     private val waypointMarkers = mutableListOf<Marker>()
+    private val waypointLabels = mutableListOf<Marker>()
+    private var waypointNames: List<String> = emptyList()
     private val fuelIcon by lazy {
         OverlayImage.fromBitmap(ContextCompat.getDrawable(appContext, R.drawable.ic_fuel_marker)!!.toBitmap())
     }
@@ -138,7 +183,9 @@ class DriveMapController(context: Context, private val map: NaverMap) {
      */
     fun updateWaypoints(names: List<String>, positions: List<Wgs84Point>) {
         val count = minOf(names.size, positions.size)
+        waypointNames = names.take(count)
         while (waypointMarkers.size > count) waypointMarkers.removeAt(waypointMarkers.lastIndex).map = null
+        while (waypointLabels.size > count) waypointLabels.removeAt(waypointLabels.lastIndex).map = null
         for (i in 0 until count) {
             val marker = waypointMarkers.getOrNull(i) ?: Marker().apply {
                 // 위치 없이 지도에 올리면 NaN 좌표로 크래시 → 위치부터 넣는다
@@ -149,9 +196,10 @@ class DriveMapController(context: Context, private val map: NaverMap) {
                 this.map = this@DriveMapController.map
             }.also { waypointMarkers += it }
             marker.position = positions[i].toLatLng()
-            marker.captionText = names[i]
-            marker.captionColor = groupInk
-            marker.captionHaloColor = if (groupInk == 0xFFFFFFFF.toInt()) 0xFF111216.toInt() else 0xFFFFFFFF.toInt()
+            val label = waypointLabels.getOrNull(i) ?: labelMarker(zIndex = 109).also { waypointLabels += it }
+            label.position = positions[i].toLatLng()
+            label.icon = labelImage(names[i], topGapDp = 30)
+            label.map = map
         }
     }
 
@@ -160,42 +208,331 @@ class DriveMapController(context: Context, private val map: NaverMap) {
         map.removeOnCameraChangeListener(cameraListener)
         routeOverlay.map = null
         destinationMarker.map = null
-        groupMarkers.values.forEach { it.map = null }
-        groupMarkers.clear()
+        destinationLabel.map = null
+        closeCarInfo()
+        map.onMapClickListener = null
+        groupCars.values.forEach {
+            it.animator?.cancel()
+            it.marker.map = null
+            it.label.map = null
+        }
+        groupCars.clear()
         waypointMarkers.forEach { it.map = null }
         waypointMarkers.clear()
+        waypointLabels.forEach { it.map = null }
+        waypointLabels.clear()
         onFollowingChanged = null
     }
     private var groupInk = 0xFFFFFFFF.toInt()
+    private var groupHalo = 0xFF111216.toInt()
+    private var groupSubInk = 0xFFD1D5DB.toInt()
 
     /**
-     * 같은 그룹의 다른 차를 지도에 표시한다 ("B차 정차", "B차"처럼 시안의 말풍선 라벨).
-     * TODO(서버): 지금은 목업 위치. 서버가 붙으면 각 차량이 보낸 실제 GPS 위치가 들어온다.
+     * 같은 그룹의 다른 차를 지도에 표시한다.
+     * - 내 차와 같은 화살표 아이콘에 색만 다르게(차마다), 진행 방향으로 돈다. 연료 부족이면 빨간 테두리
+     * - 위치가 몇 초마다 와도 순간이동하지 않고 미끄러지듯 움직인다
+     * - 누르면 그 차 옆에 정보 팝업(운전자·속도·남은 시간·나와의 거리·연료)이 붙어 다닌다
+     * TODO(서버): 지금은 목업 위치. #15가 붙으면 각 차량이 보낸 실제 위치가 들어온다.
      */
-    fun updateGroupCars(cars: List<com.nanugil.app.data.group.CarState>) {
+    fun updateGroupCars(cars: List<CarState>) {
         val ids = cars.map { it.carId }.toSet()
-        groupMarkers.keys.filterNot { it in ids }.forEach { groupMarkers.remove(it)?.map = null }
-        cars.forEach { car ->
-            val marker = groupMarkers.getOrPut(car.carId) {
-                Marker().apply {
-                    // 위치 없이 지도에 올리면 NaN 좌표로 크래시 → 위치를 먼저 넣는다
-                    position = car.position.toLatLng()
-                    icon = OverlayImage.fromBitmap(ContextCompat.getDrawable(appContext, R.drawable.ic_group_car)!!.toBitmap())
-                    iconTintColor = groupInk
-                    anchor = PointF(0.5f, 0.5f)
-                    captionRequestedWidth = 0
-                    captionTextSize = 18f
-                    zIndex = 90
-                    this.map = this@DriveMapController.map
-                }
+        groupCars.keys.filterNot { it in ids }.forEach { id ->
+            groupCars.remove(id)?.let {
+                it.animator?.cancel()
+                it.marker.map = null
+                it.label.map = null
             }
-            marker.position = car.position.toLatLng()
-            val label = car.carId.substringAfterLast('-').uppercase() + "차"
-            marker.captionText = if (car.speedKmh == 0) "$label 정차" else label
-            marker.captionColor = groupInk
-            marker.captionHaloColor = if (groupInk == 0xFFFFFFFF.toInt()) 0xFF111216.toInt() else 0xFFFFFFFF.toInt()
+            if (selectedCarId == id) closeCarInfo()
+        }
+        cars.forEach { car ->
+            val g = groupCars.getOrPut(car.carId) { newGroupCar(car) }
+            val target = car.position.toLatLng()
+            // 움직인 방향 = 진행 방향. 서 있으면 마지막 방향을 유지한다
+            val from = g.target
+            if (from.distanceTo(target) > HEADING_MIN_MOVE_M) {
+                g.heading = Wgs84Point(from.latitude, from.longitude).bearingTo(car.position)
+            }
+            g.target = target
+            g.state = car
+            styleGroupMarker(g)
+            animateTo(g, target)
+        }
+        if (selectedCarId != null) carInfo.invalidate()
+    }
+
+    /** 일행 차를 누르면 그 차로 지도를 옮기고 옆에 정보 팝업을 띄운다. 다시 누르거나 지도를 누르면 닫는다. */
+    private fun selectCar(id: String) {
+        if (selectedCarId == id) {
+            closeCarInfo()
+            return
+        }
+        val g = groupCars[id] ?: return
+        selectedCarId = id
+        carInfo.position = g.marker.position
+        carInfo.open(map)
+        carInfo.invalidate()
+        setFollowing(false)
+        // 지도 가운데가 아니라 카드가 없는 빈 곳(가로 42%, 세로 68%)에 차를 두어 오른쪽 팝업이 카드에 가리지 않게
+        map.moveCamera(CameraUpdate.scrollTo(g.target).pivot(PointF(SELECT_PIVOT_X, SELECT_PIVOT_Y)).animate(CameraAnimation.Easing))
+    }
+
+    private fun closeCarInfo() {
+        selectedCarId = null
+        carInfo.close()
+    }
+
+    /**
+     * 일행 전체 보기: 내 차와 일행 차가 모두 보이게 지도를 맞춘다.
+     * 여백(dp)은 화면이 정해 준다 — 카드에 가리지 않는 영역 안에 모이게.
+     */
+    fun showAllCars(leftDp: Int, topDp: Int, rightDp: Int, bottomDp: Int) {
+        val points = listOfNotNull(current?.toLatLng()) +
+            groupCars.values.filterNot { it.state.isMe && current != null }.map { it.target }
+        if (points.isEmpty()) return
+        setFollowing(false)
+        var bounds = points.fold(LatLngBounds.Builder()) { b, p -> b.include(p) }.build()
+        if (bounds.southWest.distanceTo(bounds.northEast) < GROUP_MIN_SPAN_M) {
+            // 너무 붙어 있으면 최대로 확대되지 않게 가운데 기준으로 최소 범위를 넓힌다
+            val c = Wgs84Point(bounds.center.latitude, bounds.center.longitude)
+            val half = GROUP_MIN_SPAN_M / 2
+            bounds = LatLngBounds.Builder()
+                .include(c.offset(315.0, half).toLatLng())
+                .include(c.offset(135.0, half).toLatLng())
+                .include(bounds.southWest).include(bounds.northEast)
+                .build()
+        }
+        // 마커 반지름·이름표만큼 더 띄워서 차가 빈 영역 가장자리에 걸리지 않게
+        val m = GROUP_MARKER_MARGIN_DP
+        val update = CameraUpdate.fitBounds(bounds, dp(leftDp + m), dp(topDp + m), dp(rightDp + m), dp(bottomDp + m))
+        map.moveCamera(update.animate(CameraAnimation.Fly))
+    }
+
+    private fun newGroupCar(car: CarState): GroupCar {
+        val color = GROUP_COLORS[groupCars.count { !it.value.state.isMe } % GROUP_COLORS.size]
+        val marker = Marker().apply {
+            // 위치 없이 지도에 올리면 NaN 좌표로 크래시 → 위치를 먼저 넣는다
+            position = car.position.toLatLng()
+            anchor = PointF(0.5f, 0.5f)
+            zIndex = 90
+            setOnClickListener {
+                selectCar(car.carId)
+                true
+            }
+            this.map = this@DriveMapController.map
+        }
+        val label = labelMarker(zIndex = 89).apply {
+            position = car.position.toLatLng()
+            setOnClickListener {
+                selectCar(car.carId)
+                true
+            }
+            this.map = this@DriveMapController.map
+        }
+        return GroupCar(marker, label, color, car, car.position.toLatLng())
+    }
+
+    private fun styleGroupMarker(g: GroupCar) {
+        val car = g.state
+        val stopped = car.speedKmh < STOPPED_KMH
+        g.marker.icon = carIcon(g.color, car.isLowFuel)
+        // 내 차 화살표처럼 지도 위에 눕혀 진행 방향으로 돌린다 (서 있으면 마지막 방향 그대로)
+        g.marker.isFlat = true
+        // 마커 angle은 북=0에서 시계 방향 (나침반 방향과 같다. 90을 넣으면 동쪽을 가리킴을 에뮬레이터에서 확인)
+        g.marker.angle = g.heading.toFloat()
+        g.label.icon = labelImage(
+            title = "${carLabel(car)} · ${car.driverName}",
+            sub = when {
+                car.isLowFuel -> "연료 ${car.fuelPercent}%"
+                stopped -> "정차 중"
+                else -> null
+            },
+            subColor = if (car.isLowFuel) DANGER else groupSubInk,
+            topGapDp = 32,
+        )
+    }
+
+    /** 새 위치까지 [GROUP_ANIM_MS] 동안 미끄러지듯 옮긴다. 팝업도 같이 따라간다. */
+    private fun animateTo(g: GroupCar, target: LatLng) {
+        g.animator?.cancel()
+        val start = g.marker.position
+        if (start.distanceTo(target) > GROUP_JUMP_M) {
+            // 너무 멀리 뛰면(앱 재시작·경로 변경) 그냥 옮긴다
+            g.marker.position = target
+            g.label.position = target
+            if (selectedCarId == g.state.carId) carInfo.position = target
+            return
+        }
+        g.animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = GROUP_ANIM_MS
+            interpolator = LinearInterpolator()
+            addUpdateListener {
+                val t = (it.animatedValue as Float).toDouble()
+                val p = LatLng(
+                    start.latitude + (target.latitude - start.latitude) * t,
+                    start.longitude + (target.longitude - start.longitude) * t,
+                )
+                g.marker.position = p
+                g.label.position = p
+                if (selectedCarId == g.state.carId) carInfo.position = p
+            }
+            start()
         }
     }
+
+    /** 차 옆에 붙는 정보 팝업. 오른쪽에 띄워 차를 가리지 않는다. */
+    private val carInfo = InfoWindow().apply {
+        // 차 오른쪽 위로 붙인다 (아래쪽 이름표를 가리지 않게)
+        anchor = PointF(0f, 0.8f)
+        offsetX = dp(48)
+        zIndex = 200
+        adapter = object : InfoWindow.ViewAdapter() {
+            override fun getView(infoWindow: InfoWindow): View = carInfoView()
+        }
+        setOnClickListener {
+            closeCarInfo()
+            true
+        }
+    }
+
+    private fun carInfoView(): View {
+        val dark = groupInk == 0xFFFFFFFF.toInt()
+        val root = LinearLayout(appContext).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(18), dp(24), dp(18))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(20).toFloat()
+                setColor(if (dark) 0xF21A1C22.toInt() else 0xF2FFFFFF.toInt())
+                setStroke(dp(1), if (dark) 0x1AFFFFFF else 0x14000000)
+            }
+        }
+        val g = selectedCarId?.let { groupCars[it] } ?: return root
+        val car = g.state
+        val ink = if (dark) 0xFFFFFFFF.toInt() else 0xFF0F172A.toInt()
+        val sub = if (dark) 0xFF9CA3AF.toInt() else 0xFF64748B.toInt()
+        fun line(text: CharSequence, sizeSp: Float, color: Int, bold: Boolean = false) {
+            root.addView(TextView(appContext).apply {
+                this.text = text
+                textSize = sizeSp
+                setTextColor(color)
+                if (bold) typeface = Typeface.DEFAULT_BOLD
+            })
+        }
+        // 제목 앞 색 점 = 지도 위 그 차 색
+        val title = SpannableStringBuilder()
+            .append("● ", ForegroundColorSpan(g.color), 0)
+            .append("${carLabel(car)} · ${car.driverName}")
+        line(title, 28f, ink, bold = true)
+        val stopped = car.speedKmh < STOPPED_KMH
+        val moving = "${car.speedKmh}km/h" + if (car.etaMinutes > 0) " · 도착까지 ${car.etaMinutes}분" else ""
+        line(if (stopped) "정차 중" else moving, 22f, sub)
+        current?.let { me -> line("나와 ${formatDistance(me.distanceTo(car.position))}", 22f, sub) }
+        line(
+            if (car.isLowFuel) "연료 ${car.fuelPercent}% · 부족" else "연료 ${car.fuelPercent}%",
+            22f, if (car.isLowFuel) DANGER else sub, bold = car.isLowFuel,
+        )
+        return root
+    }
+
+    /**
+     * 일행 차 아이콘: 내 차 아이콘(ic_nav_arrow: 흰 테두리 원 + 파란 원 + 흰 화살표)과 같은 모양에 색만 다르다.
+     * 연료가 부족하면 흰 테두리 대신 빨간 테두리. 색·연료 상태별로 한 번만 그려 둔다.
+     */
+    private fun carIcon(color: Int, lowFuel: Boolean): OverlayImage =
+        iconCache.getOrPut(color to lowFuel) {
+            val size = dp(56)
+            val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val c = Canvas(bmp)
+            // ic_nav_arrow와 같은 56칸 좌표계
+            val k = size / 56f
+            c.scale(k, k)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+            paint.color = if (lowFuel) DANGER else 0xFFFFFFFF.toInt()
+            c.drawCircle(28f, 28f, 26f, paint)
+            paint.color = color
+            c.drawCircle(28f, 28f, 22f, paint)
+            paint.color = 0xFFFFFFFF.toInt()
+            c.drawPath(
+                Path().apply {
+                    moveTo(28f, 12f)
+                    lineTo(40f, 42f)
+                    lineTo(28f, 35f)
+                    lineTo(16f, 42f)
+                    close()
+                },
+                paint,
+            )
+            OverlayImage.fromBitmap(bmp)
+        }
+
+    /**
+     * 지도 위 이름표. 지도 글자를 숨기려고 symbolScale=0을 쓰는데 그러면 마커 캡션도 사라져서,
+     * 글자를 그림으로 그려 위치 바로 아래에 붙는 마커로 띄운다.
+     * [topGapDp]만큼 위를 비워 두어 아이콘(핀·화살표)과 겹치지 않게 한다.
+     */
+    private fun labelImage(title: String, sub: String? = null, subColor: Int = groupSubInk, topGapDp: Int): OverlayImage {
+        val dark = groupInk == 0xFFFFFFFF.toInt()
+        val key = LabelKey(title, sub, subColor, dark, topGapDp)
+        return labelCache.getOrPut(key) {
+            val metrics = appContext.resources.displayMetrics
+            fun sp(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, v, metrics)
+            val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = groupInk
+                textSize = sp(24f)
+                typeface = Typeface.DEFAULT_BOLD
+            }
+            val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = subColor
+                textSize = sp(20f)
+                typeface = if (subColor == DANGER) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            }
+            val padH = dp(14).toFloat()
+            val padV = dp(8).toFloat()
+            val gap = dp(topGapDp).toFloat()
+            val titleH = titlePaint.fontMetrics.let { it.descent - it.ascent }
+            val subH = sub?.let { subPaint.fontMetrics.let { m -> m.descent - m.ascent } } ?: 0f
+            val textW = maxOf(titlePaint.measureText(title), sub?.let(subPaint::measureText) ?: 0f)
+            val w = (textW + padH * 2).toInt().coerceAtLeast(1)
+            val h = (gap + padV * 2 + titleH + subH).toInt().coerceAtLeast(1)
+            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            val c = Canvas(bmp)
+            val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (dark) 0xE61A1C22.toInt() else 0xF2FFFFFF.toInt() }
+            c.drawRoundRect(RectF(0f, gap, w.toFloat(), h.toFloat()), dp(14).toFloat(), dp(14).toFloat(), bg)
+            var y = gap + padV - titlePaint.fontMetrics.ascent
+            c.drawText(title, (w - titlePaint.measureText(title)) / 2, y, titlePaint)
+            if (sub != null) {
+                y += titlePaint.fontMetrics.descent - subPaint.fontMetrics.ascent
+                c.drawText(sub, (w - subPaint.measureText(sub)) / 2, y, subPaint)
+            }
+            OverlayImage.fromBitmap(bmp)
+        }
+    }
+
+    /** 위치 바로 아래(가운데 위 꼭짓점 기준)에 붙는 이름표 마커 */
+    private fun labelMarker(zIndex: Int) = Marker().apply {
+        anchor = PointF(0.5f, 0f)
+        this.zIndex = zIndex
+    }
+
+    private data class LabelKey(val title: String, val sub: String?, val subColor: Int, val dark: Boolean, val gap: Int)
+
+    private fun carLabel(car: CarState) = car.carId.substringAfterLast('-').uppercase() + "차"
+
+    private fun formatDistance(m: Double) = if (m < 1_000) "${m.roundToInt()}m" else "%.1fkm".format(m / 1_000)
+
+    private fun dp(v: Int): Int = (v * appContext.resources.displayMetrics.density).roundToInt()
+
+    /** 지도 위 일행 차 하나 */
+    private class GroupCar(
+        val marker: Marker,
+        /** 차 아래 이름표 */
+        val label: Marker,
+        val color: Int,
+        var state: CarState,
+        /** 마지막으로 받은 위치 (애니메이션 도착점) */
+        var target: LatLng,
+        var heading: Double = 0.0,
+        var animator: ValueAnimator? = null,
+    )
 
     fun zoomBy(delta: Double) {
         // 따라가기 중에도 사용자가 고른 줌을 유지한다 (안 그러면 1초 뒤 기본 줌으로 되돌아간다)
@@ -213,9 +550,13 @@ class DriveMapController(context: Context, private val map: NaverMap) {
         val dest = state.destinationPosition.takeIf { state.guiding }
         if (dest == null) {
             destinationMarker.map = null
+            destinationLabel.map = null
         } else {
             destinationMarker.position = dest.toLatLng()
-            destinationMarker.captionText = state.destinationName ?: "목적지"
+            destinationName = state.destinationName ?: "목적지"
+            destinationLabel.position = dest.toLatLng()
+            destinationLabel.icon = labelImage(destinationName, topGapDp = 4)
+            destinationLabel.map = map
             destinationMarker.map = map
         }
 
@@ -313,5 +654,32 @@ class DriveMapController(context: Context, private val map: NaverMap) {
         const val ROUTE_PADDING_PX = 160
         /** 경로선에서 이보다 멀면 경로를 벗어난 것으로 본다 */
         const val OFF_ROUTE_M = 300.0
+
+        /** 경로선 두께(dp): 축소(줌 11 이하)일 때 ↔ 확대(줌 17 이상)일 때. 예전엔 줌과 상관없이 선 14 + 테두리 14 */
+        const val ROUTE_ZOOM_FAR = 11.0
+        const val ROUTE_ZOOM_NEAR = 17.0
+        const val ROUTE_WIDTH_FAR_DP = 4
+        const val ROUTE_WIDTH_NEAR_DP = 10
+        const val ROUTE_OUTLINE_FAR_DP = 1
+        const val ROUTE_OUTLINE_NEAR_DP = 4
+
+        /** 일행 차 색 (지도 위 화살표·팝업 점). 내 차가 파란 화살표라 파랑은 뺐다 */
+        val GROUP_COLORS = intArrayOf(0xFFA855F7.toInt(), 0xFF14B8A6.toInt(), 0xFFF472B6.toInt(), 0xFFF59E0B.toInt())
+        const val DANGER = 0xFFE5484D.toInt()
+        /** 이보다 느리면 서 있는 것으로 그린다 */
+        const val STOPPED_KMH = 3
+        /** 이보다 덜 움직이면 방향을 바꾸지 않는다 (GPS 흔들림) */
+        const val HEADING_MIN_MOVE_M = 3.0
+        /** 위치 사이를 미끄러지는 시간 (위치는 약 1초마다 온다) */
+        const val GROUP_ANIM_MS = 950L
+        /** 이보다 멀리 뛰면 애니메이션 없이 옮긴다 */
+        const val GROUP_JUMP_M = 3_000.0
+        /** 일행 전체 보기에서 보여 줄 최소 범위 (붙어 있어도 너무 확대되지 않게) */
+        const val GROUP_MIN_SPAN_M = 400.0
+        /** 일행 전체 보기에서 화면이 준 여백에 더할 마커·이름표 여유 */
+        const val GROUP_MARKER_MARGIN_DP = 56
+        /** 일행 차를 눌렀을 때 차가 놓일 화면 위치 (왼쪽·오른쪽 카드 사이, 위쪽 카드 아래) */
+        const val SELECT_PIVOT_X = 0.42f
+        const val SELECT_PIVOT_Y = 0.68f
     }
 }

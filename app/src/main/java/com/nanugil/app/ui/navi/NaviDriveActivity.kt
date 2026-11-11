@@ -158,6 +158,11 @@ class NaviDriveActivity : ComponentActivity() {
                 onZoomIn = { drive?.zoomBy(1.0) },
                 onZoomOut = { drive?.zoomBy(-1.0) },
                 onRecenter = { drive?.recenter() },
+                onShowGroup = { insets ->
+                    drive?.showAllCars(
+                        insets.left.value.toInt(), insets.top.value.toInt(), insets.right.value.toInt(), insets.bottom.value.toInt(),
+                    )
+                },
                 carGlow = following && ui.navi.guiding,
                 themeMode = ui.themeMode,
                 onThemeModeChange = viewModel::setThemeMode,

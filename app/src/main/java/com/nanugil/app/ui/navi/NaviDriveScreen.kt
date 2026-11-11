@@ -151,6 +151,21 @@ internal val LightPalette = NaviPalette(
 
 internal val CardShape = GlassShape
 
+/** 지도에서 카드에 가리지 않는 영역 (지도 가장자리에서의 여백) */
+data class MapInsets(val left: Dp, val top: Dp, val right: Dp, val bottom: Dp)
+
+/**
+ * 일행 전체 보기를 눌렀을 때 일행을 모을 빈 영역. 화면마다 카드 배치가 달라서 화면별로 정한다.
+ * - 홈: 위 왼쪽 넓은 카드 아래 + 오른쪽 카드 열 왼쪽
+ * - 주행: 왼쪽 목적지 카드와 오른쪽 일행/합류 카드 사이
+ */
+private fun groupViewInsets(screen: AppScreen): MapInsets = when (screen) {
+    AppScreen.HOME -> MapInsets(left = 24.dp, top = 560.dp, right = OuterPad + NarrowRight + 24.dp, bottom = 48.dp)
+    AppScreen.DRIVE -> MapInsets(left = OuterPad + 559.dp + 24.dp, top = CardTop + 24.dp, right = OuterPad + 478.dp + 24.dp, bottom = 48.dp)
+    AppScreen.CAR -> MapInsets(left = OuterPad + 559.dp + 24.dp, top = CardTop + 24.dp, right = 160.dp, bottom = 48.dp)
+    else -> MapInsets(left = 24.dp, top = CardTop + 24.dp, right = 160.dp, bottom = 48.dp)
+}
+
 /** 글자를 입력하는 화면 (정차 중에만) */
 private val INPUT_SCREENS = setOf(AppScreen.CREATE_GROUP, AppScreen.JOIN_CODE, AppScreen.JOIN_SETUP)
 
@@ -179,6 +194,8 @@ fun NaviDriveScreen(
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     onRecenter: () -> Unit,
+    /** 일행 전체 보기. 지도는 이 여백 안(카드가 없는 곳)에 일행이 모두 들어오게 맞춘다 */
+    onShowGroup: (MapInsets) -> Unit = {},
     /** 내 차를 따라가는 중이면 차 아래에 파란 빛을 깐다 (시안의 도로 위 블루 글로우) */
     carGlow: Boolean = false,
     themeMode: ThemeMode = ThemeMode.AUTO,
@@ -267,6 +284,8 @@ fun NaviDriveScreen(
             onZoomOut = onZoomOut,
             onRecenter = onRecenter,
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = OuterPad, bottom = 48.dp),
+            // 일행 차가 있을 때만
+            onShowGroup = { onShowGroup(groupViewInsets(screen)) }.takeIf { groupCars.any { !it.isMe } },
         )
 
         // 목적지 검색(내장 내비 검색으로 넘김)은 어느 화면에서든 왼쪽 위에 띄운다
@@ -620,9 +639,15 @@ internal fun MapControls(
     onZoomOut: () -> Unit,
     onRecenter: () -> Unit,
     modifier: Modifier,
+    /** 일행 전체 보기 (내 차 + 일행 차가 모두 보이게). null이면 버튼을 숨긴다 */
+    onShowGroup: (() -> Unit)? = null,
 ) {
     Panel(p, modifier.width(86.dp), RoundedCornerShape(24.dp)) {
         Column(Modifier.padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            if (onShowGroup != null) {
+                IconTap(p, R.drawable.ic_people, onShowGroup)
+                Box(Modifier.width(40.dp).height(1.dp).background(p.divider))
+            }
             IconTap(p, R.drawable.ic_zoom_in, onZoomIn)
             IconTap(p, R.drawable.ic_zoom_out, onZoomOut)
             Box(Modifier.width(40.dp).height(1.dp).background(p.divider))
