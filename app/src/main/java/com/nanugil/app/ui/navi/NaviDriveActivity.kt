@@ -3,9 +3,7 @@ package com.nanugil.app.ui.navi
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.app.UiModeManager
 import android.os.Bundle
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -168,8 +166,6 @@ class NaviDriveActivity : ComponentActivity() {
             // 지도도 화면 테마에 맞춰 낮/밤으로
             val dark = resolveDarkTheme(ui.themeMode)
             LaunchedEffect(dark, drive) { drive?.setDarkTheme(dark) }
-            // 앱에서 다크/라이트를 고르면 차량 화면(에뮬레이터) 전체도 같이 바꾼다. 자동이면 차량 설정을 따른다.
-            LaunchedEffect(ui.themeMode) { syncSystemTheme(ui.themeMode) }
             }
         }
 
@@ -216,25 +212,6 @@ class NaviDriveActivity : ComponentActivity() {
         // 내비 요청 직후 내비 화면이 앞으로 튀어나왔으면 바로 돌아오게 알린다
         // (onStop보다 0.5초쯤 먼저 온다. 요청 직후 몇 초 동안만 반응한다)
         if (!isChangingConfigurations) viewModel.onScreenHidden()
-    }
-
-    /**
-     * 차량 화면 전체 낮/밤 모드를 앱 테마에 맞춘다 (UiModeManager.setNightMode).
-     * 기기가 낮/밤 모드를 잠가 둔 경우(config_lockDayNightMode)엔 시스템이 무시하고 로그만 남는다.
-     */
-    private fun syncSystemTheme(mode: ThemeMode) {
-        val target = when (mode) {
-            ThemeMode.DARK -> UiModeManager.MODE_NIGHT_YES
-            ThemeMode.LIGHT -> UiModeManager.MODE_NIGHT_NO
-            ThemeMode.AUTO -> return
-        }
-        val uiMode = getSystemService(UiModeManager::class.java) ?: return
-        if (uiMode.nightMode == target) return
-        try {
-            uiMode.nightMode = target
-        } catch (e: SecurityException) {
-            Log.w("NaviDriveActivity", "차량 화면 낮/밤 모드를 바꿀 권한이 없어요", e)
-        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
