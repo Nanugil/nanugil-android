@@ -42,8 +42,20 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import kotlinx.coroutines.launch
 
-/** 충전 단가 예시값(원/kWh). 환경부 급속충전 요금 수준. 화면에서 고칠 수 있다. */
-private const val DEFAULT_ELECTRICITY_WON_PER_KWH = "347"
+/**
+ * 공공 충전요금(원/kWh). 기후에너지환경부 「전기차 공공충전요금 체계 개편안」(2026.8.1 시행, 정책브리핑 2026.7.9).
+ * 공공 충전기와 환경부 회원카드로 결제하는 민간 충전기에 적용된다. 민간 자체 요금은 칸에서 직접 고친다.
+ */
+enum class ChargerTier(val label: String, val price: String) {
+    SLOW("30kW 미만", "295.0"),
+    KW30("30~50kW", "307.2"),
+    KW50("50~100kW", "325.6"),
+    KW100("100~200kW", "348.4"),
+    KW200("200kW 이상", "393.1"),
+}
+
+/** 단체 이동 중에는 고속도로 급속충전이 많아 100~200kW 구간을 기본값으로 둔다. */
+private val DEFAULT_CHARGER_TIER = ChargerTier.KW100
 
 /**
  * 차종. 차종에 따라 정산에 쓰는 값이 다르다.
@@ -80,7 +92,7 @@ data class CarInput(
     val startFuelL: String = "",
     val refueledL: String = "0",
     val endFuelL: String = "",
-    val electricityPrice: String = DEFAULT_ELECTRICITY_WON_PER_KWH,
+    val electricityPrice: String = DEFAULT_CHARGER_TIER.price,
     val startBatteryKwh: String = "",
     val chargedKwh: String = "0",
     val endBatteryKwh: String = "",
@@ -116,7 +128,8 @@ fun toTrips(cars: List<CarInput>): List<VehicleTrip> = cars.mapIndexed { i, car 
         startBatteryWh = if (battery) decimalToMilli(car.startBatteryKwh, "$label 출발 배터리", batteryRequired) else 0,
         chargedWh = if (battery) decimalToMilli(car.chargedKwh, "$label 충전량", required = false) else 0,
         endBatteryWh = if (battery) decimalToMilli(car.endBatteryKwh, "$label 도착 배터리", batteryRequired) else 0,
-        electricityWonPerKwh = if (battery) won(car.electricityPrice, "$label 충전 단가", required = true) else 0,
+        // 원/kWh(소수 가능) → 원/MWh
+        electricityWonPerMwh = if (battery) decimalToMilli(car.electricityPrice, "$label 충전 단가", required = true) else 0,
         tollWon = won(car.tollWon, "$label 통행료", required = false),
     )
 }
@@ -497,8 +510,17 @@ private fun CarCard(
                 }
             }
             if (car.type.usesBattery) {
+                // 충전기 출력을 고르면 공공 충전요금이 단가 칸에 채워진다
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Label("충전기 출력", TextSize.Caption, p.textSecondary, modifier = Modifier.padding(end = 8.dp))
+                    ChargerTier.entries.forEach { tier ->
+                        ChipButton("${tier.label} · ${tier.price}원", selected = car.electricityPrice == tier.price, onClick = {
+                            onChange(car.copy(electricityPrice = tier.price))
+                        })
+                    }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    InputField("충전 단가 (원/kWh)", car.electricityPrice, { onChange(car.copy(electricityPrice = it)) }, Modifier.weight(1f), KeyboardType.Number)
+                    InputField("충전 단가 (원/kWh)", car.electricityPrice, { onChange(car.copy(electricityPrice = it)) }, Modifier.weight(1f), KeyboardType.Decimal)
                     InputField(
                         "출발 배터리 (kWh)", car.startBatteryKwh, { onChange(car.copy(startBatteryKwh = it)) }, Modifier.weight(1f), KeyboardType.Decimal,
                         action = onReadBattery?.let { read -> "읽기" to { read(true) } },

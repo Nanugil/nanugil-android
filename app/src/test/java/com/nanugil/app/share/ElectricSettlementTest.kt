@@ -4,7 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
-/** 전기차·하이브리드 정산: 사용 전력(Wh) × 충전 단가(원/kWh) ÷ 1000. */
+/** 전기차·하이브리드 정산: 사용 전력(Wh) × 충전 단가(원/MWh) ÷ 1,000,000. */
 class ElectricSettlementTest {
 
     @Test
@@ -15,7 +15,7 @@ class ElectricSettlementTest {
             driverId = "지수",
             startBatteryWh = 70_000,
             endBatteryWh = 50_000,
-            electricityWonPerKwh = 350,
+            electricityWonPerMwh = 350_000,
             tollWon = 3_000,
         )
         assertEquals(10_000L, SettlementCalculator.vehicleCostWon(ev))
@@ -30,7 +30,7 @@ class ElectricSettlementTest {
             startBatteryWh = 30_000,
             chargedWh = 40_000,
             endBatteryWh = 50_000,
-            electricityWonPerKwh = 350,
+            electricityWonPerMwh = 350_000,
         )
         assertEquals(7_000L, SettlementCalculator.vehicleCostWon(ev))
     }
@@ -46,7 +46,7 @@ class ElectricSettlementTest {
             fuelPriceWonPerLiter = 1_700,
             startBatteryWh = 10_000,
             endBatteryWh = 8_000,
-            electricityWonPerKwh = 350,
+            electricityWonPerMwh = 350_000,
             tollWon = 1_000,
         )
         assertEquals(10_200L, SettlementCalculator.vehicleCostWon(hybrid))
@@ -55,8 +55,15 @@ class ElectricSettlementTest {
     @Test
     fun electricCost_roundsToWon() {
         // 1,001 Wh × 347원/kWh = 347.347원 → 347원
-        val ev = VehicleTrip(vehicleId = "ev", driverId = "a", startBatteryWh = 1_001, electricityWonPerKwh = 347)
+        val ev = VehicleTrip(vehicleId = "ev", driverId = "a", startBatteryWh = 1_001, electricityWonPerMwh = 347_000)
         assertEquals(347L, SettlementCalculator.vehicleCostWon(ev))
+    }
+
+    @Test
+    fun decimalOfficialPrice_isNotRounded() {
+        // 공공 50~100kW 요금 325.6원/kWh: 20 kWh × 325.6 = 6,512원 (326원으로 반올림하면 6,520원)
+        val ev = VehicleTrip(vehicleId = "ev", driverId = "a", startBatteryWh = 70_000, endBatteryWh = 50_000, electricityWonPerMwh = 325_600)
+        assertEquals(6_512L, SettlementCalculator.vehicleCostWon(ev))
     }
 
     @Test
@@ -66,7 +73,7 @@ class ElectricSettlementTest {
             driverId = "지수",
             startBatteryWh = 30_000,
             endBatteryWh = 50_000,
-            electricityWonPerKwh = 350,
+            electricityWonPerMwh = 350_000,
         )
         assertThrows(IllegalArgumentException::class.java) { SettlementCalculator.vehicleCostWon(ev) }
     }
@@ -79,7 +86,7 @@ class ElectricSettlementTest {
         ) // 17,000
         val ev = VehicleTrip(
             vehicleId = "car2", driverId = "현우", passengerIds = listOf("다은"),
-            startBatteryWh = 70_000, endBatteryWh = 50_000, electricityWonPerKwh = 350,
+            startBatteryWh = 70_000, endBatteryWh = 50_000, electricityWonPerMwh = 350_000,
         ) // 7,000
         val result = SettlementCalculator.settle(listOf(fuelCar, ev))
         assertEquals(24_000L, result.totalCostWon)

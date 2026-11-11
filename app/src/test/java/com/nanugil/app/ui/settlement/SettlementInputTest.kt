@@ -23,7 +23,7 @@ class SettlementInputTest {
         assertEquals(1_700L, trip.fuelPriceWonPerLiter)
         assertEquals(1_000L, trip.tollWon)
         assertEquals(0L, trip.startBatteryWh)
-        assertEquals(0L, trip.electricityWonPerKwh)
+        assertEquals(0L, trip.electricityWonPerMwh)
     }
 
     @Test
@@ -43,10 +43,10 @@ class SettlementInputTest {
 
     @Test
     fun electric_usesBatteryOnly() {
-        val trip = toTrips(listOf(CarInput(VehicleType.ELECTRIC, "지수", startBatteryKwh = "70", endBatteryKwh = "50.5", electricityPrice = "347"))).single()
+        val trip = toTrips(listOf(CarInput(VehicleType.ELECTRIC, "지수", startBatteryKwh = "70", endBatteryKwh = "50.5", electricityPrice = "325.6"))).single()
         assertEquals(70_000L, trip.startBatteryWh)
         assertEquals(50_500L, trip.endBatteryWh)
-        assertEquals(347L, trip.electricityWonPerKwh)
+        assertEquals(325_600L, trip.electricityWonPerMwh)
         assertEquals(0L, trip.startFuelMl)
         assertEquals(0L, trip.fuelPriceWonPerLiter)
         // 연료 칸에 뭐가 있어도 전기차는 무시한다.
