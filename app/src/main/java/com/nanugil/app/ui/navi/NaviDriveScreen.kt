@@ -118,12 +118,12 @@ internal val DarkPalette = NaviPalette(
     background = Color(0xFF0A0A0B),
     panel = Color(0xF21A1B1F),
     panelBorder = Color(0x14FFFFFF),
-    textPrimary = Color(0xFFF5F6F8),
+    textPrimary = Color.White,
     textSecondary = Color(0xFF9CA3AF),
-    divider = Color(0x1FFFFFFF),
-    navSelected = Color(0xFF26282E),
+    divider = Color.White.copy(alpha = 0.08f),
+    navSelected = Color.White.copy(alpha = 0.08f),
     navIcon = Color(0xFF9CA3AF),
-    secondaryButton = Color(0xFF2A2C32),
+    secondaryButton = Color.White.copy(alpha = 0.10f),
     secondaryButtonText = Color(0xFFE5E7EB),
     stopBackground = Color(0x40E5484D),
     stopIcon = BrandDanger,
@@ -139,9 +139,9 @@ internal val LightPalette = NaviPalette(
     textPrimary = Color(0xFF0F172A),
     textSecondary = Color(0xFF64748B),
     divider = Color(0x1A0F172A),
-    navSelected = Color(0xFFF1F5F9),
+    navSelected = Color.White.copy(alpha = 0.45f),
     navIcon = Color(0xFF64748B),
-    secondaryButton = Color(0xFFE2E8F0),
+    secondaryButton = Color.White.copy(alpha = 0.55f),
     secondaryButtonText = Color(0xFF334155),
     stopBackground = Color(0xFFFF3B3B),
     stopIcon = Color.White,
@@ -149,7 +149,7 @@ internal val LightPalette = NaviPalette(
     distanceWeight = FontWeight.Medium,
 )
 
-internal val CardShape = RoundedCornerShape(28.dp)
+internal val CardShape = GlassShape
 
 /**
  * 나누길 화면 (Figma "나누길 와이어프레임 v5").
@@ -239,13 +239,6 @@ fun NaviDriveScreen(
                         groupCars.isNotEmpty() -> GroupCarsCard(p, groupCars, navi)
                     }
                 }
-                MapControls(
-                    p = p,
-                    onZoomIn = onZoomIn,
-                    onZoomOut = onZoomOut,
-                    onRecenter = onRecenter,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = OuterPad, bottom = 48.dp),
-                )
             }
             AppScreen.CAR -> Column(
                 Modifier.padding(start = OuterPad, top = CardTop).width(559.dp),
@@ -257,6 +250,15 @@ fun NaviDriveScreen(
             AppScreen.ARRIVAL -> ArrivalScreen(p, group.settlement, groupActions)
             AppScreen.SETTLE_SENT -> SettleSentScreen(p, group.settlement, groupActions)
         }
+
+        // 지도 버튼(확대·축소·내 위치)은 운행 전 화면에서도 쓴다. 오른쪽 아래는 어느 화면에서든 비어 있다.
+        MapControls(
+            p = p,
+            onZoomIn = onZoomIn,
+            onZoomOut = onZoomOut,
+            onRecenter = onRecenter,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = OuterPad, bottom = 48.dp),
+        )
 
         // 목적지 검색(내장 내비 검색으로 넘김)은 어느 화면에서든 왼쪽 위에 띄운다
         if (search.open && screen != AppScreen.DRIVE) {
@@ -620,15 +622,10 @@ internal fun MapControls(
 
 // ---- 공통 조각 ----
 
+/** 모든 카드·위쪽 바의 바탕. 글래스모피즘 규칙은 [GlassSurface]에 있다. */
 @Composable
 internal fun Panel(p: NaviPalette, modifier: Modifier, shape: Shape, content: @Composable () -> Unit) {
-    Box(
-        modifier
-            .shadow(if (p.dark) 24.dp else 18.dp, shape, ambientColor = Color.Black, spotColor = Color.Black)
-            .clip(shape)
-            .background(p.panel)
-            .border(1.dp, p.panelBorder, shape),
-    ) { content() }
+    GlassSurface(dark = p.dark, modifier = modifier, shape = shape) { content() }
 }
 
 @Composable
@@ -681,7 +678,10 @@ internal fun Label(
         text,
         modifier = modifier,
         maxLines = 1,
-        style = TextStyle(color = color, fontSize = size, fontWeight = weight, letterSpacing = letterSpacing),
+        style = TextStyle(
+            color = color, fontSize = size, fontWeight = weight, letterSpacing = letterSpacing,
+            shadow = LocalTextShadow.current,
+        ),
     )
 }
 
@@ -710,7 +710,7 @@ internal fun SearchPanel(p: NaviPalette, search: SearchUiState, actions: SearchA
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Label("목적지 검색", 24.sp, p.textSecondary, modifier = Modifier.weight(1f))
                 Box(
-                    Modifier.size(56.dp).clip(CircleShape).clickable(onClick = actions.onClose),
+                    Modifier.size(MinTouch).clip(CircleShape).clickable(onClick = actions.onClose),
                     contentAlignment = Alignment.Center,
                 ) { Icon(R.drawable.ic_close, p.textSecondary, 28.dp) }
             }

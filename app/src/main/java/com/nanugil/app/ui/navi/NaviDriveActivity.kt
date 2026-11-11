@@ -3,12 +3,15 @@ package com.nanugil.app.ui.navi
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.app.UiModeManager
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -21,6 +24,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.nanugil.app.MainActivity
 import com.nanugil.app.ui.map.MapViewLifecycleBinder
 import com.naver.maps.map.MapView
+import com.naver.maps.map.NaverMapOptions
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -41,6 +45,8 @@ class NaviDriveActivity : ComponentActivity() {
     private val viewModel: NaviDriveViewModel by viewModels()
 
     private lateinit var mapView: MapView
+    /** 글래스모피즘 카드 뒤에 깔 흐린 지도 원본 */
+    private val backdrop = MapBackdrop()
     private lateinit var mapBinder: MapViewLifecycleBinder
     private var drive by mutableStateOf<DriveMapController?>(null)
     /** 지도가 내 차를 따라가는 중인지 (차 아래 파란 빛 표시용) */
@@ -122,11 +128,13 @@ class NaviDriveActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        mapView = MapView(this)
+        // 글래스모피즘 카드 뒤를 흐리게 하려면 지도 그림을 읽어야 해서 TextureView 모드로 띄운다
+        mapView = MapView(this, NaverMapOptions().useTextureView(true))
         mapBinder = MapViewLifecycleBinder.bind(this, mapView, savedInstanceState)
 
         setContent {
             val ui by viewModel.uiState.collectAsState()
+            CompositionLocalProvider(LocalMapBackdrop provides backdrop) {
             NaviDriveScreen(
                 mapView = mapView,
                 navi = ui.navi,
@@ -160,6 +168,9 @@ class NaviDriveActivity : ComponentActivity() {
             // 지도도 화면 테마에 맞춰 낮/밤으로
             val dark = resolveDarkTheme(ui.themeMode)
             LaunchedEffect(dark, drive) { drive?.setDarkTheme(dark) }
+            // 앱에서 다크/라이트를 고르면 차량 화면(에뮬레이터) 전체도 같이 바꾼다. 자동이면 차량 설정을 따른다.
+            LaunchedEffect(ui.themeMode) { syncSystemTheme(ui.themeMode) }
+            }
         }
 
         mapView.getMapAsync { map ->
@@ -184,6 +195,7 @@ class NaviDriveActivity : ComponentActivity() {
                     }
                 }
                 launch { viewModel.routePath.collect(controller::updateRoute) }
+                launch { backdrop.run(mapView) }
                 launch {
                     viewModel.uiState.map { it.groupCars }.distinctUntilChanged().collect { cars ->
                         controller.updateGroupCars(cars.filterNot { it.isMe })
@@ -204,6 +216,25 @@ class NaviDriveActivity : ComponentActivity() {
         // 내비 요청 직후 내비 화면이 앞으로 튀어나왔으면 바로 돌아오게 알린다
         // (onStop보다 0.5초쯤 먼저 온다. 요청 직후 몇 초 동안만 반응한다)
         if (!isChangingConfigurations) viewModel.onScreenHidden()
+    }
+
+    /**
+     * 차량 화면 전체 낮/밤 모드를 앱 테마에 맞춘다 (UiModeManager.setNightMode).
+     * 기기가 낮/밤 모드를 잠가 둔 경우(config_lockDayNightMode)엔 시스템이 무시하고 로그만 남는다.
+     */
+    private fun syncSystemTheme(mode: ThemeMode) {
+        val target = when (mode) {
+            ThemeMode.DARK -> UiModeManager.MODE_NIGHT_YES
+            ThemeMode.LIGHT -> UiModeManager.MODE_NIGHT_NO
+            ThemeMode.AUTO -> return
+        }
+        val uiMode = getSystemService(UiModeManager::class.java) ?: return
+        if (uiMode.nightMode == target) return
+        try {
+            uiMode.nightMode = target
+        } catch (e: SecurityException) {
+            Log.w("NaviDriveActivity", "차량 화면 낮/밤 모드를 바꿀 권한이 없어요", e)
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

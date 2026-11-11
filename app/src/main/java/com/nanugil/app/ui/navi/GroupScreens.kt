@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -102,13 +103,13 @@ internal fun AppTopBar(
     onEndTrip: () -> Unit,
     modifier: Modifier,
 ) {
-    Panel(p, modifier.height(88.dp), RoundedCornerShape(22.dp)) {
+    Panel(p, modifier.height(88.dp), GlassShape) {
         Box(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
             // 왼쪽: 로고 또는 뒤로 + 제목
             Row(Modifier.align(Alignment.CenterStart), verticalAlignment = Alignment.CenterVertically) {
                 if (showBack) {
                     Box(
-                        Modifier.size(60.dp).clip(RoundedCornerShape(16.dp)).background(p.navSelected).clickable(onClick = onBack),
+                        Modifier.size(MinTouch).clip(RoundedCornerShape(16.dp)).background(p.navSelected).clickable(onClick = onBack),
                         contentAlignment = Alignment.Center,
                     ) { Icon(R.drawable.ic_back, p.textPrimary, 28.dp) }
                 } else {
@@ -134,7 +135,8 @@ internal fun AppTopBar(
                         Modifier.clip(RoundedCornerShape(12.dp))
                             .background(if (selected) p.navSelected else Color.Transparent)
                             .clickable { onTab(t) }
-                            .padding(horizontal = 24.dp, vertical = 14.dp),
+                            .heightIn(min = MinTouch)
+                            .padding(horizontal = 24.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(t.iconRes, if (selected) BrandPrimary else p.navIcon, 24.dp)
@@ -167,7 +169,7 @@ internal fun AppTopBar(
 @Composable
 private fun SmallIconButton(p: NaviPalette, iconRes: Int, onClick: () -> Unit) {
     Box(
-        Modifier.padding(end = 12.dp).size(60.dp).clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick),
+        Modifier.padding(end = 8.dp).size(MinTouch).clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Icon(iconRes, p.navIcon, 28.dp) }
 }
@@ -187,7 +189,7 @@ private fun StatusChip(p: NaviPalette, chip: TopChip, onEndTrip: () -> Unit) {
         else -> p.textSecondary
     }
     Row(
-        Modifier.height(60.dp).clip(RoundedCornerShape(14.dp))
+        Modifier.height(MinTouch).clip(RoundedCornerShape(16.dp))
             .background(if (danger) BrandDanger.copy(alpha = 0.18f) else p.navSelected)
             .clickable(enabled = danger, onClick = onEndTrip)
             .padding(horizontal = 20.dp),
@@ -406,7 +408,7 @@ internal fun JoinCodeScreen(p: NaviPalette, join: JoinState, actions: GroupActio
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Caption(p, "초대 코드", Modifier.weight(1f))
                     if (join.code.isNotEmpty()) {
-                        Label("지우기", 21.sp, p.textSecondary, FontWeight.Bold, Modifier.clip(SmallShape).clickable(onClick = actions.onCodeDelete).padding(horizontal = 12.dp, vertical = 6.dp))
+                        Label("지우기", 21.sp, p.textSecondary, FontWeight.Bold, Modifier.clip(SmallShape).clickable(onClick = actions.onCodeDelete).heightIn(min = MinTouch).padding(horizontal = 16.dp, vertical = 18.dp))
                     }
                 }
                 CodeBoxes(p, join.code, Modifier.padding(top = 14.dp).clickable(onClick = actions.onCodeDelete))
@@ -571,7 +573,7 @@ internal fun MeetupCard(
                 SecondaryButton(p, "건너뛰기", onSkip, Modifier.weight(1f))
             }
             Row(
-                Modifier.padding(top = 14.dp).fillMaxWidth().clip(SmallShape)
+                Modifier.padding(top = 14.dp).fillMaxWidth().heightIn(min = MinTouch).clip(SmallShape)
                     .clickable(enabled = !listening, onClick = onVoice).padding(vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -621,7 +623,7 @@ internal fun ArrivalScreen(p: NaviPalette, s: SettlementUi, actions: GroupAction
                     PriceBasis.entries.forEach { b ->
                         val selected = b == s.basis
                         Box(
-                            Modifier.weight(1f).height(60.dp).clip(RoundedCornerShape(10.dp))
+                            Modifier.weight(1f).height(MinTouch).clip(RoundedCornerShape(12.dp))
                                 .background(if (selected) (if (p.dark) Color(0xFF111215) else Color.White) else Color.Transparent)
                                 .clickable { actions.onPriceBasis(b) },
                             contentAlignment = Alignment.Center,
@@ -846,3 +848,23 @@ private fun IconPrimaryButton(text: String, iconRes: Int, onClick: () -> Unit, m
 
 private fun num(v: Long): String = "%,d".format(v)
 private fun won(v: Long): String = "%,d원".format(v)
+
+// ================= 미리보기 (Android Studio) =================
+
+@androidx.compose.ui.tooling.preview.Preview(name = "N빵 정산 · 다크", widthDp = 1682, heightDp = 1210, backgroundColor = 0xFF0A0A0B, showBackground = true)
+@Composable
+private fun ArrivalScreenPreview() {
+    ArrivalScreen(DarkPalette, MockGroups.settlement(PriceBasis.AVERAGE), GroupActions())
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "주행 중 · 일행/합류 카드", widthDp = 560, heightDp = 420, backgroundColor = 0xFF0A0A0B, showBackground = true)
+@Composable
+private fun MeetupCardPreview() {
+    Box(Modifier.padding(24.dp)) {
+        MeetupCard(
+            DarkPalette,
+            MeetupProposal(carLabel = "B차", driverName = "운전자 B", placeName = "가평휴게소", distanceMeters = 6_200, fuelPercent = 12),
+            listening = false, heard = "", onAccept = {}, onSkip = {}, onVoice = {},
+        )
+    }
+}
