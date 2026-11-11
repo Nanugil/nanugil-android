@@ -12,6 +12,7 @@ import ai.pleos.playground.navi.data.NavigationScreenRequest
 import ai.pleos.playground.navi.data.RequestWaypointInfo
 import ai.pleos.playground.navi.data.RouteInfo
 import ai.pleos.playground.navi.data.RouteStartInfo
+import ai.pleos.playground.navi.data.RouteWithWaypointsRequest
 import ai.pleos.playground.navi.data.TBTInfo
 import ai.pleos.playground.navi.data.WaypointArrivedInfo
 import ai.pleos.playground.navi.data.WaypointChangedInfo
@@ -111,6 +112,10 @@ class NaviController(
     @Volatile private var naviResponded = false
     /** 이 시각까지 우리 화면이 가려지면 내비가 튀어나온 것으로 보고 바로 돌아온다 */
     @Volatile private var popWatchUntil = 0L
+    /** 경로를 요청하고 안내 시작(onRouteStarted)을 기다리는 중인지 */
+    @Volatile private var waitingForStart = false
+    /** 안내가 안 시작돼서 내비 화면을 띄워 둔 상태인지 (시작되면 바로 돌아온다) */
+    @Volatile private var returnWhenStarted = false
 
     /**
      * 내비가 요청을 받을 수 있는지.
@@ -145,6 +150,13 @@ class NaviController(
     private val listener = object : NaviHelperEventListener {
         override fun onRouteStarted(routeStartInfo: RouteStartInfo) {
             onNaviAck()
+            waitingForStart = false
+            mainHandler.removeCallbacksAndMessages(START_WATCH_TOKEN)
+            if (returnWhenStarted) {
+                returnWhenStarted = false
+                Log.d(TAG, "안내 시작됨 → 나누길 화면으로 복귀")
+                returnToApp(QUICK_RETURN_DELAY_MS)
+            }
             replanUntil = 0L
             _state.update {
                 it.copy(
@@ -326,7 +338,8 @@ class NaviController(
      *   그래서 우리 화면이 가려지는 순간([onAppHidden]) 바로 돌아오고, 혹시 그 신호를 못 받으면 2초 뒤에 돌아온다.
      * - 아직 준비 전(부팅 직후 "navi not ready")이면 내비를 먼저 띄우고 보낸 뒤 돌아온다.
      */
-    private fun sendToNavi(action: String, request: () -> Unit) {
+    private fun sendToNavi(action: String, expectStart: Boolean = true, request: () -> Unit) {
+        if (expectStart) watchRouteStart(action)
         if (!naviReady) {
             Log.d(TAG, "$action: 내비 준비 전 → 내비 화면을 띄우고 요청 (status=$naviStatus)")
             withNaviOnScreen {
@@ -339,6 +352,24 @@ class NaviController(
         popWatchUntil = SystemClock.elapsedRealtime() + POP_WATCH_MS
         safely(action, request)
         returnToApp() // 안전장치: 가려짐 신호를 못 받았을 때. 이미 앞에 있으면 아무 일도 없다.
+    }
+
+    /**
+     * 경로 요청 뒤 내비는 미리보기를 보여 주다가 몇 초 뒤 저절로 안내를 시작한다(에뮬레이터 5~8초).
+     * 혹시 [START_TIMEOUT_MS]가 지나도 시작되지 않으면(미리보기에서 멈춤) 내비 화면을 앞으로 띄워
+     * 카운트다운이 끝나거나 운전자가 [시작]을 누를 수 있게 하고, 안내가 시작되면 바로 돌아온다.
+     */
+    private fun watchRouteStart(action: String) {
+        waitingForStart = true
+        returnWhenStarted = false
+        mainHandler.removeCallbacksAndMessages(START_WATCH_TOKEN)
+        mainHandler.postAtTime({
+            if (!waitingForStart) return@postAtTime
+            Log.w(TAG, "$action: 안내가 시작되지 않음 → 내비 화면을 띄워 둔다")
+            returnWhenStarted = true
+            _state.update { it.copy(message = "내비 화면에서 경로를 확인해 주세요") }
+            safely("내비 화면 열기") { naviHelper.requestNavigationScreen(NavigationScreenRequest.Foreground) }
+        }, START_WATCH_TOKEN, SystemClock.uptimeMillis() + START_TIMEOUT_MS)
     }
 
     /**
@@ -395,29 +426,40 @@ class NaviController(
 
     /**
      * 그룹 합류 주유소를 내 차 경로에 넣는다.
-     * 안내 중이면 첫 번째 경유지로 추가하고 재탐색, 안내 중이 아니면 그 주유소로 바로 안내한다.
+     * 안내 중이면 "지금 목적지 + (합류 지점, 기존 경유지)"로 경로를 새로 요청하고, 안내 중이 아니면 그 주유소로 바로 안내한다.
+     *
+     * addWaypoint + requestReRoute를 쓰면 내장 내비가 기존 안내를 취소하고 "경로 목록" 화면에서 멈춰서
+     * 운전자가 내비 화면에서 [시작]을 직접 눌러야 한다(에뮬레이터 로그: PreviewList). 반면 경로 요청은
+     * 미리보기(PreviewDefaultState) 뒤 몇 초 만에 저절로 안내를 시작한다. 그래서 경로 요청으로 보낸다.
      */
     fun addMeetupStop(stop: NaviPlace) {
-        if (!_state.value.guiding) {
+        val current = _state.value
+        val destination = current.destinationPosition
+        if (!current.guiding || destination == null) {
             startRoute(stop)
             return
         }
         addedStops[stop.name] = stop.position
         replanUntil = SystemClock.elapsedRealtime() + REPLAN_GRACE_MS
         _state.update { it.copy(message = "${stop.name} 경유지 추가 중…") }
-        sendToNavi("경유지 추가") {
-            naviHelper.addWaypoint(
-                RequestWaypointInfo(
-                    latitude = stop.position.latitude,
-                    longitude = stop.position.longitude,
-                    poiName = stop.name,
-                    waypointIndex = WaypointIndex.FIRST,
-                    poiId = "",
-                    address = stop.address,
-                    poiSubId = "",
-                ),
+
+        // 내장 내비 경유지는 최대 2개(FIRST·SECOND): 합류 지점을 첫 번째로, 기존 경유지를 그 뒤에
+        val existing = current.waypointNames.zip(current.waypointPositions).filter { (name, _) -> name != stop.name }
+        val stops = (listOf(stop.name to stop.position) + existing).take(MAX_WAYPOINTS)
+        val waypoints = stops.mapIndexed { i, (name, position) ->
+            RequestWaypointInfo(
+                latitude = position.latitude,
+                longitude = position.longitude,
+                poiName = name,
+                waypointIndex = if (i == 0) WaypointIndex.FIRST else WaypointIndex.SECOND,
+                poiId = "",
+                address = if (name == stop.name) stop.address else "",
+                poiSubId = "",
             )
-            naviHelper.requestReRoute()
+        }
+        val goal = NaviPlace(name = current.destinationName ?: "목적지", position = destination)
+        sendToNavi("경유지 추가") {
+            naviHelper.requestRouteWithWaypoints(RouteWithWaypointsRequest(goal.toRouteInfo(), waypoints))
         }
     }
 
@@ -440,6 +482,9 @@ class NaviController(
 
     fun cancelRoute() {
         replanUntil = 0L
+        waitingForStart = false
+        returnWhenStarted = false
+        mainHandler.removeCallbacksAndMessages(START_WATCH_TOKEN)
         // 안내 취소도 내비 화면을 앞으로 띄운다 → 경로 요청과 같이 바로 돌아온다
         popWatchUntil = SystemClock.elapsedRealtime() + POP_WATCH_MS
         safely("안내 취소") { naviHelper.cancelRoute() }
@@ -522,7 +567,12 @@ class NaviController(
         const val REPLAN_GRACE_MS = 30_000L
         /** 복귀 예약을 한 번에 지우기 위한 표식 */
         val RETURN_TOKEN = Any()
+        val START_WATCH_TOKEN = Any()
+        /** 경로 요청 뒤 이 시간 안에 안내가 시작되지 않으면 내비 화면을 띄운다 (평소 5~8초) */
+        const val START_TIMEOUT_MS = 15_000L
         const val KEY_READY_BOOT = "ready_boot_count"
+        /** 내장 내비가 받는 경유지 최대 개수 (WaypointIndex FIRST·SECOND) */
+        const val MAX_WAYPOINTS = 2
         /** 요청 직후 이 시간 안에 우리 화면이 가려지면 내비가 튀어나온 것으로 본다 */
         const val POP_WATCH_MS = 6_000L
         /** 내비가 튀어나왔을 때 돌아오기까지 (내비가 요청을 받을 틈) */
