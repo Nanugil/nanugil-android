@@ -181,6 +181,13 @@ fun NaviDriveScreen(
     onThemeModeChange: (ThemeMode) -> Unit = {},
     search: SearchUiState = SearchUiState(),
     searchActions: SearchActions = SearchActions(),
+    suggestion: RestStopSuggestion? = null,
+    onProposeRestStop: () -> Unit = {},
+    onDismissRestStop: () -> Unit = {},
+    answerListening: Boolean = false,
+    answerHeard: String = "",
+    /** 합류 팝업 음성 답변. auto=true면 팝업이 뜰 때 자동으로 부른 것 */
+    onVoiceAnswer: (auto: Boolean) -> Unit = {},
 ) {
     val darkTheme = resolveDarkTheme(themeMode)
     val p = if (darkTheme) DarkPalette else LightPalette
@@ -225,8 +232,8 @@ fun NaviDriveScreen(
             Modifier.align(Alignment.TopEnd).padding(end = 32.dp, top = 146.dp).width(518.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (proposal != null) {
-                MeetupCard(p, proposal, onAcceptMeetup, onSkipMeetup)
+            if (suggestion != null) {
+                RestStopCard(p, suggestion, onProposeRestStop, onDismissRestStop)
             } else {
                 VehicleCard(p, vehicle)
             }
@@ -240,6 +247,21 @@ fun NaviDriveScreen(
             onRecenter = onRecenter,
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 48.dp),
         )
+
+        // 다른 차의 정차 제안: 주행 중이라 큰 버튼 한 번이나 음성으로만 답한다
+        if (proposal != null) {
+            LaunchedEffect(proposal.carLabel, proposal.placeName) { onVoiceAnswer(true) }
+            MeetupPopup(
+                p = p,
+                proposal = proposal,
+                listening = answerListening,
+                heard = answerHeard,
+                onAccept = onAcceptMeetup,
+                onSkip = onSkipMeetup,
+                onVoice = { onVoiceAnswer(false) },
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
     }
 }
 
@@ -521,30 +543,106 @@ private fun TimelineConnector(p: NaviPalette, highlighted: Boolean) {
 
 // ---- 오른쪽 카드 ① 합류 제안 ----
 
+/** 시나리오 4단계: 내 차 연료 부족 → "근처 ○○휴게소 들를까요?" [제안] [괜찮아요] */
 @Composable
-private fun MeetupCard(p: NaviPalette, proposal: MeetupProposal, onAccept: () -> Unit, onSkip: () -> Unit) {
+private fun RestStopCard(p: NaviPalette, s: RestStopSuggestion, onPropose: () -> Unit, onDismiss: () -> Unit) {
     Panel(p, Modifier.fillMaxWidth(), CardShape) {
         Column(Modifier.padding(horizontal = 32.dp, vertical = 30.dp)) {
-            Label("${proposal.placeName}에서 합류", 36.sp, p.textPrimary, FontWeight.Bold)
+            Label(if (s.isEv) "배터리가 부족해요" else "연료가 부족해요", 24.sp, BrandAmber, FontWeight.Bold)
+            Label("근처 ${s.placeName} 들를까요?", 36.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(top = 4.dp))
             Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(R.drawable.ic_pin, BrandPrimary, 26.dp)
                 Label(
-                    proposal.distanceMeters?.let { "${formatKm(it)} 전방" } ?: "거리 계산 중",
+                    s.distanceMeters?.let { "${formatKm(it)} 전방" } ?: "거리 계산 중",
                     26.sp, p.textPrimary, modifier = Modifier.padding(start = 8.dp),
                 )
                 Box(Modifier.padding(horizontal = 16.dp).width(1.dp).height(24.dp).background(p.divider))
-                Icon(R.drawable.ic_fuel, BrandPrimary, 26.dp)
+                Icon(if (s.isEv) R.drawable.ic_battery else R.drawable.ic_fuel, BrandAmber, 26.dp)
                 Label(
-                    "${proposal.carLabel} 연료 ${proposal.fuelPercent}%",
+                    "내 차 ${if (s.isEv) "배터리" else "연료"} ${s.energyPercent}%",
                     26.sp, p.textPrimary, modifier = Modifier.padding(start = 8.dp),
                 )
             }
-            Row(Modifier.padding(top = 26.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                PrimaryButton("합류하기", true, onAccept, Modifier.width(160.dp))
-                SecondaryButton(p, "건너뛰기", onSkip, Modifier.width(160.dp))
+            if (s.sent) {
+                Label("일행에게 제안했어요 · 답을 기다리는 중…", 26.sp, BrandPrimary, FontWeight.Bold, Modifier.padding(top = 26.dp))
+            } else {
+                Row(Modifier.padding(top = 26.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PrimaryButton("제안", true, onPropose, Modifier.width(180.dp))
+                    SecondaryButton(p, "괜찮아요", onDismiss, Modifier.width(180.dp))
+                }
             }
         }
     }
+}
+
+/**
+ * 시나리오 5단계: "B차가 ○○휴게소 정차를 제안했어요" [합류] [괜찮아요].
+ * 주행 중에 보는 화면이라 글자는 크게, 버튼은 크게 두 개만, 음성으로도 답할 수 있다.
+ */
+@Composable
+private fun MeetupPopup(
+    p: NaviPalette,
+    proposal: MeetupProposal,
+    listening: Boolean,
+    heard: String,
+    onAccept: () -> Unit,
+    onSkip: () -> Unit,
+    onVoice: () -> Unit,
+    modifier: Modifier,
+) {
+    Panel(p, modifier.width(760.dp), RoundedCornerShape(36.dp)) {
+        Column(Modifier.padding(horizontal = 44.dp, vertical = 40.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(R.drawable.ic_group_car, BrandPrimary, 36.dp)
+                Label(
+                    "${proposal.carLabel} · ${proposal.driverName}",
+                    26.sp, p.textSecondary, modifier = Modifier.padding(start = 12.dp),
+                )
+            }
+            Label(
+                "${proposal.carLabel}가 ${proposal.placeName} 정차를 제안했어요",
+                42.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(top = 14.dp),
+            )
+            Label(
+                listOfNotNull(
+                    proposal.distanceMeters?.let { "${formatKm(it)} 전방" },
+                    "${proposal.carLabel} 연료 ${proposal.fuelPercent}%",
+                ).joinToString(" · "),
+                28.sp, p.textSecondary, modifier = Modifier.padding(top = 10.dp),
+            )
+            Row(Modifier.padding(top = 34.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                BigButton("합류", BrandPrimary, Color.White, onAccept, Modifier.weight(1f))
+                BigButton("괜찮아요", p.secondaryButton, p.textPrimary, onSkip, Modifier.weight(1f))
+            }
+            // 음성 답변: "합류" / "괜찮아요"
+            Row(
+                Modifier.padding(top = 22.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                    .clickable(enabled = !listening, onClick = onVoice).padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier.size(56.dp).clip(CircleShape).background(if (listening) BrandDanger else p.navSelected),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(R.drawable.ic_mic, if (listening) Color.White else p.textPrimary, 28.dp) }
+                Label(
+                    when {
+                        listening && heard.isNotBlank() -> "“$heard”"
+                        listening -> "듣고 있어요… \"합류\" 또는 \"괜찮아요\"라고 말하세요"
+                        else -> "말로 답하기"
+                    },
+                    26.sp, if (listening) p.textPrimary else p.textSecondary, modifier = Modifier.padding(start = 16.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BigButton(text: String, background: Color, textColor: Color, onClick: () -> Unit, modifier: Modifier) {
+    Box(
+        modifier.height(104.dp).clip(RoundedCornerShape(22.dp)).background(background).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Label(text, 38.sp, textColor, FontWeight.Bold) }
 }
 
 // ---- 오른쪽 카드 ② 내 차 상태 (Pleos Vehicle SDK) — 합류 제안이 없을 때 ----

@@ -46,10 +46,28 @@ class NaviDriveActivity : ComponentActivity() {
     /** 지도가 내 차를 따라가는 중인지 (차 아래 파란 빛 표시용) */
     private var following by mutableStateOf(true)
 
-    /** 마이크 권한을 받은 뒤 음성 검색을 시작한다 */
+    /** 마이크 권한을 받은 뒤 하려던 일 (음성 검색 또는 합류 팝업 답변) */
+    private var afterMicGranted: () -> Unit = {}
     private val micPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) viewModel.startVoiceSearch()
-        else Toast.makeText(this, "마이크 권한이 있어야 음성으로 검색할 수 있어요", Toast.LENGTH_SHORT).show()
+        if (granted) afterMicGranted()
+        else Toast.makeText(this, "마이크 권한이 있어야 말로 할 수 있어요", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun hasMic() = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+        PackageManager.PERMISSION_GRANTED
+
+    /**
+     * 합류 팝업에 말로 답하기. 팝업이 뜰 때 자동으로([auto]=true) 부르면 권한이 있을 때만 듣는다
+     * (주행 중에 권한 창을 갑자기 띄우지 않는다). 마이크 버튼을 누르면 권한부터 묻는다.
+     */
+    private fun startVoiceAnswer(auto: Boolean) {
+        when {
+            hasMic() -> viewModel.listenForMeetupAnswer()
+            !auto -> {
+                afterMicGranted = viewModel::listenForMeetupAnswer
+                micPermission.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
     }
 
     private val searchActions by lazy {
@@ -65,9 +83,12 @@ class NaviDriveActivity : ComponentActivity() {
     }
 
     private fun startVoiceSearch() {
-        val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
-            PackageManager.PERMISSION_GRANTED
-        if (granted) viewModel.startVoiceSearch() else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        if (hasMic()) {
+            viewModel.startVoiceSearch()
+        } else {
+            afterMicGranted = viewModel::startVoiceSearch
+            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -89,6 +110,12 @@ class NaviDriveActivity : ComponentActivity() {
                 onStopRoute = viewModel::stopRoute,
                 onAcceptMeetup = viewModel::acceptMeetup,
                 onSkipMeetup = viewModel::skipMeetup,
+                suggestion = ui.suggestion,
+                onProposeRestStop = viewModel::proposeRestStop,
+                onDismissRestStop = viewModel::dismissRestStop,
+                answerListening = ui.answerListening,
+                answerHeard = ui.answerHeard,
+                onVoiceAnswer = ::startVoiceAnswer,
                 onZoomIn = { drive?.zoomBy(1.0) },
                 onZoomOut = { drive?.zoomBy(-1.0) },
                 onRecenter = { drive?.recenter() },

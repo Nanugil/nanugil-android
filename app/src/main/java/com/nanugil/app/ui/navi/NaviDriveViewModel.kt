@@ -78,6 +78,10 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     // ---- 화면 전용 상태 ----
     /** 합류 제안을 수락하거나 건너뛰면 다시 띄우지 않는다 */
     private val meetupHandled = MutableStateFlow(false)
+    /** 내 차 연료 부족 → 휴게소 제안 카드 진행 단계 */
+    private val restStopPhase = MutableStateFlow(RestStopPhase.NONE)
+    /** 음성 인식이 합류 팝업 답변용인지 (아니면 목적지 검색용) */
+    private val answering = MutableStateFlow(false)
     private val themeMode = MutableStateFlow(loadThemeMode())
 
     private val groupCars: StateFlow<List<CarState>> = groupRepository.observeGroup(GROUP_ID)
@@ -101,9 +105,15 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
-    val uiState: StateFlow<NaviDriveUiState> = combine(baseState, search, voice.state) { base, s, v ->
-        base.copy(search = s.copy(listening = v.listening, partial = v.partial, error = v.error ?: s.error))
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, NaviDriveUiState(themeMode = themeMode.value))
+    val uiState: StateFlow<NaviDriveUiState> =
+        combine(baseState, search, voice.state, restStopPhase, answering) { base, s, v, phase, answer ->
+            base.copy(
+                search = if (answer) s else s.copy(listening = v.listening, partial = v.partial, error = v.error ?: s.error),
+                suggestion = restStopSuggestion(base, phase),
+                answerListening = answer && v.listening,
+                answerHeard = if (answer) v.partial else "",
+            )
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, NaviDriveUiState(themeMode = themeMode.value))
 
     init {
         navi.connect()
@@ -178,14 +188,62 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     /** 화면이 다시 보일 때: 내비 화면에서 안내를 바꾸고 돌아왔을 수 있으니 상태를 다시 맞춘다 */
     fun onScreenVisible() = navi.refreshRoute()
 
-    /** 합류 제안 수락 → 그 주유소(휴게소)를 내장 내비의 첫 번째 경유지로 넣고 재탐색 */
+    // ---- 시나리오 4단계: 내 차 연료 부족 → 휴게소 정차 제안 ----
+
+    /** [제안]: 그룹에 휴게소 정차를 제안한다. 다른 차가 [합류]하면 두 차 모두 경유지가 추가된다. */
+    fun proposeRestStop() {
+        if (restStopPhase.value != RestStopPhase.NONE) return
+        restStopPhase.value = RestStopPhase.SENT
+        // TODO(서버): 제안을 그룹 전체에 푸시하고, 다른 차의 [합류] 응답을 받으면 아래를 실행한다.
+        // 서버가 붙기 전까지는 다른 차가 몇 초 뒤 [합류]했다고 치고 시연한다.
+        viewModelScope.launch {
+            delay(DEMO_REPLY_DELAY_MS)
+            if (restStopPhase.value != RestStopPhase.SENT) return@launch
+            restStopPhase.value = RestStopPhase.HANDLED
+            navi.addMeetupStop(NaviPlace(MockGroupDriveData.MEETUP_NAME, MockGroupDriveData.MEETUP_POSITION))
+        }
+    }
+
+    /** [괜찮아요]: 이번 여행에서는 다시 묻지 않는다 */
+    fun dismissRestStop() {
+        restStopPhase.value = RestStopPhase.HANDLED
+    }
+
+    // ---- 시나리오 5·6단계: 다른 차의 제안 팝업 → [합류] 하면 경유지 추가 ----
+
+    /**
+     * 합류 팝업에 말로 답한다 ("합류", "좋아" → 합류 / "괜찮아", "아니" → 거절).
+     * 마이크 권한은 화면에서 먼저 확인한다.
+     */
+    fun listenForMeetupAnswer() {
+        if (uiState.value.proposal == null || voice.state.value.listening) return
+        answering.value = true
+        voice.start { text ->
+            answering.value = false
+            when {
+                DECLINE_WORDS.any { it in text } -> skipMeetup()
+                ACCEPT_WORDS.any { it in text } -> acceptMeetup()
+            }
+        }
+    }
+
+    private fun stopAnswering() {
+        if (answering.value) {
+            voice.stop()
+            answering.value = false
+        }
+    }
+
+    /** [합류]: 그 휴게소를 내장 내비의 첫 번째 경유지로 넣고 재탐색 (내비 화면이 잠깐 떴다가 돌아온다) */
     fun acceptMeetup() {
+        stopAnswering()
         meetupHandled.value = true
         // TODO(서버): 합류 수락을 그룹 전체에 푸시 → 각 차량이 같은 경유지를 추가
         navi.addMeetupStop(NaviPlace(MockGroupDriveData.MEETUP_NAME, MockGroupDriveData.MEETUP_POSITION))
     }
 
     fun skipMeetup() {
+        stopAnswering()
         meetupHandled.value = true
     }
 
@@ -269,6 +327,24 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    /** 내 차 연료(배터리)가 부족하고 안내 중이면 휴게소 정차 제안 카드를 띄운다 */
+    private fun restStopSuggestion(base: NaviDriveUiState, phase: RestStopPhase): RestStopSuggestion? {
+        if (phase == RestStopPhase.HANDLED || !base.navi.guiding) return null
+        if (MockGroupDriveData.MEETUP_NAME in base.navi.waypointNames) return null
+        val percent = base.vehicle.energyPercent ?: return null
+        if (percent > CarState.LOW_FUEL_PERCENT && phase == RestStopPhase.NONE) return null
+        // TODO(경로): 경로 위에서 가장 가까운 휴게소·주유소를 찾는다. 지금은 시연용 고정 휴게소.
+        return RestStopSuggestion(
+            placeName = MockGroupDriveData.MEETUP_NAME,
+            distanceMeters = base.navi.currentPosition?.distanceTo(MockGroupDriveData.MEETUP_POSITION)?.toInt(),
+            energyPercent = percent,
+            isEv = base.vehicle.isEv,
+            sent = phase == RestStopPhase.SENT,
+        )
+    }
+
+    private enum class RestStopPhase { NONE, SENT, HANDLED }
+
     private fun loadThemeMode(): ThemeMode {
         val saved = prefs.getString(KEY_THEME, null)
         return ThemeMode.entries.firstOrNull { it.name == saved } ?: ThemeMode.AUTO
@@ -284,5 +360,9 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         /** 목적지·경유지 재조회 주기 (LIVE_INFO_INTERVAL_MS 단위) */
         const val ROUTE_REFRESH_TICKS = 5
         const val ROUTE_DEBOUNCE_MS = 1_500L
+        /** 서버 없이 시연할 때 다른 차가 [합류]로 답하기까지 걸리는 시간 */
+        const val DEMO_REPLY_DELAY_MS = 3_000L
+        val ACCEPT_WORDS = listOf("합류", "좋아", "네", "응", "그래", "들르")
+        val DECLINE_WORDS = listOf("괜찮", "아니", "싫", "안 ", "됐어")
     }
 }

@@ -16,8 +16,13 @@ data class NaviDriveUiState(
     val vehicle: VehicleStatus = VehicleStatus(),
     /** 같은 그룹 차량 (내 차 포함) */
     val groupCars: List<CarState> = emptyList(),
-    /** 다른 차의 합류(주유소 경유) 제안. 없으면 null */
+    /** 시나리오 5단계: 다른 차가 보낸 휴게소 정차 제안 (큰 팝업). 없으면 null */
     val proposal: MeetupProposal? = null,
+    /** 시나리오 4단계: 내 차 연료가 부족할 때 "근처 휴게소 들를까요?" 카드. 없으면 null */
+    val suggestion: RestStopSuggestion? = null,
+    /** 합류 팝업에 말로 답하는 중인지, 들린 글자 */
+    val answerListening: Boolean = false,
+    val answerHeard: String = "",
     /** 출발부터 지금까지 쓴 유류비·통행료와 1인 금액 */
     val cost: TripCost = TripCost(0.0, 0, 0, MockGroupDriveData.SHARE_MEMBERS),
     val themeMode: ThemeMode = ThemeMode.AUTO,
@@ -25,6 +30,16 @@ data class NaviDriveUiState(
 ) {
     val carsDriving: Int get() = groupCars.size
 }
+
+/** 내 차 연료 부족 → 그룹에 휴게소 정차를 제안할지 묻는 카드 */
+data class RestStopSuggestion(
+    val placeName: String,
+    val distanceMeters: Int?,
+    val energyPercent: Int,
+    val isEv: Boolean,
+    /** 제안을 보내고 다른 차의 답을 기다리는 중 */
+    val sent: Boolean = false,
+)
 
 /** 목적지 검색 패널 상태 */
 data class SearchUiState(
