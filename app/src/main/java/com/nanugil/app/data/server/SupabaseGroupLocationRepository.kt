@@ -70,7 +70,8 @@ class SupabaseGroupLocationRepository : GroupLocationRepository {
 
     /**
      * R2. 내 차 상태 보내기. [observeGroup]을 구독하는 동안만 보낼 수 있다.
-     * 위치가 바뀔 때마다 불러도 된다. 보낼 때가 아니면 보내지 않고 false ([shouldSendCarState]).
+     * 위치가 바뀌지 않아도 3초 이내 간격으로 계속 부른다 (지도 화면은 1초 내비 갱신 루프에서 매번 호출).
+     * 보낼 때가 아니면 보내지 않고 false: 실제 전송은 주행 중 3초, 정차 중 30초 ([shouldSendCarState]).
      */
     suspend fun sendCarState(message: CarStateMessage): Boolean = sendLock.withLock {
         val channel = sendChannel ?: return@withLock false
