@@ -1,7 +1,7 @@
 # 그룹·초대·운행 API 목록 (초안)
 
-- **날짜:** 2026-11-07 (2026-11-08 PM 의견, 2026-11-10 팀장 보안 의견·정산 담당 합의 반영)
-- **상태:** 초안 — PM 합의 완료, 정산 담당 3·4·7·8·10·11번 합의, 팀장 보안 의견 반영
+- **날짜:** 2026-11-07 (2026-11-08 PM 의견, 2026-11-10 팀장 보안 의견·정산 담당 합의, 2026-11-11 전기차·동승자 지적 반영)
+- **상태:** 초안 — PM 합의 완료, 정산 담당 3·4·7·8·10·11번 합의, 팀장 보안 의견 반영, 전기차 정산·운행별 동승자 반영, 테이블 4개로 정리(13·15번 확인 대기)
 - **작성:** 서버·실시간 통신 담당
 - **근거:** [ADR-001 백엔드·실시간 통신 기술 선택](decisions/001-backend-realtime.md) — Supabase
 
@@ -14,7 +14,7 @@
 
 | 내용 | 담당 | 비고 |
 | --- | --- | --- |
-| 차량 상태 값 (연료·속도 등) 읽기, 비용·정산 계산 | 차량 데이터·정산 담당 | `trip_costs` 필드는 정산 담당과 합의했다. 정산 흐름은 [vehicle-api-research.md](vehicle-api-research.md), 계산기는 #10 |
+| 차량 상태 값 (연료·속도 등) 읽기, 비용·정산 계산 | 차량 데이터·정산 담당 | `trip_members`의 비용 열은 정산 담당과 합의했다. 정산 흐름은 [vehicle-api-research.md](vehicle-api-research.md), 계산기는 #10 |
 | 지도 표시, 합류점 추천 | 지도·그룹 드라이브 담당 | 위치 메시지 형식은 아래 [실시간](#4-실시간-위치-연결)에서 맞출 항목만 적는다 |
 | 오피넷 유가 서버 호출 | 서버·실시간 통신 담당 | 별도 문서로 다룬다 |
 
@@ -61,7 +61,6 @@ sequenceDiagram
 - **읽기(SELECT):** 같은 그룹 멤버만 읽을 수 있다.
 - **쓰기(INSERT·UPDATE·DELETE):** 쓰기 정책을 만들지 않아 테이블 직접 쓰기를 막는다 (RLS가 켜진 테이블은 정책이 없으면 거부된다). `anon`·`authenticated` 역할의 테이블 쓰기 권한도 회수한다.
 - 이유: 쓰기를 막지 않으면 `group_members`에 직접 INSERT해서 초대 코드 없이 그룹에 들어오거나, `groups`의 `owner_id`·`invite_code`를 마음대로 바꿀 수 있다.
-- 예외: `invite_attempts`는 그룹에 속하지 않는 보안용 기록이라 **읽기 정책도 두지 않는다.** 앱에서는 읽을 수 없고 RPC 안에서만 쓴다.
 
 **2. RPC**
 - `SECURITY DEFINER`로 만들고 `search_path`를 고정한다 (`set search_path = ''`, 테이블은 `public.groups`처럼 스키마 이름까지 쓴다).
@@ -77,24 +76,24 @@ sequenceDiagram
 | `reset_invite_code` (I1) | 방장 | — |
 | `join_group` (I2) | 로그인, 시도 횟수 (아래 3번) | 코드가 있고 만료되지 않음, 이미 멤버가 아님 |
 | `preview_invite` (I3) | 로그인, 시도 횟수 (아래 3번) | 코드가 있고 만료되지 않음 |
-| `add_passenger` (I4) | 그 그룹의 `DRIVER` | 이름 필수 |
-| `start_trip` (T1), `end_trip` (T4) | 방장 | 시작: 진행 중 운행 없음 / 종료: 운행이 `ACTIVE` |
-| `join_trip` (T2) | 그 그룹의 `DRIVER`. 운전자 자리는 **호출한 본인**으로 채운다 | 운행이 `ACTIVE`, 연료 종류가 `fuel_type` 값 목록 중 하나 |
-| `mark_arrived` (T6) | 그 운행에 참가한 운전자 본인 | 운행이 `ACTIVE` |
-| `set_trip_passengers` (T7) | 그 운행에 참가한 운전자 본인. 운전자 자리(`vehicle_driver_member_id`)는 입력이 아니라 **호출한 본인**으로 채운다 | 각 `member_id`가 **같은 그룹의 `PASSENGER`**인지, 다른 차에 이미 타지 않았는지, 운행이 `ACTIVE`인지 |
-| `save_trip_cost` (T8) | 그 운행에 참가한 운전자 본인. **자기 차 행만** 쓸 수 있고, 운전자 자리는 호출한 본인으로 채운다 | 도착 후(내 차 `arrived_at`이 있거나 운행이 `ENDED`), 연료량·가격이 0 이상, 유가 기준이 정해진 값 중 하나 |
+| `add_passenger` (I4) | 그 그룹의 앱 사용자 멤버 | 이름 필수 |
+| `start_trip` (T1), `end_trip` (T4) | 방장 | 시작: 진행 중 운행 없음 / 종료: 운행이 진행 중 |
+| `join_trip` (T2) | 그 그룹의 앱 사용자 멤버. 운전자 자리는 **호출한 본인**으로 채운다 | 운행이 진행 중, 이 운행에 내 행이 아직 없음(기본 키로 막힘), 연료 종류가 `fuel_type` 값 목록 중 하나 |
+| `mark_arrived` (T6) | 그 운행에 참가한 운전자 본인 | 운행이 진행 중 |
+| `set_trip_passengers` (T7) | 그 운행에 참가한 운전자 본인. 운전자 자리(`vehicle_driver_member_id`)는 입력이 아니라 **호출한 본인**으로 채운다 | 각 `member_id`가 **같은 그룹 멤버**인지, 운행이 진행 중인지. 이미 운전자이거나 다른 차에 탄 사람은 기본 키로 막힌다 |
+| `save_trip_cost` (T8) | 그 운행에 참가한 운전자 본인. **자기 운전자 행의 비용 열만** 쓸 수 있고, 운전자 자리는 호출한 본인으로 채운다 | 도착 후(내 차 `arrived_at`이 있거나 운행이 끝남), 연료량·배터리량·가격이 0 이상, 유가 기준이 정해진 값 중 하나 |
 
 **3. 초대 코드**
 - 32종 문자 × 6자리 ≈ 10억 7천만 가지다. 시도 횟수 제한도 만료도 없으면 계속 넣어 보는 방식으로 뚫릴 수 있다. `preview_invite`는 참여 전에 그룹 이름과 인원을 알려 주므로 이런 시도에 쓰기 좋다.
-- **시도 횟수 제한:** `join_group`과 `preview_invite`를 합쳐 사용자별로 최근 10분 동안 실패가 5회면 거절한다 (`TOO_MANY_ATTEMPTS`, 숫자는 임시값). 시도 기록은 `invite_attempts` 테이블에 남긴다.
+- **시도 횟수 제한:** `join_group`과 `preview_invite`를 합쳐 사용자별로 최근 10분 동안 실패가 5회면 거절한다 (`TOO_MANY_ATTEMPTS`, 숫자는 임시값). 실패 기록은 테이블을 따로 두지 않고 Supabase가 이미 가진 `auth.users`의 `raw_app_meta_data`에 `invite_fail_count`(실패 횟수)와 `invite_fail_since`(세기 시작한 시각) 두 값으로 남긴다. app_metadata는 사용자가 직접 고칠 수 없어서 보안 기록을 두기에 맞고, `join_group`·`preview_invite` RPC 안에서만 읽고 쓴다. 성공하거나 10분이 지나면 0부터 다시 센다.
 - **만료 (MVP):** `groups.invite_code_expires_at`. 발급·재발급 후 24시간(임시값)이 지나면 쓸 수 없다. 만료된 코드도 없는 코드와 같은 오류(`INVALID_CODE`)를 돌려줘서, 그런 코드가 있었는지 알려 주지 않는다.
 - **익명 가입 속도 제한:** Supabase 대시보드 Authentication → Rate Limits에서 익명 가입 제한을 켠다. 익명 계정을 계속 새로 만들어 사용자별 시도 제한을 피하는 것을 막는다.
 
 **4. 실시간 채널**
 - Supabase Broadcast는 기본이 공개 채널이라 테이블 RLS가 걸리지 않는다. 앱에 들어 있는 anon key와 채널 이름 `trip:{운행 ID}`만 알면 그룹 밖 사람도 위치를 받아 보고 가짜 위치를 보낼 수 있다.
 - 채널은 **private 채널**(`private: true`)로 연다.
-- `realtime.messages`에 RLS를 건다. **읽기(SELECT)와 보내기(INSERT) 모두** 채널 이름의 운행이 `ACTIVE`이고, 호출한 사람이 그 운행의 `trip_vehicles`에 있는 운전자일 때만 허용한다. Broadcast와 Presence 모두 이 규칙을 따른다.
-- 운행이 끝나면(`ENDED`) 이 규칙에 걸려 채널을 더 쓸 수 없다.
+- `realtime.messages`에 RLS를 건다. **읽기(SELECT)와 보내기(INSERT) 모두** 채널 이름의 운행이 진행 중(`ended_at`이 비어 있음)이고, 호출한 사람이 그 운행 `trip_members`의 운전자 행(`member_id` = `vehicle_driver_member_id`)일 때만 허용한다. Broadcast와 Presence 모두 이 규칙을 따른다.
+- 운행이 끝나면(`ended_at`이 채워짐) 이 규칙에 걸려 채널을 더 쓸 수 없다.
 
 **5. 알려진 한계**
 - 위치 메시지의 `carId`는 보내는 쪽이 직접 넣는 값이라, 같은 운행에 참가한 멤버끼리는 다른 차인 척 보낼 수 있다. 시연에서는 넘어간다.
@@ -103,7 +102,7 @@ sequenceDiagram
 
 **표 읽는 법**
 - **방식:** `테이블` = Supabase 기본 API로 테이블 직접 조회 (읽기만) / `RPC` = Postgres 함수 호출 / `구독` = Realtime
-- **누가:** `방장` = `groups.owner_id`에 해당하는 사람 (방장도 운전자다) / `멤버` = 그룹에 속한 사람 / `운전자` = 차량 앱으로 참여한 멤버 (`role = DRIVER`)
+- **누가:** `방장` = `groups.owner_id`에 해당하는 사람 (방장도 운전자다) / `멤버` = 그룹에 속한 사람 / `운전자` = 차량 앱으로 참여한 멤버 (`user_id`가 있음). 이번 운행에 실제로 차를 모는지는 `trip_members`의 운전자 행으로 본다
 - **MVP:** ● = 시연에 꼭 필요 / ○ = 시간 남으면
 
 ### 1. 그룹
@@ -116,16 +115,16 @@ sequenceDiagram
 | G4 | 그룹 정보 수정 | RPC `update_group` | 방장 | 그룹 ID, 바꿀 값 (이름·로고·목적지만) | 수정된 그룹 | 그룹 만들기 | ○ |
 | G5 | 그룹 나가기 / 멤버 빼기 | RPC `leave_group` | 본인 / 방장 | 그룹 ID, (방장이면) 멤버 ID | 없음 | 그룹 만들기 | ○ |
 
-G1은 그룹 생성, 방장을 첫 멤버(`DRIVER`)로 등록, 초대 코드 발급을 **한 번에** 처리해야 해서 RPC로 만든다. 방장 여부는 `role`이 아니라 `groups.owner_id`로 판단한다.
+G1은 그룹 생성, 방장을 첫 멤버로 등록, 초대 코드 발급을 **한 번에** 처리해야 해서 RPC로 만든다. 방장 여부는 `groups.owner_id`로 판단한다.
 
 ### 2. 초대
 
 | ID | 기능 | 방식 | 누가 | 입력 | 결과 | 쓰는 화면 | MVP |
 | --- | --- | --- | --- | --- | --- | --- | :---: |
 | I1 | 초대 코드 다시 만들기 | RPC `reset_invite_code` | 방장 | 그룹 ID | 새 초대 코드와 만료 시각 (이전 코드는 무효) | 그룹 만들기 | ● |
-| I2 | 코드로 참여하기 | RPC `join_group` | 로그인한 사용자 | 초대 코드, 내 표시 이름 | 참여한 그룹 (`DRIVER`로 등록) | 그룹 참여 | ● |
+| I2 | 코드로 참여하기 | RPC `join_group` | 로그인한 사용자 | 초대 코드, 내 표시 이름 | 참여한 그룹 | 그룹 참여 | ● |
 | I3 | 코드 미리보기 | RPC `preview_invite` | 로그인한 사용자 | 초대 코드 | 그룹 이름, 멤버 수 (참여 전 확인용) | 그룹 참여 | ○ |
-| I4 | 동승자 추가 | RPC `add_passenger` | 운전자 | 그룹 ID, 동승자 이름 | 추가된 멤버 (`PASSENGER`) | 그룹 만들기 | ● |
+| I4 | 동승자 추가 | RPC `add_passenger` | 운전자 | 그룹 ID, 동승자 이름 | 추가된 멤버 (`user_id` 없음) | 그룹 만들기 | ● |
 
 - **초대 코드:** 6자리 영문 대문자+숫자 (헷갈리는 `0/O`, `1/I` 제외). 차량 화면에서 입력하기 쉽고 말로 전하기도 쉽다. 발급 후 24시간이 지나면 만료되고, 참여·미리보기는 사용자별 시도 횟수 제한을 받는다 ([보안 규칙](#보안-규칙) 3번). 만료되면 방장이 I1로 다시 만든다. 그래서 I1을 시연 필수(●)로 올렸다.
 - **동승자:** 동승자는 차량 앱을 쓰지 않으므로 로그인 계정 없이 이름만 있는 멤버로 그룹에 등록한다. **어느 차에 탔는지는 그룹이 아니라 운행마다** 기록한다 (T7). **동승자 연락처(전화번호 등)는 저장하지 않는다.** 정산 결과(누가 누구에게 얼마)는 도착 후 차량 화면에 보여 주고, 송금은 각자 쓰는 송금 앱으로 한다. 카카오페이·토스 모두 개인 간 송금 API를 열어 두지 않아 앱이 청구서를 보내거나 송금을 연동할 수 없다 (정산 담당, #10에서 팀장 확인 요청 중).
@@ -138,19 +137,20 @@ G1은 그룹 생성, 방장을 첫 멤버(`DRIVER`)로 등록, 초대 코드 발
 | --- | --- | --- | --- | --- | --- | --- | :---: |
 | T1 | 운행 시작 | RPC `start_trip` | 방장 | 그룹 ID, 목적지(선택, 없으면 그룹 목적지) | 운행 ID, 실시간 채널 이름 | 홈 / 그룹 만들기 | ● |
 | T2 | 운행 참가 (내 차량 등록) | RPC `join_trip` | 운전자 | 운행 ID, 차량 표시 이름, 연료 종류 | 참가 처리 | 그룹 드라이브 진입 시 자동 | ● |
-| T3 | 진행 중 운행 조회 | 테이블 `trips` + `trip_vehicles` + `trip_members` | 멤버 | 그룹 ID | 진행 중 운행, 참가 차량, 차량별 동승자 (없으면 비어 있음) | 홈, 앱 재시작 시 복귀 | ● |
+| T3 | 진행 중 운행 조회 | 테이블 `trips` + `trip_members` | 멤버 | 그룹 ID | 진행 중 운행, 참가 차량, 차량별 동승자 (없으면 비어 있음) | 홈, 앱 재시작 시 복귀 | ● |
 | T4 | 운행 종료 (도착) | RPC `end_trip` | 방장 | 운행 ID | 종료 시각 | 그룹 드라이브 → 정산 요약 | ● |
-| T5 | 운행 상태 바뀜 받기 | 구독 (Postgres Changes) `trips`, `trip_vehicles` | 멤버 | 그룹 ID | 시작·종료, 차량 도착 이벤트 | 홈, 그룹 드라이브 | ● |
+| T5 | 운행 상태 바뀜 받기 | 구독 (Postgres Changes) `trips`, `trip_members` | 멤버 | 그룹 ID | 시작·종료, 차량 도착 이벤트 | 홈, 그룹 드라이브 | ● |
 | T6 | 내 차 도착 | RPC `mark_arrived` | 운전자 | 운행 ID | 도착 시각 | 그룹 드라이브 | ○ |
 | T7 | 내 차 동승자 등록 | RPC `set_trip_passengers` | 운전자 | 운행 ID, 동승자 멤버 ID 목록 | 이 운행에서 내 차에 탄 동승자 | 그룹 드라이브 진입 전 (정차 중) | ● |
-| T8 | 내 차 비용 저장 | RPC `save_trip_cost` | 운전자 | 운행 ID, `trip_costs` 값 (연료량·유가·통행료) | 저장된 내 차 비용 | 정산 요약 (도착 후) | ● |
+| T8 | 내 차 비용 저장 | RPC `save_trip_cost` | 운전자 | 운행 ID, 비용 값 (연료량·배터리량·유가·충전 단가·통행료) | 저장된 내 차 비용 | 정산 요약 (도착 후) | ● |
 
 - **T1:** 진행 중 운행이 이미 있으면 거절한다 (DB 제약으로 막음). 목적지는 운행마다 따로 저장한다. 같은 그룹이 가는 길과 오는 길을 따로 운행하면 목적지가 다르기 때문이다. 입력이 없으면 그룹 목적지를 복사한다.
-- **T2:** 운전자마다 "이 운행에 내 차가 참여한다"를 기록한다. 차량 표시 이름(지도 마커·정산 화면용)과 연료 종류(주유소·충전소 구분, 유가 선택용)를 함께 보낸다. 연료 종류는 차량 API `INFO_FUEL_TYPE`에서 읽는다 (차량 데이터·정산 담당 조사 문서). 차량별 비용(`trip_costs`)은 이 기록을 기준으로 붙는다.
+- **T2:** 운전자마다 "이 운행에 내 차가 참여한다"를 기록한다. 차량 표시 이름(지도 마커·정산 화면용)과 연료 종류(주유소·충전소 구분, 유가 선택용)를 함께 보낸다. 연료 종류는 차량 API `INFO_FUEL_TYPE`에서 읽는다 (차량 데이터·정산 담당 조사 문서). 이 운전자 행에 나중에 T8로 차량별 비용을 채운다.
 - **T6:** 앞차가 먼저 도착하고 뒤차는 아직 오는 중일 수 있다. 차량마다 도착 시각을 남겨 "누가 도착했나"를 보여 준다. 운행 종료(T4)는 여전히 방장이 누른다.
-- **T7:** 가는 길 8명, 오는 길 6명처럼 운행마다 인원과 탑승 차량이 바뀔 수 있다. 운전자가 이번 운행에서 자기 차에 탄 동승자를 고른다. 동승자 한 명은 한 운행에서 한 차에만 탈 수 있다. 같은 목록을 다시 보내면 덮어쓴다. 운전자 자리는 입력으로 받지 않고 호출한 본인으로 채우며, 고른 사람이 모두 같은 그룹의 `PASSENGER`인지 검사한다 ([보안 규칙](#보안-규칙) 2번).
+- **T7:** 가는 길 8명, 오는 길 6명처럼 운행마다 인원과 탑승 차량이 바뀔 수 있다. 운전자가 이번 운행에서 자기 차에 탄 동승자를 고른다. 동승자 한 명은 한 운행에서 한 차에만 탈 수 있다. 같은 목록을 다시 보내면 덮어쓴다. 운전자 자리는 입력으로 받지 않고 호출한 본인으로 채우며, 고른 사람이 모두 같은 그룹 멤버이고 이번 운행에서 차를 몰지 않는지 검사한다 ([보안 규칙](#보안-규칙) 2번).
+  - **차를 안 가져온 앱 사용자도 동승자로 고를 수 있다.** 그룹에 앱 사용자가 3명이어도 이번 운행에 차가 2대만 가면 한 명은 남의 차에 탄다. 이 사람이 빠지면 1/N의 N이 틀린다. 그래서 동승자인지는 그룹에 고정해 두지 않고 운행마다 정한다. `trip_members`에서 자기 차를 가리키는 행이면 운전자, 남의 차를 가리키면 동승자다.
 - **T8:** 도착한 뒤 운전자가 자기 차 비용을 저장한다. 값은 정산 담당 코드가 차량에서 읽고 계산기에 넣는 것과 같다. 유가 기준을 바꾸면 다시 불러 덮어쓴다. 주유비·송금 목록은 저장하지 않고 계산기가 매번 계산한다.
-- **1/N의 N:** 운행 인원 = 이 운행의 운전자 수(`trip_vehicles`) + 동승자 수(`trip_members`).
+- **1/N의 N:** 운행 인원 = 이 운행의 `trip_members` 행 수. 한 사람은 한 행만 가지므로 두 번 셀 일이 없다.
 - **T1·T4를 방장만 할 수 있게 할지**, 운전자 누구나 할 수 있게 할지는 합의가 필요하다 (아래 [합의할 것](#합의할-것)).
 
 ### 4. 실시간 위치 연결
@@ -194,19 +194,18 @@ R2 메시지는 지도 담당의 `CarState`에 맞췄다. `carId`, 좌표, `spee
 
 ## 데이터 모델 (공통 모델)
 
-PM과 합의해 이 섹션을 **공통 데이터 모델**로 쓴다 (PM 1·4·7번, 정산 담당 10·11번 합의). EV 정산 열은 13번이 정해지면 추가한다.
+PM과 합의해 이 섹션을 **공통 데이터 모델**로 쓴다 (PM 1·4·7번, 정산 담당 10·11번 합의). 2026-11-11에 전기차 정산 열과 운행별 운전자·동승자 구분을 반영했다 (합의할 것 13·15번).
 
 ```mermaid
 erDiagram
     groups ||--o{ group_members : "멤버"
     groups ||--o{ trips : "운행"
-    trips ||--o{ trip_vehicles : "참가 차량"
-    trips ||--o{ trip_members : "탑승 동승자"
-    group_members ||--o{ trip_vehicles : "운전"
+    trips ||--o{ trip_members : "탄 사람 (운전자·동승자)"
     group_members ||--o{ trip_members : "탑승"
-    trip_vehicles ||--o{ trip_members : "이 차에 탐"
-    trip_vehicles ||--|| trip_costs : "차량별 비용"
+    trip_members ||--o{ trip_members : "이 차에 탐"
 ```
+
+테이블은 `groups`, `group_members`, `trips`, `trip_members` 4개다. 초대 코드 실패 횟수는 테이블 대신 `auth.users`의 app_metadata에 둔다 ([보안 규칙](#보안-규칙) 3번).
 
 **groups** (Group)
 
@@ -228,12 +227,11 @@ erDiagram
 | --- | --- | --- |
 | `id` | uuid | 기본 키 |
 | `group_id` | uuid | |
-| `user_id` | uuid, 선택 | 로그인 사용자. 동승자는 비어 있음 |
+| `user_id` | uuid, 선택 | 로그인 사용자. 앱 없는 동승자(I4)는 비어 있음 |
 | `display_name` | 문자열 | 화면에 보이는 이름 |
-| `role` | `DRIVER` / `PASSENGER` | 방장도 `DRIVER`. 방장 여부는 `groups.owner_id` |
 | `joined_at` | 시각 | |
 
-탑승 차량은 그룹 단위로 저장하지 않는다. 운행마다 `trip_members`에 남긴다.
+- **`role` 열은 두지 않는다.** 운전자인지 동승자인지는 그룹에서 정해지지 않고 운행마다 바뀐다. 앱 사용자라도 이번 운행에 차를 안 가져오면 남의 차에 탄다. 운행마다 `trip_members`에 "누가 어느 차를 탔는지"로 남기고, 앱이 있는지는 `user_id`로 알 수 있다. 방장 여부는 `groups.owner_id`로 판단한다.
 
 **trips** (Trip)
 
@@ -241,23 +239,46 @@ erDiagram
 | --- | --- | --- |
 | `id` | uuid | 기본 키 |
 | `group_id` | uuid | |
-| `status` | `ACTIVE` / `ENDED` | 그룹당 `ACTIVE`는 하나만 |
 | `started_by` | uuid | |
-| `started_at`, `ended_at` | 시각 | |
+| `started_at` | 시각 | |
+| `ended_at` | 시각, 선택 | 비어 있으면 진행 중, 채워져 있으면 끝난 운행 |
 | `destination_name`, `destination_lat`, `destination_lng` | 문자열, 실수 | 이번 운행의 목적지. 시작할 때 그룹 목적지를 복사 |
 
-**trip_vehicles** (운행에 참가한 차량)
+- **`status` 열은 두지 않는다.** `ACTIVE`/`ENDED`는 `ended_at`이 비었는지로 그대로 알 수 있어, 따로 두면 두 값이 어긋날 수만 있다. "그룹당 진행 중 운행은 하나"는 부분 유니크 인덱스 `UNIQUE (group_id) WHERE ended_at IS NULL`로 막는다.
 
-기본 키: (`trip_id`, `driver_member_id`)
+**trip_members** (운행에 탄 사람과 차량별 비용)
+
+운행에 탄 사람 한 명당 한 행이다. 운전자도 동승자도 같은 표에 들어가고, **운전자 행에 그 차의 정보와 비용을 함께 적는다.**
+기본 키: (`trip_id`, `member_id`). 한 사람은 한 운행에서 한 행만 가지므로 "운전자이면서 남의 차 동승자"나 "두 차에 동시에 탐"이 DB에서 막힌다.
 
 | 필드 | 형식 | 설명 |
 | --- | --- | --- |
-| `trip_id` | uuid | |
-| `driver_member_id` | uuid | 운전자 멤버 |
-| `vehicle_label` | 문자열 | 차량 표시 이름 (예: "A차") |
-| `fuel_type` | 아래 표 | 연료 종류. 차량 API `INFO_FUEL_TYPE`에서 읽음 (정산 담당과 확정) |
+| `trip_id`, `member_id` | uuid | 기본 키 |
+| `vehicle_driver_member_id` | uuid | 탄 차의 운전자 멤버. **운전자 행은 자기 `member_id`와 같다.** (`trip_id`, `vehicle_driver_member_id`)는 같은 표의 운전자 행을 가리킨다 |
 | `joined_at` | 시각 | |
-| `arrived_at` | 시각, 선택 | 이 차가 도착한 시각 |
+| `vehicle_label` | 문자열 | 차량 표시 이름 (예: "A차"). 운전자 행만 |
+| `fuel_type` | 아래 표 | 연료 종류. 차량 API `INFO_FUEL_TYPE`에서 읽음. 운전자 행만 |
+| `arrived_at` | 시각, 선택 | 이 차가 도착한 시각. 운전자 행만 |
+| `start_fuel_ml` | bigint | 출발 시 연료량 (mL) |
+| `refueled_ml` | bigint | 주유량 (mL, 여러 번이면 합계, 없으면 0) |
+| `end_fuel_ml` | bigint | 도착 시 연료량 (mL) |
+| `fuel_calc_method` | `FUEL_LEVEL` / `PERCENT_CAPACITY` / `DISTANCE_EFFICIENCY` | 연료량 계산 방식 (대체 순서 1~3) |
+| `price_basis` | `NEAREST` / `CHEAPEST` | 유가 기준 (근처 / 근처 최저가) |
+| `nearest_price`, `cheapest_price` | integer (원/L) | 두 가격을 함께 저장 |
+| `applied_price` | integer (원/L) | 계산에 쓴 유가. 여러 번 주유했으면 주유량 가중 평균 |
+| `start_battery_wh` | bigint | 출발 시 배터리 잔량 (Wh, `EV_BATTERY_LEVEL`) |
+| `charged_wh` | bigint | 충전량 (Wh, 여러 번이면 합계, 없으면 0) |
+| `end_battery_wh` | bigint | 도착 시 배터리 잔량 (Wh) |
+| `applied_price_per_kwh` | integer (원/kWh) | 계산에 쓴 충전 단가 |
+| `toll_estimated` | integer (원) | 통행료 예상액 (`tollFare`) |
+| `toll_adjusted` | integer (원), 선택 | 운전자가 고친 통행료. 있으면 이 값을 씀 |
+| `calculated_at` | 시각 | 마지막 계산 시각 (유가 기준을 바꾸면 갱신) |
+
+`start_fuel_ml`부터 `calculated_at`까지 비용 열은 정산 담당과 합의한 확정안(합의할 것 10번)에 전기차 열(13번)을 더한 것이다. 정산 계산기(#10 `SettlementCalculator`)가 받는 값(`VehicleTrip`)에 맞췄다. 모두 운전자 행에만 채운다.
+
+- **운전자 = `member_id`와 `vehicle_driver_member_id`가 같은 행.** 동승자 행은 차량·비용 열을 비워 둔다 (CHECK 제약).
+- **1/N의 N은 이 운행의 행 수다.** 운전자와 동승자를 따로 세서 더할 필요가 없다.
+- **표를 하나로 합친 이유:** 예전 `trip_vehicles`(참가 차량)·`trip_members`(동승자)·`trip_costs`(차량별 비용)는 기본 키가 모두 (운행, 멤버)였다. 한 사람의 이번 운행 정보를 세 표에 나눠 적은 셈이라, 표끼리 겹치지 않게 검사하는 코드(T2·T7 상호 검사)가 따로 필요했다. 합치면 기본 키 하나로 끝난다. 대신 동승자 행에는 빈 열이 많다.
 
 `fuel_type` 값은 오피넷 제품 코드와 바로 짝지을 수 있게 둔다 (코드는 [vehicle-api-research.md](vehicle-api-research.md) 기준).
 
@@ -267,60 +288,19 @@ erDiagram
 | `PREMIUM_GASOLINE` | `B034` 고급휘발유 | `INFO_FUEL_TYPE`으로 구분이 안 되면 운전자가 고른다 |
 | `DIESEL` | `D047` 경유 | |
 | `LPG` | `K015` 자동차부탄 | |
-| `EV` | 없음 | 충전 요금 출처 미정. 시연 차량이 전기차일 수 있어 값은 유지한다 (Virtual Console Energy 섹션에 EV 항목만 있음). 정산 범위는 시연 차량 확인 후 결정 |
+| `EV` | 없음 | **시연 차량.** 에뮬레이터 차가 전기차다 ("잔여 배터리 100%", Virtual Console Energy 섹션에 EV 항목만 있음). 정산은 배터리 Wh × 충전 단가 |
+| `HYBRID` | `B027` 휘발유 | 연료비(휘발유) + 전기비를 둘 다 계산한다 (계산기 `VehicleTrip` 기준) |
 | `HYDROGEN` | 없음 | **정산 미지원.** `INFO_FUEL_TYPE`에는 있지만 오피넷에 수소 가격이 없다 |
 
-- **하이브리드:** `INFO_FUEL_TYPE`은 값 하나가 아니라 목록으로 와서, 하이브리드 차는 휘발유와 전기가 같이 나올 수 있다. **목록에 휘발유가 있으면 `GASOLINE`으로 본다.**
-
-**trip_members** (운행별 동승자 탑승 기록)
-
-기본 키: (`trip_id`, `member_id`) — 동승자 한 명은 한 운행에서 한 차에만 탄다.
-
-| 필드 | 형식 | 설명 |
-| --- | --- | --- |
-| `trip_id` | uuid | |
-| `member_id` | uuid | 동승자 멤버 (`role = PASSENGER`) |
-| `vehicle_driver_member_id` | uuid | 탄 차의 운전자 멤버. (`trip_id`, `vehicle_driver_member_id`)가 `trip_vehicles`에 있어야 한다 |
-
-**trip_costs** (TripCost, 차량별 비용)
-
-`trip_vehicles`와 1:1이지만 쓰는 시점(도착 후)과 담당(정산)이 다르고, 유가 기준을 바꾸면 다시 계산하므로 별도 테이블로 둔다.
-기본 키: (`trip_id`, `driver_member_id`)
-
-아래 필드는 정산 담당과 **합의한 확정안**이다 (합의할 것 10번). 정산 계산기(#10 `SettlementCalculator`)가 받는 값(`VehicleTrip`)에 맞췄다.
-
-| 필드 | 형식 | 설명 |
-| --- | --- | --- |
-| `trip_id`, `driver_member_id` | uuid | 기본 키. `trip_vehicles`와 같음 |
-| `start_fuel_ml` | bigint | 출발 시 연료량 (mL) |
-| `refueled_ml` | bigint | 주유량 (mL, 여러 번이면 합계, 없으면 0) |
-| `end_fuel_ml` | bigint | 도착 시 연료량 (mL) |
-| `fuel_calc_method` | `FUEL_LEVEL` / `PERCENT_CAPACITY` / `DISTANCE_EFFICIENCY` | 연료량 계산 방식 (대체 순서 1~3) |
-| `price_basis` | `NEAREST` / `CHEAPEST` | 유가 기준 (근처 / 근처 최저가) |
-| `nearest_price`, `cheapest_price` | integer (원/L) | 두 가격을 함께 저장 |
-| `applied_price` | integer (원/L) | 계산에 쓴 유가. 여러 번 주유했으면 주유량 가중 평균 |
-| `toll_estimated` | integer (원) | 통행료 예상액 (`tollFare`) |
-| `toll_adjusted` | integer (원), 선택 | 운전자가 고친 통행료. 있으면 이 값을 씀 |
-| `calculated_at` | 시각 | 마지막 계산 시각 (유가 기준을 바꾸면 갱신) |
+- **하이브리드:** `INFO_FUEL_TYPE`은 값 하나가 아니라 목록으로 와서, 하이브리드 차는 휘발유와 전기가 같이 나온다. **목록에 휘발유와 전기가 함께 있으면 `HYBRID`로 본다.** 정산 화면 차종 선택(경유·휘발유·고급유·전기차·하이브리드)과 같은 구분이다.
 
 - **연료는 mL 정수(bigint)로 저장한다.** 계산기가 mL 정수로 계산해 반올림 오차가 없고, 실수로 저장하면 40.5 L 같은 값이 DB에서 미세하게 달라질 수 있다.
-- **계산하면 나오는 값은 저장하지 않는다.** 사용 연료(출발 + 주유 − 도착), 주유비, 차량 비용, 송금 목록은 `trip_costs`·`trip_vehicles`·`trip_members`만 있으면 계산기로 매번 같은 결과가 나온다. 저장하면 값끼리 어긋날 위험만 생긴다.
+- **계산하면 나오는 값은 저장하지 않는다.** 사용 연료(출발 + 주유 − 도착), 주유비, 차량 비용, 송금 목록은 `trip_members`만 있으면 계산기로 매번 같은 결과가 나온다. 저장하면 값끼리 어긋날 위험만 생긴다.
 - **유가는 차량별 열로 둔다.** 유가를 차량마다 둘지 그룹 전체에 하나로 할지는 아직 정하지 않았다 ([vehicle-api-research.md](vehicle-api-research.md)). 차량별 열이면 두 방식을 모두 담을 수 있다.
-- **쓰기는 RPC로만** 한다 (T8, 도착 후 운전자 본인 차 행만).
-- **EV:** 정산에 넣게 되면 리터 대신 배터리 Wh(`EV_BATTERY_LEVEL`)와 원/kWh 열이 따로 필요하다. EV 정산 범위가 정해지면 추가한다 (합의할 것 13번).
+- **쓰기는 RPC로만** 한다 (T2·T6·T7·T8. 차량·비용 열은 운전자 본인 행만).
+- **연료 열과 배터리 열은 함께 둔다.** 계산기(`VehicleTrip`)와 같은 규칙으로, 연료차는 배터리 열을, 전기차는 연료 열을 0으로 두고 하이브리드는 둘 다 채운다. 전기차용 표를 따로 만들면 하이브리드 한 대가 두 표에 나뉜다. 배터리도 연료처럼 Wh 정수로 저장한다.
+- **충전 단가 출처**(충전소 API 또는 직접 입력)는 정산 담당이 정한다. 지금 정산 화면은 예시값 347원/kWh(환경부 급속충전 요금 수준)를 넣어 두고 운전자가 고친다.
 - **1인 부담액 끝자리 처리**(몇 원 단위로 끊을지)는 테이블이 아니라 계산기 설정으로 반영한다. 팀장 결정 대기 중 (#10).
-
-**invite_attempts** (초대 코드 시도 기록, 보안용)
-
-`join_group`·`preview_invite`의 시도 횟수 제한에 쓴다. 앱에서는 읽지 않고 RPC만 쓴다.
-
-| 필드 | 형식 | 설명 |
-| --- | --- | --- |
-| `id` | uuid | 기본 키 |
-| `user_id` | uuid | 시도한 사용자 (`auth.uid()`) |
-| `attempted_at` | 시각 | |
-| `succeeded` | 참/거짓 | 성공 여부. 최근 10분 실패 수를 셀 때 쓴다 |
-
 VehicleState(차량 상태)는 DB에 저장하지 않고 실시간 메시지(R2)로만 주고받는다 (ADR-001).
 
 ## 오류 코드
@@ -331,14 +311,15 @@ RPC가 실패하면 아래 코드를 돌려준다. 앱은 코드에 맞는 짧�
 | --- | --- | --- |
 | `NOT_MEMBER` | 내가 속하지 않은 그룹에 접근 | 이 그룹의 멤버가 아니에요 |
 | `NOT_OWNER` | 방장만 할 수 있는 일을 다른 사람이 시도 | 방장만 할 수 있어요 |
-| `NOT_DRIVER` | 운전자만 할 수 있는 일(I4, T2, T6, T7, T8)을 다른 사람이 시도 | 운전자만 할 수 있어요 |
+| `NOT_DRIVER` | 앱 사용자만 할 수 있는 일(I4, T2)이나 이 운행의 운전자만 할 수 있는 일(T6, T7, T8)을 다른 사람이 시도 | 운전자만 할 수 있어요 |
+| `ALREADY_RIDING` | 이 운행에 이미 행이 있는 사람(남의 차 동승자)이 T2로 차를 등록. 기본 키 충돌을 이 코드로 바꿔 돌려준다 | 이미 다른 차에 동승자로 등록돼 있어요 |
 | `INVALID_CODE` | 없거나 만료된 초대 코드 (둘을 구분하지 않는다) | 초대 코드를 다시 확인해 주세요 |
 | `TOO_MANY_ATTEMPTS` | 최근 10분 동안 초대 코드 실패 5회 | 잠시 후 다시 시도해 주세요 |
 | `ALREADY_MEMBER` | 이미 참여한 그룹에 다시 참여 | 이미 참여한 그룹이에요 |
 | `TRIP_ALREADY_ACTIVE` | 진행 중 운행이 있는데 또 시작 | 이미 운행 중이에요 |
 | `TRIP_NOT_ACTIVE` | 끝난 운행에 참가·종료 시도 | 진행 중인 운행이 없어요 |
 | `PASSENGER_TAKEN` | 이미 다른 차에 등록된 동승자를 T7로 등록 | 다른 차에 이미 탄 동승자예요 |
-| `INVALID_PASSENGER` | T7에서 같은 그룹의 `PASSENGER`가 아닌 사람을 등록 | 이 그룹의 동승자가 아니에요 |
+| `INVALID_PASSENGER` | T7에서 다른 그룹 사람이나 이번 운행에 차를 등록한 운전자를 동승자로 등록 | 이 운행의 동승자로 고를 수 없어요 |
 | `NOT_ARRIVED` | 도착 전에 T8로 비용을 저장 | 도착한 뒤에 저장할 수 있어요 |
 
 ## 합의할 것
@@ -348,17 +329,18 @@ RPC가 실패하면 아래 코드를 돌려준다. 앱은 코드에 맞는 짧�
 | 1 | Group·Member 필드, Trip·TripVehicle 추가 | PM | ✅ 합의 — trips·trip_vehicles 추가, `role`에서 OWNER 제거(방장은 `owner_id`), `rides_with` 대신 `trip_members` |
 | 2 | 운행 시작·종료를 방장만 할지, 운전자 누구나 할지 | 팀장 | 제안: 시연은 방장만 (단순함) |
 | 3 | 동승자에게 청구서를 보낼 연락 수단 (전화번호, 카카오 ID 등)을 멤버에 저장할지 | 차량 데이터·정산 담당 | ✅ 합의 — 저장하지 않음. 정산 결과는 차량 화면에 표시, 송금은 각자 앱 (송금 API 미제공). `group_members`는 그대로 |
-| 4 | TripCost 위치 | PM, 차량 데이터·정산 담당 | ✅ 합의 — 별도 테이블 `trip_costs`. 필드는 10번 |
+| 4 | TripCost 위치 | PM, 차량 데이터·정산 담당 | ✅ 합의 — 별도 테이블 `trip_costs`. 필드는 10번. 2026-11-11 `trip_members` 운전자 행으로 합치자고 제안(15번) |
 | 5 | 위치 메시지 필드와 `etaMinutes` 계산 위치 | 지도·그룹 드라이브 담당 | `CarState` 필드 일치 확인(PM). ETA 계산 위치는 남음 — 제안: 보내는 쪽이 계산 |
 | 6 | 그룹 인원·차량 수 상한 | 팀장 | 제안: 차량 5대, 인원 20명 |
-| 7 | 차량 표시 이름·연료 종류 위치 | PM, 차량 데이터·정산 담당 | ✅ 합의 — `trip_vehicles`에 저장 |
+| 7 | 차량 표시 이름·연료 종류 위치 | PM, 차량 데이터·정산 담당 | ✅ 합의 — `trip_vehicles`에 저장. 2026-11-11 `trip_members` 운전자 행으로 옮기자고 제안(15번) |
 | 8 | 주행 상태(`driveStatus`)를 누가 판정할지 | 지도·그룹 드라이브 담당, 차량 데이터·정산 담당 | ✅ 합의 — 보내는 쪽 앱이 판정. `DRIVING` 5 km/h 이상, `STOPPED` 3 km/h 미만 30초 이상. `REST_AREA`는 14번 |
 | 9 | 모임 로고를 사진 업로드로 할지, 기본 로고 중 고르기로 할지 | 팀장 | 제안: 시연은 기본 로고 고르기 |
 | 10 | `trip_costs` 필드 확정 | 차량 데이터·정산 담당 | ✅ 합의 — 연료 mL 정수(bigint), `used_fuel_l`·`fuel_cost` 제외, 계산 결과는 저장하지 않음 |
-| 11 | `fuel_type` 값 목록과 오피넷 제품 코드 짝 | 차량 데이터·정산 담당 | ✅ 합의 — 코드 짝 확인, `HYDROGEN`(정산 미지원) 추가, 하이브리드는 휘발유가 있으면 `GASOLINE` |
+| 11 | `fuel_type` 값 목록과 오피넷 제품 코드 짝 | 차량 데이터·정산 담당 | ✅ 합의 — 코드 짝 확인, `HYDROGEN`(정산 미지원) 추가. 하이브리드는 2026-11-11에 `HYBRID`로 분리(계산기가 연료비+전기비로 계산) — 정산 담당 확인 필요 |
 | 12 | 초대 코드 시도 제한(10분 동안 실패 5회)과 만료(24시간) 값 | 팀장 | 제안: 위 임시값으로 시작 |
-| 13 | EV 정산 범위 (배터리 Wh·원/kWh 열 추가 여부) | 차량 데이터·정산 담당 | 시연 차량의 연료 종류를 확인한 뒤 결정 |
+| 13 | EV 정산 범위 (배터리 Wh·원/kWh 열 추가 여부) | 차량 데이터·정산 담당 | 반영 — 시연 차량이 전기차라 정산에 넣음. 비용 열에 `start_battery_wh`·`charged_wh`·`end_battery_wh`·`applied_price_per_kwh` 추가 (계산기 `VehicleTrip`과 같은 이름). 열 이름 정산 담당 확인 필요, 충전 단가 출처는 남음 |
 | 14 | `REST_AREA` 판정 (시연에서 뺄지, 휴게소 좌표 근처 + `STOPPED`로 판정할지) | 지도·그룹 드라이브 담당 | 정산 담당 제안: 시연에서 빼거나 지도 담당 위치로 판정 |
+| 15 | 테이블 7개 → 4개: `trip_vehicles`·`trip_members`·`trip_costs`를 `trip_members` 하나로 합침, `invite_attempts`는 `auth.users` app_metadata로 옮김, `group_members.role`·`trips.status` 삭제 | PM, 차량 데이터·정산 담당 | 제안 — 세 표 모두 기본 키가 (운행, 멤버)라 한 사람의 정보를 세 곳에 나눠 적고 있었음. 합치면 "운전자이면서 동승자" 같은 중복이 기본 키로 막히고 1/N의 N은 행 수가 됨. `invite_attempts`는 사용자마다 값 두 개(실패 횟수·세기 시작한 시각)만 있으면 돼서, 사용자가 직접 고칠 수 없는 app_metadata로 충분함. `role`·`status`는 다른 값으로 알 수 있고, 따로 두면 어긋날 수만 있어 뺌. 1·4·7번 합의를 바꾸는 것이라 확인 필요 |
 
 ## 다음 단계
 
@@ -377,3 +359,4 @@ RPC가 실패하면 아래 코드를 돌려준다. 앱은 코드에 맞는 짧�
 | 2026-11-10 | PM: 합의 완료 | 상태 줄 갱신 |
 | 2026-11-10 | 팀장: 보안 점검. ① 초대 코드 무차별 대입 위험 → 시도 횟수 제한, 만료를 MVP에, 익명 가입 속도 제한 ② Broadcast 공개 채널 → private 채널 + `realtime.messages` RLS, `carId` 위장은 한계로 기록 ③ 쓰기 규칙 없음 → 쓰기는 RPC로만, G4 수정 열 제한, `SECURITY DEFINER`·`search_path` 고정·`auth.uid()` 확인, T7 입력 검사 | "보안 규칙" 섹션 신설(테이블·RPC·초대 코드·실시간 채널·한계), G4를 RPC `update_group`으로, I1 시연 필수로, `invite_code_expires_at`·`invite_attempts` 추가, `TOO_MANY_ATTEMPTS`·`INVALID_PASSENGER` 오류 추가, R1 private 채널, 합의할 것 12 추가 |
 | 2026-11-10 | 차량 데이터·정산 담당: 3·4·7·8·10·11번 합의. 연락처 미저장(송금 API 미제공), `trip_costs`는 계산기(#10) 입력값 기준으로 mL 정수·계산 결과 미저장, `fuel_type`에 `HYDROGEN`·하이브리드 규칙, EV 유지, `driveStatus` 판정 기준 | `trip_costs` 확정안으로 교체, T8 `save_trip_cost`·`NOT_ARRIVED` 추가, `fuel_type` 표 보완, `driveStatus` 기준 표 추가, I4 연락처 문구 수정, 합의할 것 3·8·10·11 합의 처리, 13·14 추가 |
+| 2026-11-11 | 리뷰 지적 2건. ① 시연 차량(에뮬레이터)이 전기차인데 `trip_costs`에 전기차 열이 없음. 정산 담당 브랜치 계산기는 이미 전기·하이브리드를 지원 ② `trip_members`가 `PASSENGER`만 받아, 이번 운행에 차를 몰지 않은 운전자 멤버가 빠지고 1/N의 N이 틀림 | ① `trip_costs`에 배터리 Wh·충전 단가 열 4개 추가, `fuel_type`에 `HYBRID` 추가 ② `group_members.role` 삭제, 운전자·동승자는 운행마다 `trip_vehicles`·`trip_members`로 구분, T2·T7이 서로 겹치지 않게 검사, `ALREADY_RIDING` 추가. `trips.status`도 빼고 `ended_at`과 부분 유니크 인덱스로 대체. 합의할 것 11·13 갱신, 15 추가. 이어서 겹치는 표를 정리해 `trip_vehicles`·`trip_costs`를 `trip_members`에 합침(운전자 행에 차량·비용 열), `invite_attempts`를 `auth.users` app_metadata로 옮겨 테이블 7개 → 4개 |
