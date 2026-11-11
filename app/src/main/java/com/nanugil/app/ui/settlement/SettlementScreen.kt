@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nanugil.app.data.fuel.FuelProduct
 import com.nanugil.app.data.fuel.OpinetException
+import com.nanugil.app.data.vehicle.RefillDetector
 import com.nanugil.app.share.Settlement
 import com.nanugil.app.share.SettlementCalculator
 import com.nanugil.app.share.VehicleTrip
@@ -101,6 +102,31 @@ data class CarInput(
     /** 차종을 바꾸고, 유가는 오피넷 평균가([prices])가 있으면 그 값, 없으면 예시값으로 바꾼다. */
     fun withType(newType: VehicleType, prices: Map<FuelProduct, Int> = emptyMap()) =
         copy(type = newType, fuelPrice = newType.priceText(prices))
+
+    /**
+     * 운행 중 기록한 값(출발, 주유·충전량, 현재)을 칸에 넣는다. 기록이 없는 쪽은 그대로 둔다.
+     * 연료 기록만 있으면 연료차, 배터리 기록만 있으면 전기차로 바꾼다. 둘 다 있으면 하이브리드다.
+     */
+    fun withRecorded(fuel: RefillDetector, battery: RefillDetector): CarInput {
+        val hasFuel = fuel.start != null && fuel.latest != null
+        val hasBattery = battery.start != null && battery.latest != null
+        var car = when {
+            hasFuel && hasBattery -> copy(type = VehicleType.HYBRID)
+            hasBattery -> copy(type = VehicleType.ELECTRIC)
+            else -> this
+        }
+        if (hasFuel) car = car.copy(
+            startFuelL = milliToDecimalText(fuel.start!!),
+            refueledL = milliToDecimalText(fuel.added),
+            endFuelL = milliToDecimalText(fuel.latest!!),
+        )
+        if (hasBattery) car = car.copy(
+            startBatteryKwh = milliToDecimalText(battery.start!!),
+            chargedKwh = milliToDecimalText(battery.added),
+            endBatteryKwh = milliToDecimalText(battery.latest!!),
+        )
+        return car
+    }
 
 }
 
@@ -198,6 +224,7 @@ private fun carName(index: Int): String = "${'A' + index}차"
  * @param readMyBatteryWh 내 차(A차) 현재 배터리 잔량(Wh)을 읽는 함수.
  *   두 함수 모두 있으면 A차의 출발·도착 칸에 "차에서 읽기"가 생기고, 실패하면 [IllegalStateException] 메시지를 보여 준다.
  * @param onRequestSettlement '정산 요청'을 눌렀을 때. 송금 안내 방식이 정해지기 전이라 지금은 안내만 띄운다.
+ * @param prefillMyCar 운행 중 기록한 값으로 A차(내 차) 칸을 채운다. 화면이 열릴 때 한 번만 적용한다.
  */
 @Composable
 fun SettlementScreen(
@@ -207,9 +234,13 @@ fun SettlementScreen(
     readMyBatteryWh: (suspend () -> Long)? = null,
     loadFuelPrices: (suspend () -> Map<FuelProduct, Int>)? = null,
     onRequestSettlement: (Settlement) -> Unit = {},
+    prefillMyCar: (CarInput) -> CarInput = { it },
 ) {
     val scope = rememberCoroutineScope()
-    val cars = remember { mutableStateListOf(*exampleCars(initialType).toTypedArray()) }
+    val cars = remember {
+        val example = exampleCars(initialType)
+        mutableStateListOf(prefillMyCar(example[0]), *example.drop(1).toTypedArray())
+    }
     var readError by remember { mutableStateOf<String?>(null) }
     var prices by remember { mutableStateOf<Map<FuelProduct, Int>>(emptyMap()) }
     var priceSource by remember { mutableStateOf(if (loadFuelPrices == null) PriceSource.NONE else PriceSource.LOADING) }

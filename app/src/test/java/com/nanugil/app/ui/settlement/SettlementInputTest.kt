@@ -1,6 +1,7 @@
 package com.nanugil.app.ui.settlement
 
 import com.nanugil.app.data.fuel.FuelProduct
+import com.nanugil.app.data.vehicle.RefillDetector
 import com.nanugil.app.share.SettlementCalculator
 import com.nanugil.app.share.Transfer
 import org.junit.Assert.assertEquals
@@ -11,6 +12,25 @@ class SettlementInputTest {
 
     private fun gasoline(driver: String, passengers: String, start: String, end: String, toll: String = "0", refueled: String = "0") =
         CarInput(VehicleType.GASOLINE, driver, passengers, fuelPrice = "1700", startFuelL = start, refueledL = refueled, endFuelL = end, tollWon = toll)
+
+    @Test
+    fun withRecorded_fillsMyCarFromTripLog() {
+        val fuel = RefillDetector(start = 40_000, latest = 52_500, added = 30_000)
+        val car = gasoline("지수", "", "1", "1").withRecorded(fuel, RefillDetector())
+        assertEquals(VehicleType.GASOLINE, car.type)
+        assertEquals("40", car.startFuelL)
+        assertEquals("30", car.refueledL)
+        assertEquals("52.5", car.endFuelL)
+
+        // 배터리 기록만 있으면 전기차로 바뀐다
+        val ev = gasoline("지수", "", "1", "1").withRecorded(RefillDetector(), RefillDetector(start = 70_000, latest = 55_000, added = 10_000))
+        assertEquals(VehicleType.ELECTRIC, ev.type)
+        assertEquals("10", ev.chargedKwh)
+
+        // 기록이 없으면 그대로
+        val untouched = gasoline("지수", "", "40", "30")
+        assertEquals(untouched, untouched.withRecorded(RefillDetector(), RefillDetector()))
+    }
 
     @Test
     fun toTrips_convertsLitersAndNames() {

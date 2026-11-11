@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.Context
 import android.util.Log
 import com.nanugil.app.data.vehicle.VehicleFuelReader
+import com.nanugil.app.data.vehicle.TripEnergyRecorder
 import com.nanugil.app.data.vehicle.VehicleGearWatcher
 import com.naver.maps.map.NaverMapSdk
 
@@ -25,8 +26,12 @@ class NanugilApplication : Application() {
 
     val fuelReader: VehicleFuelReader by lazy { VehicleFuelReader(this, vehicle) }
 
+    /** 운행 중 연료·배터리 기록. 앱이 켜지면 바로 기록을 시작한다. */
+    val tripRecorder: TripEnergyRecorder by lazy { TripEnergyRecorder(this, vehicle, fuelReader).also { it.start() } }
+
     override fun onCreate() {
         super.onCreate()
+        tripRecorder
         // 키는 local.properties의 NAVER_MAP_CLIENT_ID → BuildConfig로 들어온다 (README "시작하기" 참고).
         NaverMapSdk.getInstance(this).apply {
             client = NaverMapSdk.NcpKeyClient(BuildConfig.NAVER_MAP_CLIENT_ID)

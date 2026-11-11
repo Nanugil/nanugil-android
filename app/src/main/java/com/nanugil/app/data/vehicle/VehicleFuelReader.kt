@@ -89,7 +89,7 @@ class VehicleFuelReader(private val context: Context, private val vehicle: Vehic
         )
     }
 
-    private fun readTankCapacityMl(): Long {
+    internal fun readTankCapacityMl(): Long {
         val car = try {
             Car.createCar(context)
         } catch (e: LinkageError) {
