@@ -53,6 +53,7 @@ object GroupTripApi {
 
     /**
      * T5. 그룹의 운행이 시작·종료되거나 차량이 도착하면 한 번씩 알린다. 받으면 [activeTrip]·[tripMembers]를 다시 읽는다.
+     * 구독이 붙는 순간에도 한 번 알린다. 그때 처음 상태를 읽으면 "읽은 뒤 구독 전" 사이의 변화를 놓치지 않는다.
      * 'group:{그룹 ID}' private 채널 (멤버만 들어올 수 있다). 수집을 멈추면 채널을 닫는다.
      */
     fun tripChanges(groupId: String): Flow<Unit> = flow {
@@ -65,6 +66,7 @@ object GroupTripApi {
         val members = channel.postgresChangeFlow<PostgresAction>(schema = "public") { table = "trip_members" }
         channel.subscribe(blockUntilSubscribed = true)
         try {
+            emit(Unit)
             emitAll(merge(trips, members).map { })
         } finally {
             withContext(NonCancellable) { Supabase.client.realtime.removeChannel(channel) }

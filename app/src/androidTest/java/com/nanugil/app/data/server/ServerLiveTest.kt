@@ -16,12 +16,11 @@ import io.github.jan.supabase.realtime.broadcast
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -75,10 +74,12 @@ class ServerLiveTest {
             Log.i("ServerLiveTest", "step T5: 운행")
 
             // T5: 운행 시작 알림을 받는다
-            val changed = async { GroupTripApi.tripChanges(group.id).first() }
-            delay(2_000) // 구독이 붙을 때까지
+            val tripEvents = Channel<Unit>(Channel.UNLIMITED)
+            val watchingTrips = launch { GroupTripApi.tripChanges(group.id).collect { tripEvents.send(it) } }
+            tripEvents.receive() // 구독이 붙었다는 첫 알림
             val trip = GroupTripApi.startTrip(group.id)
-            changed.await()
+            tripEvents.receive() // 운행 시작 알림
+            watchingTrips.cancel()
             assertEquals(trip.id, GroupTripApi.myGroups().first { it.group.id == group.id }.activeTrip?.id)
             expectError("TRIP_ALREADY_ACTIVE") { GroupTripApi.startTrip(group.id) }
 
@@ -96,11 +97,14 @@ class ServerLiveTest {
             val watching = launch { repo.observeGroup(group.id).collect { cars -> cars.firstOrNull()?.let { received.complete(it) } } }
             val bChannel = b.channel(trip.channel) { isPrivate = true }
             bChannel.subscribe(blockUntilSubscribed = true)
-            delay(2_000)
-            bChannel.broadcast(SupabaseGroupLocationRepository.CAR_STATE_EVENT,
-                CarStateMessage(bMemberId, 37.6, 127.2, 80, 30, 70, DriveStatus.DRIVING, System.currentTimeMillis()))
-            Log.i("ServerLiveTest", "step broadcast sent, waiting")
-            val car = received.await()
+            // 앱 저장소의 구독이 언제 붙을지 몰라서, 받을 때까지 1초마다 다시 보낸다
+            var car: CarState? = null
+            while (car == null) {
+                bChannel.broadcast(SupabaseGroupLocationRepository.CAR_STATE_EVENT,
+                    CarStateMessage(bMemberId, 37.6, 127.2, 80, 30, 70, DriveStatus.DRIVING, System.currentTimeMillis()))
+                Log.i("ServerLiveTest", "step broadcast sent, waiting")
+                car = withTimeoutOrNull(1_000) { received.await() }
+            }
             assertEquals("B", car.driverName)
             assertEquals(37.6, car.position.latitude, 1e-9)
             watching.cancel()

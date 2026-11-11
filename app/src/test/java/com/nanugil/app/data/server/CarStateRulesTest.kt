@@ -29,6 +29,16 @@ class CarStateRulesTest {
     }
 
     @Test
+    fun `정차 중에는 화면이 안 불러도 30초 지나면 다시 보낸다`() {
+        val stopped = msg(status = DriveStatus.STOPPED, sentAt = 0)
+        assertFalse(stoppedResendDue(null, lastSentAt = 0, now = 60_000)) // 보낸 적 없음
+        assertFalse(stoppedResendDue(stopped, lastSentAt = 1_000, now = 30_999))
+        assertTrue(stoppedResendDue(stopped, lastSentAt = 1_000, now = 31_000))
+        assertTrue(stoppedResendDue(msg(status = DriveStatus.REST_AREA, sentAt = 0), lastSentAt = 0, now = 30_000))
+        assertFalse(stoppedResendDue(msg(sentAt = 0), lastSentAt = 0, now = 60_000)) // 주행 중은 화면이 보냄
+    }
+
+    @Test
     fun `늦게 온 옛 메시지는 버린다`() {
         val board = CarBoard()
         assertTrue(board.put(msg(sentAt = 5_000), receivedAt = 0))
