@@ -76,6 +76,10 @@ fun SettlementRequestScreen(
                                 qr, contentDescription = "${request.myId} 카카오페이 송금 QR",
                                 modifier = Modifier.padding(top = 28.dp).size(360.dp).clip(RoundedCornerShape(16.dp)),
                             )
+                            Label(
+                                "송금 링크 변경", TextSize.Caption, BrandPrimary, FontWeight.Bold,
+                                Modifier.padding(top = 20.dp).clickable(onClick = onRegisterLink).padding(12.dp),
+                            )
                         } else {
                             Label("송금 링크가 등록되지 않았습니다.", TextSize.Body, BrandAmber, FontWeight.Bold, modifier = Modifier.padding(top = 40.dp))
                             PrimaryButton("송금 링크 등록", onClick = onRegisterLink, modifier = Modifier.padding(top = 20.dp).width(300.dp))

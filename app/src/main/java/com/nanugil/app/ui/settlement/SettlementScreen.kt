@@ -273,6 +273,7 @@ private fun carName(index: Int): String = "${'A' + index}차"
  * @param onRequestSettlement '정산 요청'을 눌렀을 때. 정산 결과와 이 차 운전자(A차) 이름을 넘긴다.
  * @param prefillMyCar 운행 중 기록한 값으로 A차(내 차) 칸을 채운다. 화면이 열릴 때 한 번만 적용한다.
  * @param readMyCarType 내 차 차종을 읽는 함수. 읽히면 A차 차종 버튼을 그 값으로 바꾼다.
+ * @param onEditPayLink 상단 바의 "송금 링크" 버튼. 운전자 카카오페이 송금 링크를 등록하거나 바꾼다.
  * @param loadNearbyStations 내 위치 근처 주유소(유종별)를 불러오는 함수. 있으면 근처 최저가가 유가 기본값이 되고,
  *   요약 카드의 "유가 기준"을 눌러 주유소를 직접 고를 수 있다. 실패하면 [loadFuelPrices](전국 평균)로 넘어간다.
  */
@@ -287,6 +288,7 @@ fun SettlementScreen(
     prefillMyCar: (CarInput) -> CarInput = { it },
     readMyCarType: (suspend () -> VehicleType?)? = null,
     loadNearbyStations: (suspend (FuelProduct) -> List<GasStation>)? = null,
+    onEditPayLink: (() -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val cars = remember {
@@ -368,6 +370,7 @@ fun SettlementScreen(
             Header(
                 title = when { picking -> "주유소 선택"; editing -> "값 수정"; else -> "정산" },
                 onBack = when { picking -> ({ picking = false }); editing -> ({ editing = false }); else -> onBack },
+                action = onEditPayLink?.takeIf { !picking && !editing }?.let { "송금 링크" to it },
             )
             Box(Modifier.padding(top = 20.dp).fillMaxSize()) {
                 if (picking) {
@@ -429,12 +432,13 @@ fun SettlementScreen(
 
 /** 위쪽 바: 돌아가기 · 화면 제목 (Title 40). */
 @Composable
-internal fun Header(title: String, onBack: () -> Unit) {
+internal fun Header(title: String, onBack: () -> Unit, action: Pair<String, () -> Unit>? = null) {
     val p = LocalSettlementPalette.current
     Panel(Modifier.fillMaxWidth().height(96.dp), RoundedCornerShape(24.dp)) {
         Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             SecondaryButton("← 돌아가기", onClick = onBack, modifier = Modifier.width(190.dp).height(68.dp))
-            Label(title, TextSize.Title, p.textPrimary, FontWeight.Bold, Modifier.padding(start = 24.dp))
+            Label(title, TextSize.Title, p.textPrimary, FontWeight.Bold, Modifier.padding(start = 24.dp).weight(1f))
+            action?.let { (text, onClick) -> SecondaryButton(text, onClick = onClick, modifier = Modifier.width(220.dp).height(68.dp)) }
         }
     }
 }

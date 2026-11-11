@@ -109,6 +109,7 @@ class SettlementActivity : ComponentActivity() {
                             }
                             myCarType(reported, recorder.fuel, recorder.battery)
                         },
+                        onEditPayLink = { startActivity(PayLinkSetupActivity.intent(this)) },
                         onRequestSettlement = { result, myId ->
                             // 정산 결과를 확정해 저장한 뒤 운행 기록을 지운다(순서가 바뀌면 앱이 죽었을 때 둘 다 잃는다).
                             val sent = SettlementRequest.of(result, myId).also(requests::save)
