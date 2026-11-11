@@ -2,6 +2,18 @@ package com.nanugil.app.data.server
 
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.filter.FilterOperator
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.realtime
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObjectBuilder
@@ -32,8 +44,32 @@ object GroupTripApi {
             put("p_destination_lat", destination.lat); put("p_destination_lng", destination.lng)
         }
 
-    /** G2. 내가 속한 그룹 목록 (RLS가 내 그룹만 돌려준다). */
-    suspend fun myGroups(): List<Group> = serverCall { db.from("groups").select().decodeList<Group>() }
+    /** G2. 내가 속한 그룹 목록과 그룹별 진행 중 운행 (RLS가 내 그룹만 돌려준다). */
+    suspend fun myGroups(): List<MyGroup> = serverCall {
+        val groups = db.from("groups").select().decodeList<Group>()
+        val active = db.from("trips").select { filter { exact("ended_at", null) } }.decodeList<Trip>().associateBy { it.groupId }
+        groups.map { MyGroup(it, active[it.id]) }
+    }
+
+    /**
+     * T5. 그룹의 운행이 시작·종료되거나 차량이 도착하면 한 번씩 알린다. 받으면 [activeTrip]·[tripMembers]를 다시 읽는다.
+     * 'group:{그룹 ID}' private 채널 (멤버만 들어올 수 있다). 수집을 멈추면 채널을 닫는다.
+     */
+    fun tripChanges(groupId: String): Flow<Unit> = flow {
+        Supabase.ensureSignedIn()
+        val channel = Supabase.client.channel("group:$groupId") { isPrivate = true }
+        val trips = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+            table = "trips"; filter("group_id", FilterOperator.EQ, groupId)
+        }
+        // trip_members에는 group_id가 없어 거르지 않는다. RLS가 내 그룹 행만 보내 준다.
+        val members = channel.postgresChangeFlow<PostgresAction>(schema = "public") { table = "trip_members" }
+        channel.subscribe(blockUntilSubscribed = true)
+        try {
+            emitAll(merge(trips, members).map { })
+        } finally {
+            withContext(NonCancellable) { Supabase.client.realtime.removeChannel(channel) }
+        }
+    }
 
     /** G3. 그룹 멤버 목록. 앱 없는 동승자는 userId가 null. */
     suspend fun members(groupId: String): List<GroupMember> = serverCall {
@@ -145,6 +181,9 @@ data class Group(
     @SerialName("invite_code") val inviteCode: String,
     @SerialName("invite_code_expires_at") val inviteCodeExpiresAt: String,
 )
+
+/** G2 결과: 그룹과 진행 중 운행(없으면 null). */
+data class MyGroup(val group: Group, val activeTrip: Trip?)
 
 @Serializable
 data class GroupMember(
