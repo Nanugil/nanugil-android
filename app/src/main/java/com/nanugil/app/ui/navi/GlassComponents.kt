@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.dp
  * 수치는 Figma "나누길 와이어프레임 v5" 카드(Section) 실측값 + 차량용 다크 글래스 규칙을 합쳤다.
  *
  * - 바탕:   #1A1C22 (Figma 카드 색) 78% — 지도는 형체만 남도록 묵직하게
- * - 흐림:   카드 뒤 지도 blur 32dp (Figma 배경 흐림 64 ≈ 32dp, 규칙 24dp 이상)
+ * - 흐림:   카드 뒤 지도 blur 32dp (Figma 배경 흐림 64 ≈ 32dp). 지금은 성능 때문에 끔 → 매트 바탕만
  * - 결:     Figma 선형 그라데이션 그대로 — 흰 16% → 흰 3% → #8FAEFF 6.5% → #6E96FF 10%
  * - 테두리: 1dp White 10%, 위쪽 안쪽 1px 하이라이트 White 10% (Figma 안쪽 그림자 0,1 #FFF 10%)
  * - 그림자: Figma 바깥 그림자 (0, 8, 흐림 24, #000 32%)
@@ -53,6 +53,7 @@ internal val MinTouch = 64.dp
 
 private val MatteBase = Color(0xFF1A1C22)
 private const val MatteAlpha = 0.78f
+private const val SolidAlpha = 1f
 private val GlassBlur = 32.dp
 private val GlassBorder = Color.White.copy(alpha = 0.1f)
 private val GlassTopHighlight = Color.White.copy(alpha = 0.1f)
@@ -87,8 +88,8 @@ private val LightTextShadow = Shadow(color = Color.White.copy(alpha = 0.6f), off
 /**
  * Matte Dark Glass 표면. 모든 카드·위쪽 바가 이걸 쓴다.
  *
- * 지도는 TextureView로 띄워 [MapBackdrop]이 줄인 그림을 계속 복사해 두고,
- * 여기서 카드 자리만큼 잘라 키운 뒤 blur → 그 위에 묵직한 매트 바탕과 Figma 결을 얹는다.
+ * 기본은 블러 없이 묵직한 매트 바탕(78%)과 Figma 결만 얹는다 (지도 성능 우선, [MapBackdrop] 참고).
+ * [LocalMapBackdrop]이 있으면 그 줄인 지도 그림에서 카드 자리만큼 잘라 blur를 깐 뒤 그 위에 얹는다.
  */
 @Composable
 internal fun GlassSurface(
@@ -96,6 +97,8 @@ internal fun GlassSurface(
     modifier: Modifier = Modifier,
     shape: Shape = GlassShape,
     shadowElevation: Dp = 16.dp,
+    /** 다른 카드 위에 겹쳐 뜨는 패널(검색 등)은 아래 글자가 비치지 않게 불투명하게 */
+    solid: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val backdrop = LocalMapBackdrop.current
@@ -136,7 +139,10 @@ internal fun GlassSurface(
         // ② 묵직한 매트 바탕 + Figma 결
         Box(
             Modifier.matchParentSize()
-                .background(if (dark) MatteBase.copy(alpha = MatteAlpha) else LightBase.copy(alpha = LightAlpha))
+                .background(
+                    if (dark) MatteBase.copy(alpha = if (solid) SolidAlpha else MatteAlpha)
+                    else LightBase.copy(alpha = if (solid) SolidAlpha else LightAlpha),
+                )
                 .background(if (dark) DarkSheen else LightSheen),
         )
         // ③ 1dp 테두리 + 위쪽 안쪽 1px 하이라이트 (끄트머리에 빛이 살짝 맺히는 느낌)

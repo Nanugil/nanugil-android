@@ -624,8 +624,8 @@ internal fun MapControls(
 
 /** 모든 카드·위쪽 바의 바탕. 글래스모피즘 규칙은 [GlassSurface]에 있다. */
 @Composable
-internal fun Panel(p: NaviPalette, modifier: Modifier, shape: Shape, content: @Composable () -> Unit) {
-    GlassSurface(dark = p.dark, modifier = modifier, shape = shape) { content() }
+internal fun Panel(p: NaviPalette, modifier: Modifier, shape: Shape, solid: Boolean = false, content: @Composable () -> Unit) {
+    GlassSurface(dark = p.dark, modifier = modifier, shape = shape, solid = solid) { content() }
 }
 
 @Composable
@@ -705,7 +705,8 @@ internal fun SearchPanel(p: NaviPalette, search: SearchUiState, actions: SearchA
     val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(Unit) { if (!search.listening) focus.requestFocus() }
 
-    Panel(p, modifier, CardShape) {
+    // 홈·그룹 만들기 카드 위에 겹쳐 뜨므로 불투명하게
+    Panel(p, modifier, CardShape, solid = true) {
         Column(Modifier.padding(horizontal = 28.dp, vertical = 26.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Label("목적지 검색", 24.sp, p.textSecondary, modifier = Modifier.weight(1f))

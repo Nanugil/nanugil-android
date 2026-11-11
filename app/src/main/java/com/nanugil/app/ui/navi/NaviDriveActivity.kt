@@ -9,7 +9,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -22,7 +21,6 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.nanugil.app.MainActivity
 import com.nanugil.app.ui.map.MapViewLifecycleBinder
 import com.naver.maps.map.MapView
-import com.naver.maps.map.NaverMapOptions
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -43,8 +41,6 @@ class NaviDriveActivity : ComponentActivity() {
     private val viewModel: NaviDriveViewModel by viewModels()
 
     private lateinit var mapView: MapView
-    /** 글래스모피즘 카드 뒤에 깔 흐린 지도 원본 */
-    private val backdrop = MapBackdrop()
     private lateinit var mapBinder: MapViewLifecycleBinder
     private var drive by mutableStateOf<DriveMapController?>(null)
     /** 지도가 내 차를 따라가는 중인지 (차 아래 파란 빛 표시용) */
@@ -126,13 +122,14 @@ class NaviDriveActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 글래스모피즘 카드 뒤를 흐리게 하려면 지도 그림을 읽어야 해서 TextureView 모드로 띄운다
-        mapView = MapView(this, NaverMapOptions().useTextureView(true))
+        // 지도는 기본(SurfaceView)으로 띄운다. 카드 뒤 지도 블러(TextureView + MapBackdrop)는 끔:
+        // 에뮬레이터에서 지도를 끌 때 CPU가 약 55~65% → 80~130%로 오르고 앱 화면을 매 프레임 다시 그려서(끊김 14%)
+        // 시연에서 지도가 부드러운 쪽을 택했다. 카드는 블러 없는 반투명 매트 유리로 그려진다 (LocalMapBackdrop = null).
+        mapView = MapView(this)
         mapBinder = MapViewLifecycleBinder.bind(this, mapView, savedInstanceState)
 
         setContent {
             val ui by viewModel.uiState.collectAsState()
-            CompositionLocalProvider(LocalMapBackdrop provides backdrop) {
             NaviDriveScreen(
                 mapView = mapView,
                 navi = ui.navi,
@@ -166,7 +163,6 @@ class NaviDriveActivity : ComponentActivity() {
             // 지도도 화면 테마에 맞춰 낮/밤으로
             val dark = resolveDarkTheme(ui.themeMode)
             LaunchedEffect(dark, drive) { drive?.setDarkTheme(dark) }
-            }
         }
 
         mapView.getMapAsync { map ->
@@ -191,7 +187,6 @@ class NaviDriveActivity : ComponentActivity() {
                     }
                 }
                 launch { viewModel.routePath.collect(controller::updateRoute) }
-                launch { backdrop.run(mapView) }
                 launch {
                     viewModel.uiState.map { it.groupCars }.distinctUntilChanged().collect { cars ->
                         controller.updateGroupCars(cars.filterNot { it.isMe })

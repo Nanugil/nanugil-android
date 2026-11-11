@@ -18,6 +18,10 @@ import kotlin.coroutines.coroutineContext
 /**
  * 글래스모피즘 카드 뒤에 깔 "흐린 지도" 원본.
  *
+ * 지금은 쓰지 않는다 (NaviDriveActivity가 LocalMapBackdrop을 주지 않음 → 블러 없는 반투명 카드).
+ * 지도를 끌 때 CPU·끊김이 늘어서 껐다. 실제 차량 기기에서 여유가 있으면 지도를 useTextureView(true)로 띄우고
+ * `CompositionLocalProvider(LocalMapBackdrop provides backdrop)` + `backdrop.run(mapView)`로 다시 켤 수 있다.
+ *
  * 네이버 지도는 원래 별도 OpenGL 화면(SurfaceView)이라 앱이 그 위 카드 뒤를 흐리게 할 수 없다.
  * 그래서 지도를 TextureView 모드로 띄우고(NaverMapOptions.useTextureView), 지도 그림을 작게 줄여
  * 주기적으로 복사해 둔다. 각 카드([Panel])는 자기 뒤에 해당하는 부분을 잘라 흐리게 그린다.
