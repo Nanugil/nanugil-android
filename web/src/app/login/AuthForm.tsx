@@ -16,6 +16,14 @@ const Form = styled.form`display: grid; gap: ${t.space.xs};`;
 const Note = styled.p`font-size: ${t.text.xs}; color: ${t.color.muted};`;
 const Switch = styled.p`text-align: center; font-size: ${t.text.sm}; color: ${t.color.ink2};
   a { display: inline-block; min-height: 44px; line-height: 44px; color: ${t.color.ink}; font-weight: 600; }`;
+const Or = styled.p`display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: ${t.space.sm};
+  font-size: ${t.text.xs}; color: ${t.color.muted};
+  &::before, &::after { content: ""; height: 1px; background: ${t.color.rule}; }`;
+const Social = styled.div`display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: ${t.space.xs};`;
+const Logo = styled.img`width: 18px; height: 18px;`;
+// 애플 로고는 글자색을 따라가야 라이트 모드에서도 보인다
+const AppleLogo = styled.span`width: 18px; height: 18px; background: currentColor;
+  mask: url(/apple.svg) center / contain no-repeat; -webkit-mask: url(/apple.svg) center / contain no-repeat;`;
 const Status = styled.p`color: ${t.color.error}; font-size: ${t.text.sm};`;
 
 function authMessage(message: string): string {
@@ -33,6 +41,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
   const [error, setError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [socialNote, setSocialNote] = useState(false);
   const signup = mode === "signup";
   const target = safeNext(next);
   const other = `${signup ? "/login" : "/signup"}${next ? `?next=${encodeURIComponent(target)}` : ""}`;
@@ -66,11 +75,11 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
       <Title id="auth-title">{signup ? "나누길 가입" : "나누길 로그인"}</Title>
       <Lead>{signup ? "정산 요청을 받으려면 가입해 주세요." : "일행이 보낸 정산 요청을 확인해요."}</Lead>
       <Form onSubmit={onSubmit} noValidate={false}>
-        <Field label="이메일" name="email" type="email" autoComplete="email" inputMode="email" required />
-        <Field label="비밀번호" name="password" type="password" minLength={8} required
+        <Field label="이메일" icon="mail" name="email" type="email" autoComplete="email" inputMode="email" required />
+        <Field label="비밀번호" icon="lock" name="password" type="password" minLength={8} required
           autoComplete={signup ? "new-password" : "current-password"} help={signup ? "8자 이상" : undefined} />
         {signup && (
-          <Field label="이름" name="displayName" autoComplete="nickname" maxLength={20} required
+          <Field label="이름" icon="person" name="displayName" autoComplete="nickname" maxLength={20} required
             help="일행에게 보이는 이름이에요" error={nameError} />
         )}
         {signup && <Note>이메일과 이름만 받아요. 이메일은 다른 멤버에게 보이지 않아요.</Note>}
@@ -78,6 +87,13 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
         {notice && <Lead role="status">{notice}</Lead>}
         <Button type="submit" disabled={busy} aria-busy={busy}>{signup ? "가입하기" : "로그인"}</Button>
       </Form>
+      <Or>또는</Or>
+      {/* MVP: 소셜 로그인은 아직 연결 전이라 누르면 안내만 한다 */}
+      <Social>
+        <Button type="button" variant="ghost" onClick={() => setSocialNote(true)}><AppleLogo aria-hidden="true" />Apple</Button>
+        <Button type="button" variant="ghost" onClick={() => setSocialNote(true)}><Logo src="/google.svg" alt="" width={18} height={18} />Google</Button>
+      </Social>
+      {socialNote && <Lead role="status">소셜 로그인은 곧 지원해요. 지금은 이메일로 이용해 주세요.</Lead>}
       <Switch>
         {signup ? "이미 가입했나요? " : "처음이에요? "}
         <Link href={other}>{signup ? "로그인" : "가입하기"}</Link>

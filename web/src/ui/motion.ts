@@ -54,6 +54,18 @@ export function useCountUp(ref: RefObject<HTMLElement | null>, to: number) {
   }, { dependencies: [to] });
 }
 
+/** 0부터 to까지 세어 올린 값을 돌려준다. 처음 그림(서버)은 최종 값이다. */
+export function useCountUpValue(to: number): number {
+  const [value, setValue] = useState(to);
+  useGSAP(() => {
+    if (reduced()) { setValue(to); return; }
+    const state = { n: 0 };
+    setValue(0);
+    gsap.to(state, { n: to, duration: 1.1, ease: "power2.out", onUpdate: () => setValue(Math.round(state.n)), onComplete: () => setValue(to) });
+  }, { dependencies: [to] });
+  return value;
+}
+
 /** 체크 표시(svg path)를 그린다. active가 false에서 true로 바뀔 때만. */
 export function useDrawCheck(ref: RefObject<SVGPathElement | null>, active: boolean) {
   const was = useRef(active);

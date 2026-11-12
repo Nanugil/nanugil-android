@@ -8,7 +8,8 @@ export const GlassCard = styled.section`
   gap: ${t.space.md};
   padding: ${t.space.lg};
   border-radius: ${t.radius.card};
-  background: ${t.color.card};
+  background: linear-gradient(180deg, var(--glow-top), transparent 42%), ${t.color.card};
+  box-shadow: inset 0 1px 0 var(--glow-top), 0 18px 40px -24px rgb(0 0 0 / 0.6);
   border: 1px solid ${t.color.rule};
   backdrop-filter: blur(18px) saturate(140%);
   -webkit-backdrop-filter: blur(18px) saturate(140%);

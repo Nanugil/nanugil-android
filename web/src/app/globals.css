@@ -1,10 +1,10 @@
 /* Hallmark · shape: app screen · genre: modern-minimal · theme: custom (나누길 v5, Figma 로고·브랜드 보드)
- * paper: #0B1220 dark / #F1F5F9 light · accent: #1E5EFF · display: Pretendard · body: Pretendard
+ * paper: #060A12 dark / #F1F5F9 light · accent: #1E5EFF · display: Pretendard · body: Pretendard
  * nav: top bar, wordmark and one action · signature: the settlement ledger, one big per-person amount over each transfer's status · states: loading, empty, error, full
  * axes: navy-glass/pretendard/blue · posture: phone-first single column · contrast: pass · v2.0.0 */
 /* Hallmark · waive 26b · src/ui/Button.tsx carries hover, active, focus-visible, disabled and aria-busy · control states live in Emotion component styles, which this file never sees */
 /* Hallmark · dismissed 74 · #0F172A is the brand Ink from the user Figma board, kept on purpose */
-/* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V3 · weakest: V, glass on navy can read generic, so the amount figure carries the screen and cards stay flat with one hairline */
+/* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V3 · weakest: V, glass on navy can read generic, so the dot-matrix amount (the car dashboard) carries the screen and glow stays on the one primary action */
 
 :root {
   --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px;
@@ -22,9 +22,9 @@
   --brand-success: #12A150; --brand-ink: #0F172A; --brand-surface: #F1F5F9;
 
   /* 다크(기본): v5 차량 화면처럼 네이비 바탕 위 반투명 카드 */
-  --color-paper: #0B1220;
+  --color-paper: #060A12;
   --color-paper-2: color-mix(in oklab, var(--brand-navy) 55%, var(--color-paper));
-  --color-card: color-mix(in oklab, #FFFFFF 7%, transparent);
+  --color-card: color-mix(in oklab, #FFFFFF 5%, transparent);
   --color-card-strong: color-mix(in oklab, #FFFFFF 11%, transparent);
   --color-ink: var(--brand-surface);
   --color-ink-2: color-mix(in oklab, var(--brand-surface) 78%, var(--color-paper));
@@ -34,6 +34,7 @@
   --color-focus: color-mix(in oklab, var(--brand-primary) 70%, #FFFFFF);
   --color-success: var(--brand-success); --color-error: #FF6B6F; --color-warn: var(--brand-amber);
   --color-input: color-mix(in oklab, #FFFFFF 6%, transparent);
+  --glow-top: color-mix(in oklab, #FFFFFF 10%, transparent);
   --font-body: "Pretendard Variable", Pretendard, ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-body);
   --font-icon: "Material Symbols Rounded";
@@ -53,6 +54,7 @@
     --color-focus: var(--brand-primary);
     --color-error: var(--brand-danger);
     --color-input: #FFFFFF;
+    --glow-top: color-mix(in oklab, var(--brand-primary) 8%, transparent);
     color-scheme: light;
   }
 }

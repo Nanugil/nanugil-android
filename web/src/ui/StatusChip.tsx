@@ -11,6 +11,7 @@ const Chip = styled.span<{ status: TransferStatus }>`
   border-radius: ${t.radius.pill}; font-size: ${t.text.xs}; font-weight: 600; white-space: nowrap;
   color: ${(p) => (p.status === "pending" ? t.color.ink2 : t.color.accentInk)};
   background: ${(p) => (p.status === "pending" ? t.color.cardStrong : COLOR[p.status])};
+  box-shadow: ${(p) => (p.status === "pending" ? "none" : `0 0 18px -2px color-mix(in oklab, ${COLOR[p.status]} 70%, transparent)`)};
   transition: opacity ${t.dur.short} ${t.ease.out};
 `;
 

@@ -17,7 +17,9 @@ export async function middleware(req: NextRequest) {
     },
   });
   const { data: { user } } = await sb.auth.getUser();
-  if (!user && !PUBLIC.includes(req.nextUrl.pathname)) {
+  // 개발 전용 미리보기(/preview)는 로그인 없이 연다. 배포 빌드에서는 페이지가 404를 낸다.
+  const preview = process.env.NODE_ENV !== "production" && req.nextUrl.pathname.startsWith("/preview");
+  if (!user && !preview && !PUBLIC.includes(req.nextUrl.pathname)) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     url.search = `?next=${encodeURIComponent(req.nextUrl.pathname + req.nextUrl.search)}`;
@@ -27,5 +29,6 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|manifest.webmanifest).*)"],
+  // public 폴더의 파일(확장자가 있는 주소)은 로그인 검사에서 뺀다
+  matcher: ["/((?!_next/static|_next/image|.*\\.[a-z0-9]+$).*)"],
 };
