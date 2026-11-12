@@ -190,6 +190,15 @@ class SettlementSession(
         _state.update { it.copy(request = sent) }
     }
 
+    /**
+     * 보낸 정산 요청을 거두고 08로 돌아간다. 입력값(차량·유가)은 그대로라 고쳐서 다시 요청할 수 있다.
+     * 운행 기록은 요청 때 이미 지웠지만 그 값은 차량 칸에 남아 있다. 서버에 올린 내 차 비용은 다시 요청하면 덮어쓴다.
+     */
+    fun cancelRequest() {
+        requests.clear()
+        _state.update { it.copy(request = null) }
+    }
+
     /** 이번 정산을 끝내고 다음 운행을 준비한다. 다음에 정산 화면을 열면 새 운행 기록으로 다시 채운다. */
     fun finish() {
         requests.clear()

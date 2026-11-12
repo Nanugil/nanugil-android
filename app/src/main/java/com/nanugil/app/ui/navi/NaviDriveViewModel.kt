@@ -231,6 +231,12 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun back() {
+        // 09 정산 요청 보냄 → 08 정산으로. 보낸 요청을 거두고 값을 고쳐 다시 요청할 수 있게 한다.
+        if (groupUi.value.screen == AppScreen.SETTLE_SENT) {
+            settlement.cancelRequest()
+            go(AppScreen.ARRIVAL)
+            return
+        }
         go(
             when (groupUi.value.screen) {
                 AppScreen.JOIN_SETUP -> AppScreen.JOIN_CODE
