@@ -2,6 +2,7 @@ package com.nanugil.app.ui.settlement
 
 import android.util.Log
 import com.nanugil.app.core.geo.Wgs84Point
+import com.nanugil.app.data.fare.TollRecorder
 import com.nanugil.app.data.fuel.FuelProduct
 import com.nanugil.app.data.fuel.GasStation
 import com.nanugil.app.data.fuel.OpinetException
@@ -31,6 +32,7 @@ enum class PriceChoice { NEARBY_AVERAGE, NEARBY_LOWEST, PICKED }
  * @property request 보낸 정산 요청(09 화면). 보내기 전이면 null.
  * @property tripId 서버의 진행 중 운행. 없으면 데모 값으로 정산한다.
  * @property serverNote 서버 연결 상태 안내 (예: 데모 값 사용, 비용 저장 실패). 문제없으면 null.
+ * @property estimatedTollWon 내 차 통행료의 내비 예상액(경로 변경 반영). 안내 없이 달렸으면 null.
  */
 data class SettlementState(
     val cars: List<CarInput>,
@@ -42,6 +44,7 @@ data class SettlementState(
     val request: SettlementRequest? = null,
     val tripId: String? = null,
     val serverNote: String? = null,
+    val estimatedTollWon: Long? = null,
 ) {
     /** 이 차(A차) 운전자. 이 사람에게 송금한다. */
     val myDriver: String get() = cars.firstOrNull()?.driver?.trim().orEmpty()
@@ -62,6 +65,7 @@ class SettlementSession(
     private val loadAverage: suspend () -> Map<FuelProduct, Int>,
     private val initialCars: () -> List<CarInput> = ::demoCars,
     private val server: SettlementServer? = null,
+    private val toll: TollRecorder? = null,
 ) {
     private val _state = MutableStateFlow(SettlementState(cars = initialCars(), request = requests.load()))
     val state: StateFlow<SettlementState> = _state.asStateFlow()
@@ -78,6 +82,9 @@ class SettlementSession(
         loaded = true
         loadTrip()
         _state.update { s -> s.copy(cars = s.cars.mapFirst { it.withRecorded(recorder.fuel, recorder.battery) }) }
+        toll?.ledger?.totalWon?.takeIf { it > 0 }?.let { est ->
+            _state.update { s -> s.copy(estimatedTollWon = est, cars = s.cars.mapFirst { it.copy(tollWon = est.toString()) }) }
+        }
         readMyCarType()?.let { type ->
             _state.update { s -> s.copy(cars = s.cars.mapFirst { if (it.type != type) it.withType(type, s.prices) else it }) }
         }
@@ -131,7 +138,7 @@ class SettlementSession(
         val server = server ?: return
         val car = s.cars.firstOrNull() ?: return
         try {
-            server.saveMyCost(tripId, car, s.choice)
+            server.saveMyCost(tripId, car, s.choice, s.estimatedTollWon)
             _state.update { it.copy(serverNote = null) }
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
@@ -201,6 +208,7 @@ class SettlementSession(
         val result = s.settled.first ?: return null
         val sent = SettlementRequest.of(result, s.myDriver).also(requests::save)
         recorder.reset()
+        toll?.reset()
         _state.update { it.copy(request = sent) }
         return sent
     }

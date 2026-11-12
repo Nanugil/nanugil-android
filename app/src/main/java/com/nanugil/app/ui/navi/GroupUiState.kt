@@ -99,7 +99,7 @@ data class JoinState(
 enum class PriceBasis(val label: String) { AVERAGE("근처 평균"), LOWEST("근처 최저가") }
 
 /** 08 도착: 차별 비용 한 줄. [energyLabel]은 연료비 이름(주유·충전·주유·충전). */
-data class CarCost(val label: String, val fuelWon: Long, val tollWon: Long, val energyLabel: String = "주유") {
+data class CarCost(val label: String, val fuelWon: Long, val tollWon: Long, val energyLabel: String = "주유", val tollLabel: String = "통행료") {
     val totalWon: Long get() = fuelWon + tollWon
 }
 

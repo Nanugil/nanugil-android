@@ -82,6 +82,7 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     private val groupUi = MutableStateFlow(GroupUiState())
     /** 정산 값(차량 기록·근처 유가·송금 요청). 값 수정 화면(SettlementActivity)과 함께 본다. */
     private val settlement = (app as NanugilApplication).settlement
+    private val toll = (app as NanugilApplication).tollRecorder.also { it.reconnect() }
     private val payLinks = PayLinkStore(app)
     private val payLink = MutableStateFlow(payLinks.link)
 
@@ -204,7 +205,10 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             var wasGuiding = false
             navi.state.collect { s ->
+                // 경로가 바뀔 때마다 지나온 만큼의 통행료를 모은다 (정산의 내 차 통행료)
+                toll.update(s)
                 if (wasGuiding && !s.guiding && s.message == "목적지 도착") {
+                    toll.arrive()
                     go(AppScreen.ARRIVAL)
                 }
                 wasGuiding = s.guiding
