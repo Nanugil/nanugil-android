@@ -3,6 +3,8 @@ package com.nanugil.app.ui.settlement
 import android.util.Log
 import com.nanugil.app.core.geo.Wgs84Point
 import com.nanugil.app.data.fare.TollRecorder
+import com.nanugil.app.data.fare.evTollDiscountPercent
+import com.nanugil.app.data.fare.tollWon
 import com.nanugil.app.data.fuel.FuelProduct
 import com.nanugil.app.data.fuel.GasStation
 import com.nanugil.app.data.fuel.OpinetException
@@ -11,6 +13,7 @@ import com.nanugil.app.data.pay.SettlementRequestStore
 import com.nanugil.app.data.vehicle.TripEnergyRecorder
 import com.nanugil.app.share.Settlement
 import com.nanugil.app.share.SettlementRequest
+import java.time.LocalDate
 import kotlin.math.roundToInt
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -32,7 +35,8 @@ enum class PriceChoice { NEARBY_AVERAGE, NEARBY_LOWEST, PICKED }
  * @property request 보낸 정산 요청(09 화면). 보내기 전이면 null.
  * @property tripId 서버의 진행 중 운행. 없으면 데모 값으로 정산한다.
  * @property serverNote 서버 연결 상태 안내 (예: 데모 값 사용, 비용 저장 실패). 문제없으면 null.
- * @property estimatedTollWon 내 차 통행료의 내비 예상액(경로 변경 반영). 안내 없이 달렸으면 null.
+ * @property estimatedTollWon 내 차 통행료의 내비 예상액(경로 변경·할인 반영). 안내 없이 달렸으면 null.
+ * @property tollDiscountPercent [estimatedTollWon]에 뺀 전기차 통행료 감면율(%)
  */
 data class SettlementState(
     val cars: List<CarInput>,
@@ -45,6 +49,7 @@ data class SettlementState(
     val tripId: String? = null,
     val serverNote: String? = null,
     val estimatedTollWon: Long? = null,
+    val tollDiscountPercent: Int = 0,
 ) {
     /** 이 차(A차) 운전자. 이 사람에게 송금한다. */
     val myDriver: String get() = cars.firstOrNull()?.driver?.trim().orEmpty()
@@ -82,11 +87,17 @@ class SettlementSession(
         loaded = true
         loadTrip()
         _state.update { s -> s.copy(cars = s.cars.mapFirst { it.withRecorded(recorder.fuel, recorder.battery) }) }
-        toll?.ledger?.totalWon?.takeIf { it > 0 }?.let { est ->
-            _state.update { s -> s.copy(estimatedTollWon = est, cars = s.cars.mapFirst { it.copy(tollWon = est.toString()) }) }
-        }
         readMyCarType()?.let { type ->
             _state.update { s -> s.copy(cars = s.cars.mapFirst { if (it.type != type) it.withType(type, s.prices) else it }) }
+        }
+        // 내 차 통행료: 내비 예상액(경로 변경 반영). 전기차는 하이패스 친환경차 감면을 뺀다.
+        toll?.ledger?.totalWon?.takeIf { it > 0 }?.let { raw ->
+            val ev = _state.value.cars.firstOrNull()?.type == VehicleType.ELECTRIC
+            val discount = if (ev) evTollDiscountPercent(LocalDate.now().year) else 0
+            val est = tollWon(raw, discount)
+            _state.update { s ->
+                s.copy(estimatedTollWon = est, tollDiscountPercent = discount, cars = s.cars.mapFirst { it.copy(tollWon = est.toString()) })
+            }
         }
         loadPrices(here)
     }
