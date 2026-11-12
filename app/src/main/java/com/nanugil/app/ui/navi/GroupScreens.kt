@@ -21,7 +21,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
@@ -196,10 +195,7 @@ private fun StatusChip(p: NaviPalette, chip: TopChip, onEndTrip: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, accent, if (danger) 32.dp else 22.dp)
-        // 유리 카드 글자의 번짐 그림자는 불투명한 빨강 버튼에선 빛나 보여서 끈다
-        CompositionLocalProvider(LocalTextShadow provides if (danger) null else LocalTextShadow.current) {
-            Label(text, 22.sp, if (danger) Color.White else p.textPrimary, FontWeight.Bold, Modifier.padding(start = 10.dp))
-        }
+        Label(text, 22.sp, if (danger) Color.White else p.textPrimary, FontWeight.Bold, Modifier.padding(start = 10.dp))
     }
 }
 
