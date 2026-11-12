@@ -16,6 +16,8 @@ const MESSAGES: Record<string, string> = {
   NOT_YOUR_TRANSFER: "내 송금만 표시할 수 있어요",
   INVALID_TRANSFER: "정산 내용을 다시 확인해 주세요",
   INVALID_PAY_LINK: "카카오페이 송금 링크를 넣어 주세요",
+  SETTLEMENT_CHANGED: "운전자가 정산을 다시 보냈어요. 바뀐 금액을 확인해 주세요",
+  ALREADY_REQUESTED: "다른 운전자가 이미 정산을 요청했어요",
 };
 
 export function messageFor(code: string): string {

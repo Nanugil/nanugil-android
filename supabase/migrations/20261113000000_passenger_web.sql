@@ -2,7 +2,7 @@
 -- 테이블은 4개 그대로 두고 열 2개와 RPC 6개를 더한다.
 --   group_members.pay_link : 운전자의 카카오페이 송금 링크 (지금은 차량 기기에만 있음)
 --   trips.settlement       : 정산 요청 시점의 송금 목록. 요청 뒤에 값을 고쳐도 바뀌지 않는다.
--- 새 오류 코드: INVALID_TRANSFER, NOT_YOUR_TRANSFER, MEMBER_TAKEN, INVALID_PAY_LINK
+-- 새 오류 코드: INVALID_TRANSFER, NOT_YOUR_TRANSFER, MEMBER_TAKEN, INVALID_PAY_LINK, SETTLEMENT_CHANGED, ALREADY_REQUESTED
 
 alter table public.group_members
   add column pay_link text check (pay_link ~ '^https://([a-z0-9-]+\.)*kakaopay\.com(/.*)?$');
@@ -32,6 +32,7 @@ $$;
 
 -- 이 운행의 운전자가 도착한 뒤 송금 목록을 올린다. 다시 부르면 덮어쓰되,
 -- (보낸 사람, 받는 사람, 금액)이 같은 송금은 이미 표시된 sentAt·receivedAt을 이어받는다.
+-- 이미 올라온 정산은 처음 요청한 운전자나 방장만 다시 올릴 수 있다 (다른 차 운전자가 덮어쓰지 못하게).
 create function public.request_settlement(p_trip_id uuid, p_per_person_won bigint, p_transfers jsonb)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
@@ -44,6 +45,7 @@ declare
   v_amount bigint;
   v_prev   jsonb;
   v_result jsonb;
+  v_group  uuid;
 begin
   if not exists (
     select 1 from public.trip_members tm join public.trips t on t.id = tm.trip_id
@@ -57,7 +59,11 @@ begin
     raise exception 'INVALID_TRANSFER';
   end if;
 
-  select t.settlement into v_old from public.trips t where t.id = p_trip_id for update;
+  select t.settlement, t.group_id into v_old, v_group from public.trips t where t.id = p_trip_id for update;
+  if v_old is not null and v_old ->> 'requestedBy' is distinct from v_me::text
+     and not exists (select 1 from public.groups g where g.id = v_group and g.owner_id = auth.uid()) then
+    raise exception 'ALREADY_REQUESTED';
+  end if;
 
   for v_t in select value from jsonb_array_elements(p_transfers) loop
     begin
@@ -96,7 +102,9 @@ end;
 $$;
 
 -- 송금 하나에 시각을 표시한다. p_side는 'from'(보냈어요) 또는 'to'(받았어요). 이미 표시돼 있으면 그대로 둔다.
-create function public._mark_transfer(p_trip_id uuid, p_index int, p_side text, p_field text)
+-- p_requested_at은 화면이 보고 있던 정산의 requestedAt이다. 그사이 운전자가 다시 요청했으면 순번이 다른 송금을
+-- 가리킬 수 있어서 SETTLEMENT_CHANGED로 거절한다.
+create function public._mark_transfer(p_trip_id uuid, p_index int, p_requested_at text, p_side text, p_field text)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
   v_group uuid;
@@ -110,6 +118,9 @@ begin
   if v_s is null or p_index is null or p_index < 0 or p_index >= jsonb_array_length(v_s -> 'transfers') then
     raise exception 'INVALID_TRANSFER';
   end if;
+  if v_s ->> 'requestedAt' is distinct from p_requested_at then
+    raise exception 'SETTLEMENT_CHANGED';
+  end if;
   v_t := v_s -> 'transfers' -> p_index;
   if v_t ->> p_side <> v_me::text then
     raise exception 'NOT_YOUR_TRANSFER';
@@ -122,14 +133,14 @@ begin
 end;
 $$;
 
-create function public.mark_transfer_sent(p_trip_id uuid, p_index int)
+create function public.mark_transfer_sent(p_trip_id uuid, p_index int, p_requested_at text)
 returns jsonb language sql security definer set search_path = '' as $$
-  select public._mark_transfer(p_trip_id, p_index, 'from', 'sentAt');
+  select public._mark_transfer(p_trip_id, p_index, p_requested_at, 'from', 'sentAt');
 $$;
 
-create function public.mark_transfer_received(p_trip_id uuid, p_index int)
+create function public.mark_transfer_received(p_trip_id uuid, p_index int, p_requested_at text)
 returns jsonb language sql security definer set search_path = '' as $$
-  select public._mark_transfer(p_trip_id, p_index, 'to', 'receivedAt');
+  select public._mark_transfer(p_trip_id, p_index, p_requested_at, 'to', 'receivedAt');
 $$;
 
 -- ─────────────────────────────────────────────
@@ -185,15 +196,15 @@ $$;
 
 revoke all on function public.set_pay_link(uuid, text) from public, anon;
 revoke all on function public.request_settlement(uuid, bigint, jsonb) from public, anon;
-revoke all on function public._mark_transfer(uuid, int, text, text) from public, anon, authenticated;
-revoke all on function public.mark_transfer_sent(uuid, int) from public, anon;
-revoke all on function public.mark_transfer_received(uuid, int) from public, anon;
+revoke all on function public._mark_transfer(uuid, int, text, text, text) from public, anon, authenticated;
+revoke all on function public.mark_transfer_sent(uuid, int, text) from public, anon;
+revoke all on function public.mark_transfer_received(uuid, int, text) from public, anon;
 revoke all on function public.invite_unclaimed_members(text) from public, anon;
 revoke all on function public.claim_member(text, uuid) from public, anon;
 
 grant execute on function public.set_pay_link(uuid, text) to authenticated;
 grant execute on function public.request_settlement(uuid, bigint, jsonb) to authenticated;
-grant execute on function public.mark_transfer_sent(uuid, int) to authenticated;
-grant execute on function public.mark_transfer_received(uuid, int) to authenticated;
+grant execute on function public.mark_transfer_sent(uuid, int, text) to authenticated;
+grant execute on function public.mark_transfer_received(uuid, int, text) to authenticated;
 grant execute on function public.invite_unclaimed_members(text) to authenticated;
 grant execute on function public.claim_member(text, uuid) to authenticated;

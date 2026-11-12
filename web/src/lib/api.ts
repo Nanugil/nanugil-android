@@ -80,12 +80,13 @@ export async function myMemberId(sb: SupabaseClient, groupId: string): Promise<s
   return row.id;
 }
 
-export async function markSent(sb: SupabaseClient, tripId: string, index: number): Promise<Settlement> {
-  return check(await sb.rpc("mark_transfer_sent", { p_trip_id: tripId, p_index: index })) as Settlement;
+/** requestedAt은 화면이 보고 있는 정산의 것. 그사이 다시 요청됐으면 SETTLEMENT_CHANGED */
+export async function markSent(sb: SupabaseClient, tripId: string, index: number, requestedAt: string): Promise<Settlement> {
+  return check(await sb.rpc("mark_transfer_sent", { p_trip_id: tripId, p_index: index, p_requested_at: requestedAt })) as Settlement;
 }
 
-export async function markReceived(sb: SupabaseClient, tripId: string, index: number): Promise<Settlement> {
-  return check(await sb.rpc("mark_transfer_received", { p_trip_id: tripId, p_index: index })) as Settlement;
+export async function markReceived(sb: SupabaseClient, tripId: string, index: number, requestedAt: string): Promise<Settlement> {
+  return check(await sb.rpc("mark_transfer_received", { p_trip_id: tripId, p_index: index, p_requested_at: requestedAt })) as Settlement;
 }
 
 /**
@@ -93,6 +94,9 @@ export async function markReceived(sb: SupabaseClient, tripId: string, index: nu
  * 비공개 채널이라 구독 전에 setAuth로 로그인 토큰을 실어야 한다. 빠지면 조용히 아무것도 오지 않는다.
  */
 export async function subscribeGroup(sb: SupabaseClient, groupId: string, onTripChange: (trip: Trip) => void): Promise<() => void> {
+  // supabase-js는 같은 토픽의 채널이 목록에 남아 있으면(앞 화면이 아직 나가는 중) 그 채널을 돌려준다.
+  // 그러면 새 콜백이 중복으로 버려지고 채널이 곧 닫혀 실시간이 끊긴다. 남은 채널을 먼저 지운다.
+  await Promise.all(sb.getChannels().filter((c) => c.topic === `realtime:group:${groupId}`).map((c) => sb.removeChannel(c)));
   await sb.realtime.setAuth();
   const channel = sb
     .channel(`group:${groupId}`, { config: { private: true } })

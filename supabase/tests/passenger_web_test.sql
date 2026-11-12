@@ -21,10 +21,14 @@ begin
 end $$;
 create function t.ok(p_cond boolean, p_what text) returns void language plpgsql as $$
 begin if p_cond is not true then raise exception 'FAILED: %', p_what; end if; end $$;
+-- 지금 정산 요청 시각 (보냈어요·받았어요가 어느 요청을 보고 누른 것인지 서버가 확인한다)
+create function t.req() returns text language sql stable as $$
+  select settlement ->> 'requestedAt' from public.trips where id = t.v('trip')::uuid
+$$;
 grant execute on all functions in schema t to authenticated, anon;
 
 insert into auth.users (id) values
-  ('aaaaaaaa-0000-4000-8000-000000000001'), ('bbbbbbbb-0000-4000-8000-000000000002'), ('cccccccc-0000-4000-8000-000000000003');
+  ('aaaaaaaa-0000-4000-8000-000000000001'), ('bbbbbbbb-0000-4000-8000-000000000002'), ('cccccccc-0000-4000-8000-000000000003'), ('eeeeeeee-0000-4000-8000-000000000005');
 
 set role authenticated;
 
@@ -89,30 +93,39 @@ do $$ declare s jsonb; begin
   perform t.ok((select settlement from public.trips where id = t.v('trip')::uuid) = s, '저장됨');
 end $$;
 
+-- ── E: 두 번째 차 운전자 ──
+set request.jwt.claim.sub = 'eeeeeeee-0000-4000-8000-000000000005';
+select t.ok((select error from public.join_group(t.v('code'), 'E')) is null, 'E 참여');
+select public.join_trip(t.v('trip')::uuid, 'E차', 'GASOLINE');
+select public.mark_arrived(t.v('trip')::uuid);
+select t.expect_error(format('select public.request_settlement(%L, 1, %L)', t.v('trip'), '[]'), 'ALREADY_REQUESTED');
+
 -- ── B: 보냈어요 ──
 set request.jwt.claim.sub = 'bbbbbbbb-0000-4000-8000-000000000002';
 do $$ declare s1 jsonb; s2 jsonb; begin
-  s1 := public.mark_transfer_sent(t.v('trip')::uuid, 0);
+  s1 := public.mark_transfer_sent(t.v('trip')::uuid, 0, t.req());
   perform t.ok(jsonb_typeof(s1 -> 'transfers' -> 0 -> 'sentAt') = 'string', 'sentAt 표시');
   perform pg_sleep(0.01);
-  s2 := public.mark_transfer_sent(t.v('trip')::uuid, 0);
+  s2 := public.mark_transfer_sent(t.v('trip')::uuid, 0, t.req());
   perform t.ok(s2 -> 'transfers' -> 0 -> 'sentAt' = s1 -> 'transfers' -> 0 -> 'sentAt', '두 번 눌러도 처음 시각');
   perform t.put('sentAt0', s1 -> 'transfers' -> 0 ->> 'sentAt');
 end $$;
-select t.expect_error(format('select public.mark_transfer_sent(%L, 1)', t.v('trip')), 'NOT_YOUR_TRANSFER');
-select t.expect_error(format('select public.mark_transfer_sent(%L, 5)', t.v('trip')), 'INVALID_TRANSFER');
-select t.expect_error(format('select public.mark_transfer_sent(%L, -1)', t.v('trip')), 'INVALID_TRANSFER');
-select t.expect_error(format('select public.mark_transfer_received(%L, 0)', t.v('trip')), 'NOT_YOUR_TRANSFER');
+select t.expect_error(format('select public.mark_transfer_sent(%L, 1, %L)', t.v('trip'), t.req()), 'NOT_YOUR_TRANSFER');
+select t.expect_error(format('select public.mark_transfer_sent(%L, 5, %L)', t.v('trip'), t.req()), 'INVALID_TRANSFER');
+select t.expect_error(format('select public.mark_transfer_sent(%L, -1, %L)', t.v('trip'), t.req()), 'INVALID_TRANSFER');
+select t.expect_error(format('select public.mark_transfer_received(%L, 0, %L)', t.v('trip'), t.req()), 'NOT_YOUR_TRANSFER');
+select t.expect_error(format('select public.mark_transfer_sent(%L, 1, %L)', t.v('trip'), '2000-01-01T00:00:00+09:00'), 'SETTLEMENT_CHANGED');
+select t.expect_error(format('select public.mark_transfer_sent(%L, 1, null)', t.v('trip')), 'SETTLEMENT_CHANGED');
 
 -- ── C: 그룹 밖 ──
 set request.jwt.claim.sub = 'cccccccc-0000-4000-8000-000000000003';
-select t.expect_error(format('select public.mark_transfer_sent(%L, 0)', t.v('trip')), 'NOT_MEMBER');
+select t.expect_error(format('select public.mark_transfer_sent(%L, 0, %L)', t.v('trip'), t.req()), 'NOT_MEMBER');
 select t.ok((select count(*) from public.trips where id = t.v('trip')::uuid) = 0, 'RLS: 남은 운행을 못 봄');
 
 -- ── A: 받았어요, 다시 요청 ──
 set request.jwt.claim.sub = 'aaaaaaaa-0000-4000-8000-000000000001';
-select t.expect_error(format('select public.mark_transfer_sent(%L, 0)', t.v('trip')), 'NOT_YOUR_TRANSFER');
-select t.ok(jsonb_typeof(public.mark_transfer_received(t.v('trip')::uuid, 0) -> 'transfers' -> 0 -> 'receivedAt') = 'string', 'receivedAt 표시');
+select t.expect_error(format('select public.mark_transfer_sent(%L, 0, %L)', t.v('trip'), t.req()), 'NOT_YOUR_TRANSFER');
+select t.ok(jsonb_typeof(public.mark_transfer_received(t.v('trip')::uuid, 0, t.req()) -> 'transfers' -> 0 -> 'receivedAt') = 'string', 'receivedAt 표시');
 do $$ declare s jsonb; begin
   s := public.request_settlement(t.v('trip')::uuid, 11750, jsonb_build_array(
     jsonb_build_object('from', t.v('pB'), 'to', t.v('mA'), 'amountWon', 11750),
@@ -126,9 +139,9 @@ do $$ declare s jsonb; begin
 end $$;
 
 -- 권한: 내부 도우미는 직접 못 부르고, anon은 RPC를 못 부른다
-select t.expect_error(format('select public._mark_transfer(%L, 0, %L, %L)', t.v('trip'), 'to', 'receivedAt'),
+select t.expect_error(format('select public._mark_transfer(%L, 0, %L, %L, %L)', t.v('trip'), t.req(), 'to', 'receivedAt'),
   'permission denied for function _mark_transfer');
 set role anon;
-select t.expect_error(format('select public.mark_transfer_sent(%L, 0)', t.v('trip')), 'permission denied for function mark_transfer_sent');
+select t.expect_error(format('select public.mark_transfer_sent(%L, 0, null)', t.v('trip')), 'permission denied for function mark_transfer_sent');
 reset role;
 select 'passenger_web_test OK';

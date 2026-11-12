@@ -60,12 +60,14 @@ describe.skipIf(!hasServer)("동승자 웹 서버", () => {
   });
 
   it("보냈어요는 한 번만 기록되고, 남의 송금은 표시할 수 없다", async () => {
-    const s1 = await markSent(B.sb, t.tripId, 0);
-    const s2 = await markSent(B.sb, t.tripId, 0);
+    const req = (await getTrip(B.sb, t.tripId)).settlement!.requestedAt;
+    const s1 = await markSent(B.sb, t.tripId, 0, req);
+    const s2 = await markSent(B.sb, t.tripId, 0, req);
     expect(s1.transfers[0].sentAt).not.toBeNull();
     expect(s2.transfers[0].sentAt).toBe(s1.transfers[0].sentAt);
-    expect(await code(markSent(A.sb, t.tripId, 0))).toBe("NOT_YOUR_TRANSFER");
-    expect((await markReceived(A.sb, t.tripId, 0)).transfers[0].receivedAt).not.toBeNull();
+    expect(await code(markSent(A.sb, t.tripId, 0, req))).toBe("NOT_YOUR_TRANSFER");
+    expect(await code(markSent(B.sb, t.tripId, 0, "2000-01-01T00:00:00+09:00"))).toBe("SETTLEMENT_CHANGED");
+    expect((await markReceived(A.sb, t.tripId, 0, req)).transfers[0].receivedAt).not.toBeNull();
   });
 
   it("다시 요청하면 같은 송금의 표시는 남고, 금액이 바뀌면 지워진다", async () => {

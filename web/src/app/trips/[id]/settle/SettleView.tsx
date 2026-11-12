@@ -1,7 +1,7 @@
 "use client";
 import styled from "@emotion/styled";
 import { useEffect, useRef, useState } from "react";
-import { markReceived, markSent, subscribeGroup } from "@/lib/api";
+import { getTrip, markReceived, markSent, subscribeGroup } from "@/lib/api";
 import { ServerError, messageFor } from "@/lib/errors";
 import { formatWon } from "@/lib/format";
 import { isKakaoPayLink } from "@/lib/payLink";
@@ -113,13 +113,17 @@ export function SettleView({ state }: { state: State }) {
   const view = viewFor(settlement, state.me);
 
   async function mark(index: number, side: "sent" | "received") {
+    if (state.kind !== "ok" || !settlement) return;
     setBusy(index); setError(null);
+    const sb = createBrowserSupabase();
     try {
-      const sb = createBrowserSupabase();
-      setSettlement(side === "sent" ? await markSent(sb, state.kind === "ok" ? state.trip.id : "", index)
-        : await markReceived(sb, state.kind === "ok" ? state.trip.id : "", index));
+      setSettlement(side === "sent" ? await markSent(sb, state.trip.id, index, settlement.requestedAt)
+        : await markReceived(sb, state.trip.id, index, settlement.requestedAt));
     } catch (e) {
-      setError(messageFor(e instanceof ServerError ? e.code : "UNKNOWN"));
+      const code = e instanceof ServerError ? e.code : "UNKNOWN";
+      setError(messageFor(code));
+      // 그사이 운전자가 다시 요청했으면 바뀐 정산을 다시 읽어 보여 준다
+      if (code === "SETTLEMENT_CHANGED") setSettlement((await getTrip(sb, state.trip.id).catch(() => null))?.settlement ?? settlement);
     } finally { setBusy(null); }
   }
 

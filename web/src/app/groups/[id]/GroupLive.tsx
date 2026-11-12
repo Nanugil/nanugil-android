@@ -1,10 +1,10 @@
 "use client";
 import styled from "@emotion/styled";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { subscribeGroup } from "@/lib/api";
 import { askNotificationPermission, notifySettlement } from "@/lib/notify";
-import { viewFor } from "@/lib/settlement";
+import { applyTripChange } from "@/lib/tripChange";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 import type { Group, Member, Trip } from "@/lib/types";
 import { Button, ButtonLink } from "@/ui/Button";
@@ -29,6 +29,7 @@ const Hint = styled.p`font-size: ${t.text.xs}; color: ${t.color.muted};`;
 export function GroupLive({ state }: { state: State }) {
   const router = useRouter();
   const [trips, setTrips] = useState(state.kind === "ok" ? state.trips : []);
+  const tripsRef = useRef(trips);
   const [perm, setPerm] = useState<NotificationPermission | "unsupported">("granted");
 
   useEffect(() => { setPerm(typeof Notification === "undefined" ? "unsupported" : Notification.permission); }, []);
@@ -39,18 +40,14 @@ export function GroupLive({ state }: { state: State }) {
     let off = () => {};
     let alive = true;
     subscribeGroup(sb, state.group.id, (trip) => {
-      setTrips((prev) => {
-        const old = prev.find((x) => x.id === trip.id);
-        // 정산 요청이 새로 오거나 다시 오고, 나에게 보낼 송금이 있으면 알리고 정산 화면으로
-        if (trip.settlement && trip.settlement.requestedAt !== old?.settlement?.requestedAt) {
-          const toSend = viewFor(trip.settlement, state.me).toSend;
-          if (toSend.length > 0) {
-            notifySettlement(state.group.name, toSend.reduce((s, x) => s + x.transfer.amountWon, 0));
-            router.push(`/trips/${trip.id}/settle`);
-          }
-        }
-        return old ? prev.map((x) => (x.id === trip.id ? trip : x)) : [trip, ...prev];
-      });
+      // 알림·이동은 부수 효과라 setState 갱신 함수 밖에서 한다 (갱신 함수는 두 번 불릴 수 있다)
+      const { trips: next, owedWon } = applyTripChange(tripsRef.current, trip, state.me);
+      tripsRef.current = next;
+      setTrips(next);
+      if (owedWon !== null) {
+        notifySettlement(state.group.name, owedWon);
+        router.push(`/trips/${trip.id}/settle`);
+      }
     }).then((u) => { if (alive) off = u; else u(); });
     return () => { alive = false; off(); };
   }, [state, router]);
