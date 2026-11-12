@@ -272,7 +272,7 @@ erDiagram
 | `start_battery_wh` | bigint | 출발 시 배터리 잔량 (Wh, `EV_BATTERY_LEVEL`) |
 | `charged_wh` | bigint | 충전량 (Wh, 여러 번이면 합계, 없으면 0) |
 | `end_battery_wh` | bigint | 도착 시 배터리 잔량 (Wh) |
-| `applied_price_per_kwh` | integer (원/kWh) | 계산에 쓴 충전 단가 |
+| `applied_price_per_kwh` | numeric(10,2) (원/kWh) | 계산에 쓴 충전 단가. 공공 충전 요금이 소수라 소수 둘째 자리까지 |
 | `toll_estimated` | integer (원) | 통행료 예상액 (`tollFare`) |
 | `toll_adjusted` | integer (원), 선택 | 운전자가 고친 통행료. 있으면 이 값을 씀 |
 | `calculated_at` | 시각 | 마지막 계산 시각 (유가 기준을 바꾸면 갱신) |

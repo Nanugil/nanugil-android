@@ -245,7 +245,7 @@ data class TripMember(
     @SerialName("start_battery_wh") val startBatteryWh: Long? = null,
     @SerialName("charged_wh") val chargedWh: Long? = null,
     @SerialName("end_battery_wh") val endBatteryWh: Long? = null,
-    @SerialName("applied_price_per_kwh") val appliedPricePerKwh: Int? = null,
+    @SerialName("applied_price_per_kwh") val appliedPricePerKwh: Double? = null,
     @SerialName("toll_estimated") val tollEstimated: Int? = null,
     @SerialName("toll_adjusted") val tollAdjusted: Int? = null,
 ) {
@@ -258,6 +258,6 @@ data class TripCostInput(
     val fuelCalcMethod: String? = null, val priceBasis: String? = null,
     val nearestPrice: Int? = null, val cheapestPrice: Int? = null, val appliedPrice: Int = 0,
     val startBatteryWh: Long = 0, val chargedWh: Long = 0, val endBatteryWh: Long = 0,
-    val appliedPricePerKwh: Int = 0,
+    val appliedPricePerKwh: Double = 0.0,
     val tollEstimated: Int = 0, val tollAdjusted: Int? = null,
 )

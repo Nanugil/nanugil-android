@@ -122,7 +122,7 @@ class ServerLiveTest {
             // T6·T8
             expectError("NOT_ARRIVED") { GroupTripApi.saveTripCost(trip.id, TripCostInput()) }
             GroupTripApi.markArrived(trip.id)
-            val cost = GroupTripApi.saveTripCost(trip.id, TripCostInput(startBatteryWh = 60_000, endBatteryWh = 41_000, appliedPricePerKwh = 347))
+            val cost = GroupTripApi.saveTripCost(trip.id, TripCostInput(startBatteryWh = 60_000, endBatteryWh = 41_000, appliedPricePerKwh = 347.2))
             assertEquals(41_000L, cost.endBatteryWh)
 
             Log.i("ServerLiveTest", "step T4")
