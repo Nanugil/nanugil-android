@@ -25,7 +25,7 @@ data class NaviDriveUiState(
     val answerHeard: String = "",
     /** 출발부터 지금까지 쓴 유류비·통행료와 1인 금액 */
     val cost: TripCost = TripCost(0.0, 0, 0, MockGroupDriveData.SHARE_MEMBERS),
-    val themeMode: ThemeMode = ThemeMode.AUTO,
+    val themeMode: ThemeMode = ThemeMode.LIGHT,
     val search: SearchUiState = SearchUiState(),
     /** 와이어프레임 v5 화면 흐름 (홈 · 그룹 만들기 · 초대 코드 · 참여 · 주행 · 정산) */
     val group: GroupUiState = GroupUiState(),

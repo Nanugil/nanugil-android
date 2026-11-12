@@ -159,11 +159,7 @@ internal fun AppTopBar(
                 SmallIconButton(p, R.drawable.ic_search, onSearch)
                 SmallIconButton(
                     p,
-                    when (themeMode) {
-                        ThemeMode.AUTO -> R.drawable.ic_theme_auto
-                        ThemeMode.LIGHT -> R.drawable.ic_theme_light
-                        ThemeMode.DARK -> R.drawable.ic_theme_dark
-                    },
+                    if (themeMode == ThemeMode.DARK) R.drawable.ic_theme_dark else R.drawable.ic_theme_light,
                     onTheme,
                 )
                 StatusChip(p, chip, onEndTrip)

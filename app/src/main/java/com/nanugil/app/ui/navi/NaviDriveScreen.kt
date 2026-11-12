@@ -5,7 +5,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -75,15 +74,17 @@ data class MeetupProposal(
     val fuelPercent: Int,
 )
 
-/** 화면 테마 선택. 자동 = 차량 화면 설정(Display Mode)을 따른다. */
+/**
+ * 화면 테마. 위쪽 바 버튼으로 라이트 ↔ 다크를 바꾼다.
+ * "자동(차량 설정 따르기)"은 뺐다: 앱은 차량 화면 테마를 바꿀 수 없어서(시스템 권한 필요) 자동은 둘 중 하나와 똑같아 보였다.
+ * 처음 켤 때는 차량 화면 설정(시스템 다크 모드)으로 시작한다.
+ */
 enum class ThemeMode(val label: String) {
-    AUTO("자동"),
     LIGHT("라이트"),
     DARK("다크"),
     ;
 
-    /** 위쪽 바 버튼을 누를 때마다 자동 → 라이트 → 다크 → 자동 */
-    fun next(): ThemeMode = entries[(ordinal + 1) % entries.size]
+    fun next(): ThemeMode = if (this == LIGHT) DARK else LIGHT
 }
 
 // ---- 브랜드 색 (Figma "로고·브랜드 보드") ----
@@ -181,7 +182,7 @@ fun NaviDriveScreen(
     onRecenter: () -> Unit,
     /** 내 차를 따라가는 중이면 차 아래에 파란 빛을 깐다 (시안의 도로 위 블루 글로우) */
     carGlow: Boolean = false,
-    themeMode: ThemeMode = ThemeMode.AUTO,
+    themeMode: ThemeMode = ThemeMode.LIGHT,
     onThemeModeChange: (ThemeMode) -> Unit = {},
     search: SearchUiState = SearchUiState(),
     searchActions: SearchActions = SearchActions(),
@@ -812,13 +813,8 @@ internal fun SearchPanel(
     }
 }
 
-/** 테마 선택을 실제 다크 여부로 바꾼다. 자동이면 차량 화면 설정(시스템 다크 모드)을 따른다. */
-@Composable
-fun resolveDarkTheme(mode: ThemeMode): Boolean = when (mode) {
-    ThemeMode.AUTO -> isSystemInDarkTheme()
-    ThemeMode.LIGHT -> false
-    ThemeMode.DARK -> true
-}
+/** 테마 선택을 실제 다크 여부로 바꾼다. */
+fun resolveDarkTheme(mode: ThemeMode): Boolean = mode == ThemeMode.DARK
 
 // ---- 표시 형식 ----
 
