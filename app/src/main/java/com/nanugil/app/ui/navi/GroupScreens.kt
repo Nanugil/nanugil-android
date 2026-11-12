@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,6 +35,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nanugil.app.R
+import com.nanugil.app.ui.settlement.qrBitmap
 import com.nanugil.app.data.group.CarState
 import com.nanugil.app.data.navi.NaviState
 
@@ -79,6 +81,10 @@ data class GroupActions(
     val onDepart: () -> Unit = {},
     val onPriceBasis: (PriceBasis) -> Unit = {},
     val onEditToll: () -> Unit = {},
+    /** 09: 송금 한 줄을 누르면 받음 체크를 바꾼다 */
+    val onTogglePaid: (Int) -> Unit = {},
+    /** 09: 운전자 카카오페이 송금 링크 등록·변경 */
+    val onEditPayLink: () -> Unit = {},
     val onRequestSettlement: () -> Unit = {},
     val onGoHome: () -> Unit = {},
 )
@@ -595,10 +601,8 @@ internal fun MeetupCard(
 }
 
 // ================= 08 도착 (정산 내역) =================
-// TODO(정산): #14(SettlementActivity)와 합칠 때 정한다 — 08은 화면 틀·흐름만 두고 값·계산·입력(차량 읽기, 근처 유가,
-//  값 수정, P단 게이트)은 #14 것을 쓴다. 통행료 수정처럼 글자를 넣는 칸은 P단에서만 연다.
-// TODO(정산): 시연 차량은 전기차라 배터리(Wh)·충전 단가(원/kWh)로 보여야 한다. #12 전기차 열, #14 전기차 정산이
-//  들어오면 MockGroups.settlement의 휘발유(mL·원/L) 목업을 바꾼다.
+// 화면 틀은 와이어프레임 v5, 값은 정산 세션(SettlementSession: 차량 기록·근처 유가·전기차 충전)에서 온다.
+// 글자를 넣는 값 수정은 P단 전용 SettlementActivity에서 한다.
 
 @Composable
 internal fun ArrivalScreen(p: NaviPalette, s: SettlementUi, actions: GroupActions) {
@@ -614,7 +618,7 @@ internal fun ArrivalScreen(p: NaviPalette, s: SettlementUi, actions: GroupAction
                         Avatar(p, c.label.take(1), accent = i == 0)
                         Column(Modifier.weight(1f).padding(start = 16.dp)) {
                             Label(c.label, 24.sp, p.textPrimary, FontWeight.Bold)
-                            Label("주유 ${num(c.fuelWon)} | 통행료 ${num(c.tollWon)}", 19.sp, p.textSecondary)
+                            Label("${c.energyLabel} ${num(c.fuelWon)} | 통행료 ${num(c.tollWon)}", 19.sp, p.textSecondary)
                         }
                         Label(won(c.totalWon), 26.sp, p.textPrimary, FontWeight.Bold)
                     }
@@ -636,6 +640,9 @@ internal fun ArrivalScreen(p: NaviPalette, s: SettlementUi, actions: GroupAction
                         }
                     }
                 }
+                // 유가를 가져온 주유소(최저가·직접 고름) 또는 근처를 못 불러온 이유
+                s.basisDetail?.let { Label(it, 19.sp, p.textSecondary, modifier = Modifier.padding(top = 10.dp)) }
+                s.problem?.let { Label(it, 19.sp, BrandAmber, FontWeight.Bold, Modifier.padding(top = 10.dp)) }
             }
         }
         Panel(p, Modifier.align(Alignment.TopEnd).width(HalfRight), CardShape) {
@@ -661,7 +668,7 @@ internal fun ArrivalScreen(p: NaviPalette, s: SettlementUi, actions: GroupAction
                     Label("${won(s.sumCheckWon)} 일치", 22.sp, p.textSecondary)
                 }
                 Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    SecondaryButton(p, "통행료 수정", actions.onEditToll, Modifier.weight(1f))
+                    SecondaryButton(p, "값 수정", actions.onEditToll, Modifier.weight(1f))
                     PrimaryButton("정산 요청", true, actions.onRequestSettlement, Modifier.weight(1f))
                 }
             }
@@ -682,29 +689,48 @@ internal fun SettleSentScreen(p: NaviPalette, s: SettlementUi, actions: GroupAct
                     contentAlignment = Alignment.Center,
                 ) { Icon(R.drawable.ic_check, Color.White, 46.dp) }
                 Title(p, "정산 요청 보냄", Modifier.padding(top = 22.dp))
-                // TODO(정산): 송금 수단은 정산 담당 화면(카카오페이 QR·계좌)과 맞춘다
-                Label("동승자 ${s.payments.size}명 | 카카오페이", 22.sp, p.textSecondary, modifier = Modifier.padding(top = 4.dp))
-                Caption(p, "1인", Modifier.padding(top = 20.dp))
-                BigAmount(p, s.perPersonWon)
+                Label("${s.myName}에게 카카오페이로 | 1인 ${won(s.perPersonWon)}", 22.sp, p.textSecondary, modifier = Modifier.padding(top = 4.dp))
+                // 운전자 송금 링크 QR. 동승자가 폰 카메라로 찍으면 카카오페이 송금이 열린다(금액은 직접 입력).
+                val link = s.payLink
+                if (link != null) {
+                    val qr = remember(link) { qrBitmap(link) }
+                    Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.Bottom) {
+                        Image(qr, "${s.myName} 카카오페이 송금 QR", Modifier.size(200.dp).clip(RoundedCornerShape(12.dp)))
+                        Label("링크 변경", 19.sp, BrandPrimary, FontWeight.Bold, Modifier.padding(start = 16.dp).clickable(onClick = actions.onEditPayLink))
+                    }
+                } else {
+                    PrimaryButton("송금 링크 등록", true, actions.onEditPayLink, Modifier.padding(top = 16.dp).width(260.dp))
+                }
                 SecondaryButton(p, "홈으로", actions.onGoHome, Modifier.padding(top = 18.dp).width(150.dp))
             }
         }
         Panel(p, Modifier.align(Alignment.TopEnd).width(HalfRight), CardShape) {
             Column(Modifier.padding(InnerPad)) {
-                Caption(p, "받은 사람 ${s.paidCount}/${s.payments.size}")
+                Caption(p, "받은 사람 ${s.paidCount}/${s.payments.size} · 받으면 눌러서 체크")
                 val shown = s.payments.take(4)
                 shown.forEachIndexed { i, pay ->
                     if (i > 0) Divider(p)
-                    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { actions.onTogglePaid(i) }.padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Avatar(p, pay.initial, accent = false)
                         Label(pay.name, 24.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(start = 16.dp).weight(1f))
+                        Label(won(pay.amountWon), 22.sp, p.textSecondary, modifier = Modifier.padding(end = 12.dp))
                         Tag(p, if (pay.paid) "송금 완료" else "확인 전", accent = pay.paid)
                     }
                 }
                 val rest = s.payments.drop(shown.size)
                 if (rest.isNotEmpty()) {
                     Divider(p)
-                    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // 나머지는 한 줄로 묶었으니 누르면 한꺼번에 체크(모두 받았으면 한꺼번에 해제)
+                    val target = !rest.all { it.paid }
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            rest.forEachIndexed { j, pay -> if (pay.paid != target) actions.onTogglePaid(shown.size + j) }
+                        }.padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Avatar(p, "+${rest.size}", accent = false)
                         Label("외 ${rest.size}명", 24.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(start = 16.dp).weight(1f))
                         Tag(p, if (rest.all { it.paid }) "송금 완료" else "확인 전", accent = rest.all { it.paid })

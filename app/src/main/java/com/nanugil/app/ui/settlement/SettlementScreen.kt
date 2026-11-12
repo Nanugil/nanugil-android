@@ -17,6 +17,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -211,7 +213,6 @@ internal fun won(text: String, field: String, required: Boolean): Long {
     return requireNotNull(trimmed.toLongOrNull()) { "$field 값은 원 단위 정수로 입력하세요: $text" }
 }
 
-private fun Long.wonText() = "%,d원".format(this)
 
 /** 처음 들어왔을 때 바로 눌러 볼 수 있게 채워 두는 예시 값. */
 internal fun exampleCars(type: VehicleType): List<CarInput> = listOf(
@@ -222,7 +223,7 @@ internal fun exampleCars(type: VehicleType): List<CarInput> = listOf(
 
 
 /** 유가 칸을 어디서 채웠는지. 요약 카드의 "유가 기준"에 보여 준다. 근처 주유소는 고른 주유소 이름을 따로 보여 준다. */
-private enum class PriceSource(val text: String) {
+enum class PriceSource(val text: String) {
     NONE("직접 입력"),
     LOADING("불러오는 중"),
     NEARBY("근처 주유소"),
@@ -231,7 +232,7 @@ private enum class PriceSource(val text: String) {
 }
 
 /** 근처 주유소를 찾는 유종. 하이브리드는 휘발유를 쓴다. */
-private val NEARBY_PRODUCTS = listOf(FuelProduct.GASOLINE, FuelProduct.DIESEL, FuelProduct.PREMIUM_GASOLINE)
+internal val NEARBY_PRODUCTS = listOf(FuelProduct.GASOLINE, FuelProduct.DIESEL, FuelProduct.PREMIUM_GASOLINE)
 
 /** 주유소 목록 정렬. */
 internal enum class StationOrder(val label: String) {
@@ -250,7 +251,7 @@ internal fun cheapestByProduct(stations: Map<FuelProduct, List<GasStation>>): Ma
     stations.mapNotNull { (product, list) -> list.sortedFor(StationOrder.CHEAPEST).firstOrNull()?.let { product to it } }.toMap()
 
 /** 입력값으로 바로 정산한다. 값이 비었거나 틀리면 결과 대신 고칠 내용을 돌려준다. */
-private fun settleOrMessage(cars: List<CarInput>): Pair<Settlement?, String?> = try {
+internal fun settleOrMessage(cars: List<CarInput>): Pair<Settlement?, String?> = try {
     SettlementCalculator.settle(toTrips(cars)) to null
 } catch (e: IllegalArgumentException) {
     null to e.message
@@ -262,92 +263,30 @@ private fun settleOrMessage(cars: List<CarInput>): Pair<Settlement?, String?> = 
 private fun carName(index: Int): String = "${'A' + index}차"
 
 /**
- * 도착 후 정산 화면. 은식님 Figma "08 정산 요약"을 따른다.
- * 왼쪽 카드는 1인 금액·차량별 비용·유가 기준, 오른쪽 카드는 주고받을 돈과 버튼.
- * 값을 고칠 때는 "값 수정"으로 입력 패널을 연다. 고치면 결과가 바로 바뀐다.
+ * 값 수정 화면. 정산 요약·요청은 #13의 08·09 화면이 [SettlementSession] 값을 보여 주고,
+ * 글자를 넣는 입력만 여기서 한다(P단 전용 [SettlementActivity]).
  *
- * @param initialType 새 차량의 기본 차종. 차마다 입력 패널에서 바꿀 수 있다.
- * @param readMyFuelMl 내 차(A차) 현재 연료량(mL)을 읽는 함수.
+ * @param readMyFuelMl 내 차(A차) 현재 연료량(mL)을 읽는 함수. 있으면 A차 출발·도착 칸에 "읽기"가 생긴다.
  * @param readMyBatteryWh 내 차(A차) 현재 배터리 잔량(Wh)을 읽는 함수.
- *   두 함수 모두 있으면 A차의 출발·도착 칸에 "차에서 읽기"가 생기고, 실패하면 [IllegalStateException] 메시지를 보여 준다.
- * @param onRequestSettlement '정산 요청'을 눌렀을 때. 정산 결과와 이 차 운전자(A차) 이름을 넘긴다.
- * @param prefillMyCar 운행 중 기록한 값으로 A차(내 차) 칸을 채운다. 화면이 열릴 때 한 번만 적용한다.
- * @param readMyCarType 내 차 차종을 읽는 함수. 읽히면 A차 차종 버튼을 그 값으로 바꾼다.
- * @param onEditPayLink 상단 바의 "송금 링크" 버튼. 운전자 카카오페이 송금 링크를 등록하거나 바꾼다.
- * @param loadNearbyStations 내 위치 근처 주유소(유종별)를 불러오는 함수. 있으면 근처 최저가가 유가 기본값이 되고,
- *   요약 카드의 "유가 기준"을 눌러 주유소를 직접 고를 수 있다. 실패하면 [loadFuelPrices](전국 평균)로 넘어간다.
  */
 @Composable
-fun SettlementScreen(
-    initialType: VehicleType,
+fun SettlementEditScreen(
+    session: SettlementSession,
     onBack: () -> Unit,
     readMyFuelMl: (suspend () -> Long)? = null,
     readMyBatteryWh: (suspend () -> Long)? = null,
-    loadFuelPrices: (suspend () -> Map<FuelProduct, Int>)? = null,
-    onRequestSettlement: (Settlement, myDriverId: String) -> Unit = { _, _ -> },
-    prefillMyCar: (CarInput) -> CarInput = { it },
-    readMyCarType: (suspend () -> VehicleType?)? = null,
-    loadNearbyStations: (suspend (FuelProduct) -> List<GasStation>)? = null,
-    onEditPayLink: (() -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
-    val cars = remember {
-        val example = exampleCars(initialType)
-        mutableStateListOf(prefillMyCar(example[0]), *example.drop(1).toTypedArray())
+    val state by session.state.collectAsState()
+    // 입력 패널은 칸마다 바로 고치는 목록을 쓴다. 고칠 때마다 세션에 넘겨 08 화면도 같은 값을 본다.
+    val cars = remember { mutableStateListOf(*state.cars.toTypedArray()) }
+    LaunchedEffect(Unit) { snapshotFlow { cars.toList() }.collect(session::setCars) }
+    // 주유소를 고르면 세션이 유가를 바꾸므로 그 값을 칸에 다시 받는다.
+    LaunchedEffect(state.prices) {
+        state.cars.forEachIndexed { i, c -> if (i < cars.size && cars[i].fuelPrice != c.fuelPrice) cars[i] = cars[i].copy(fuelPrice = c.fuelPrice) }
     }
     var readError by remember { mutableStateOf<String?>(null) }
-    var prices by remember { mutableStateOf<Map<FuelProduct, Int>>(emptyMap()) }
-    val loadsPrices = loadNearbyStations != null || loadFuelPrices != null
-    var priceSource by remember { mutableStateOf(if (loadsPrices) PriceSource.LOADING else PriceSource.NONE) }
-    var stations by remember { mutableStateOf<Map<FuelProduct, List<GasStation>>>(emptyMap()) }
-    var chosen by remember { mutableStateOf<Map<FuelProduct, GasStation>>(emptyMap()) }
-    var editing by remember { mutableStateOf(false) }
     var picking by remember { mutableStateOf(false) }
-
-    // 화면이 열리면 유가 칸을 채운다: 근처 최저가 → 전국 평균 → 예시값 순. 사용자가 이미 고친 칸은 건드리지 않는다.
-    LaunchedEffect(Unit) {
-        val nearby = loadNearbyStations?.let { load ->
-            coroutineScope {
-                NEARBY_PRODUCTS.map { product ->
-                    async { try { product to load(product) } catch (e: OpinetException) { null } }
-                }.awaitAll().filterNotNull().filter { it.second.isNotEmpty() }.toMap()
-            }
-        }.orEmpty()
-        val loaded = if (nearby.isNotEmpty()) {
-            stations = nearby
-            chosen = cheapestByProduct(nearby)
-            priceSource = PriceSource.NEARBY
-            chosen.mapValues { it.value.priceWon }
-        } else {
-            val load = loadFuelPrices ?: return@LaunchedEffect
-            try {
-                load().also { priceSource = PriceSource.OPINET }
-            } catch (e: OpinetException) {
-                priceSource = PriceSource.EXAMPLE
-                return@LaunchedEffect
-            }
-        }
-        prices = loaded
-        cars.indices.forEach { i ->
-            val c = cars[i]
-            if (c.fuelPrice == c.type.defaultFuelPrice) cars[i] = c.copy(fuelPrice = c.type.priceText(loaded))
-        }
-    }
-
-    // 주유소를 직접 고르면 그 유종을 쓰는 차의 유가를 모두 그 가격으로 바꾼다.
-    fun choose(product: FuelProduct, station: GasStation) {
-        chosen = chosen + (product to station)
-        prices = prices + (product to station.priceWon)
-        cars.indices.forEach { i ->
-            if (cars[i].type.opinetProduct == product) cars[i] = cars[i].copy(fuelPrice = station.priceWon.toString())
-        }
-    }
-
-    // 내 차 차종을 읽어 A차 차종 버튼을 맞춘다. 못 읽으면 그대로 둔다(직접 고르면 된다).
-    LaunchedEffect(Unit) {
-        val type = readMyCarType?.invoke() ?: return@LaunchedEffect
-        if (type != cars[0].type) cars[0] = cars[0].withType(type, prices)
-    }
 
     // 차량 값은 이 기기가 달린 차(A차)에서만 읽을 수 있다.
     fun readInto(read: suspend () -> Long, update: (CarInput, String) -> CarInput) {
@@ -361,35 +300,32 @@ fun SettlementScreen(
         }
     }
 
-    val snapshot = cars.toList()
-    val (result, inputMessage) = remember(snapshot) { settleOrMessage(snapshot) }
-
     val palette = settlementPalette()
     CompositionLocalProvider(LocalSettlementPalette provides palette) {
         Column(Modifier.fillMaxSize().background(palette.background).padding(24.dp)) {
             Header(
-                title = when { picking -> "주유소 선택"; editing -> "값 수정"; else -> "정산" },
-                onBack = when { picking -> ({ picking = false }); editing -> ({ editing = false }); else -> onBack },
-                action = onEditPayLink?.takeIf { !picking && !editing }?.let { "송금 링크" to it },
+                title = if (picking) "주유소 선택" else "값 수정",
+                onBack = if (picking) ({ picking = false }) else onBack,
+                action = if (!picking && state.stations.isNotEmpty()) "주유소 선택" to { picking = true } else null,
             )
             Box(Modifier.padding(top = 20.dp).fillMaxSize()) {
                 if (picking) {
                     // 차들이 쓰는 유종만, 내 차(A차) 유종부터 보여 준다.
-                    val products = cars.mapNotNull { it.type.opinetProduct }.distinct().filter { it in stations }
+                    val products = cars.mapNotNull { it.type.opinetProduct }.distinct().filter { it in state.stations }
                     StationPicker(
                         products = products,
-                        stations = stations,
-                        chosen = chosen,
-                        onChoose = ::choose,
+                        stations = state.stations,
+                        chosen = state.chosen,
+                        onChoose = session::choose,
                         onDone = { picking = false },
                     )
-                } else if (editing) {
+                } else {
                     EditPanel(
                         cars = cars,
-                        prices = prices,
-                        message = readError ?: inputMessage,
-                        initialType = initialType,
-                        onDone = { editing = false },
+                        prices = state.prices,
+                        message = readError ?: settleOrMessage(cars.toList()).second,
+                        initialType = VehicleType.GASOLINE,
+                        onDone = onBack,
                         onReadFuel = readMyFuelMl?.let { read ->
                             { isStart: Boolean -> readInto(read) { c, t -> if (isStart) c.copy(startFuelL = t) else c.copy(endFuelL = t) } }
                         },
@@ -397,33 +333,6 @@ fun SettlementScreen(
                             { isStart: Boolean -> readInto(read) { c, t -> if (isStart) c.copy(startBatteryKwh = t) else c.copy(endBatteryKwh = t) } }
                         },
                     )
-                } else if (result == null) {
-                    // 값이 비었거나 틀리면 요약을 못 만든다. 고칠 내용과 함께 입력 패널로 보낸다.
-                    Panel(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(horizontal = 32.dp, vertical = 30.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                            Label(inputMessage ?: "값을 넣어 주세요.", TextSize.Body, BrandAmber, FontWeight.Bold, maxLines = 3)
-                            PrimaryButton("값 수정", onClick = { editing = true }, modifier = Modifier.width(220.dp))
-                        }
-                    }
-                } else {
-                    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                        // 근처 주유소 기준이면 내 차(A차) 유종의 고른 주유소를 보여 주고, 눌러서 바꿀 수 있다.
-                        val myStation = cars[0].type.opinetProduct?.let(chosen::get) ?: chosen.values.firstOrNull()
-                        SummaryCard(
-                            result, cars, priceSource,
-                            priceDetail = myStation?.takeIf { priceSource == PriceSource.NEARBY }
-                                ?.let { "${it.name} · %,d원/L · 바꾸기 ›".format(it.priceWon) },
-                            onPickStation = if (stations.isNotEmpty()) ({ picking = true }) else null,
-                            modifier = Modifier.weight(1f),
-                        )
-                        TransfersCard(
-                            result = result,
-                            cars = cars,
-                            onEdit = { editing = true },
-                            onRequest = { onRequestSettlement(result, cars[0].driver.trim()) },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
                 }
             }
         }
@@ -439,135 +348,6 @@ internal fun Header(title: String, onBack: () -> Unit, action: Pair<String, () -
             SecondaryButton("← 돌아가기", onClick = onBack, modifier = Modifier.width(190.dp).height(68.dp))
             Label(title, TextSize.Title, p.textPrimary, FontWeight.Bold, Modifier.padding(start = 24.dp).weight(1f))
             action?.let { (text, onClick) -> SecondaryButton(text, onClick = onClick, modifier = Modifier.width(220.dp).height(68.dp)) }
-        }
-    }
-}
-
-/** Figma 08 왼쪽 카드: 1인 금액(Display 56), 총액·인원, 차량별 비용, 유가 기준. */
-@Composable
-private fun SummaryCard(
-    result: Settlement,
-    cars: List<CarInput>,
-    priceSource: PriceSource,
-    priceDetail: String?,
-    onPickStation: (() -> Unit)?,
-    modifier: Modifier,
-) {
-    val p = LocalSettlementPalette.current
-    Panel(modifier) {
-        Column(Modifier.padding(horizontal = 32.dp, vertical = 30.dp).verticalScroll(rememberScrollState())) {
-            Label("1인", TextSize.Caption, p.textSecondary)
-            Label(result.perPersonShareWon.wonText(), TextSize.Display, p.textPrimary, FontWeight.ExtraBold, letterSpacing = (-1).sp)
-            Label(
-                "총 %,d원 | %d명".format(result.totalCostWon, result.balancesWon.size),
-                TextSize.Caption, p.textSecondary,
-            )
-            Column(Modifier.padding(top = 28.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                result.vehicleCostsWon.entries.forEachIndexed { i, (_, cost) ->
-                    val car = cars.getOrNull(i)
-                    val toll = car?.let { runCatching { won(it.tollWon, "", required = false) }.getOrNull() } ?: 0L
-                    val energyLabel = when (car?.type) {
-                        VehicleType.ELECTRIC -> "충전"
-                        VehicleType.HYBRID -> "주유·충전"
-                        else -> "주유"
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Avatar("${'A' + i}", highlighted = i == 0)
-                        Column(Modifier.padding(start = 16.dp).weight(1f)) {
-                            Label(carName(i), TextSize.Body, p.textPrimary, FontWeight.Bold)
-                            Label("$energyLabel %,d | 통행료 %,d".format(cost - toll, toll), TextSize.Caption, p.textSecondary)
-                        }
-                        Label(cost.wonText(), TextSize.Body, p.textPrimary, FontWeight.Bold)
-                    }
-                }
-            }
-            if (result.remainderWon > 0) {
-                Label(
-                    "나머지 ${result.remainderWon.wonText()}은 받을 사람이 덜 받습니다.",
-                    TextSize.Caption, p.textSecondary, modifier = Modifier.padding(top = 16.dp),
-                )
-            }
-            Label("유가 기준", TextSize.Caption, p.textSecondary, modifier = Modifier.padding(top = 28.dp))
-            Box(
-                Modifier.padding(top = 10.dp).fillMaxWidth().height(68.dp)
-                    .clip(RoundedCornerShape(14.dp)).background(p.field)
-                    .then(if (onPickStation != null) Modifier.clickable(onClick = onPickStation) else Modifier),
-                contentAlignment = Alignment.Center,
-            ) {
-                Label(
-                    priceDetail?.let { "${priceSource.text} · $it" } ?: priceSource.text,
-                    TextSize.Caption,
-                    if (priceSource == PriceSource.EXAMPLE) BrandAmber else p.textPrimary,
-                    FontWeight.Bold,
-                )
-            }
-        }
-    }
-}
-
-/** Figma 08 오른쪽 카드: 주고받을 돈, 합계 일치, '값 수정'·'정산 요청' 버튼. */
-@Composable
-private fun TransfersCard(
-    result: Settlement,
-    cars: List<CarInput>,
-    onEdit: () -> Unit,
-    onRequest: () -> Unit,
-    modifier: Modifier,
-) {
-    val p = LocalSettlementPalette.current
-    // 사람 → "A차 운전" / "A차 동승"
-    val roles = buildMap {
-        cars.forEachIndexed { i, car ->
-            car.passengers.split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { put(it, "${carName(i)} 동승") }
-        }
-        cars.forEachIndexed { i, car -> put(car.driver.trim(), "${carName(i)} 운전") }
-    }
-    Panel(modifier) {
-        Column(Modifier.padding(horizontal = 32.dp, vertical = 30.dp)) {
-            Label("주고받을 돈", TextSize.Caption, p.textSecondary)
-            Column(
-                Modifier.padding(top = 16.dp).weight(1f).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-            ) {
-                result.balancesWon.entries
-                    .sortedByDescending { it.value }
-                    .forEach { (person, balance) ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Avatar(person, highlighted = balance > 0)
-                            Column(Modifier.padding(start = 16.dp).weight(1f)) {
-                                Label(person, TextSize.Body, p.textPrimary, FontWeight.Bold)
-                                Label(roles[person].orEmpty(), TextSize.Caption, p.textSecondary)
-                            }
-                            val sign = if (balance > 0) "+" else if (balance < 0) "−" else ""
-                            Label(
-                                "$sign%,d원".format(kotlin.math.abs(balance)),
-                                TextSize.Body,
-                                if (balance > 0) BrandPrimary else p.textPrimary,
-                                FontWeight.Bold,
-                            )
-                        }
-                    }
-                if (result.transfers.isNotEmpty()) {
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(p.divider))
-                    result.transfers.forEach {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Label("${it.fromId} → ${it.toId}", TextSize.Caption, p.textSecondary, modifier = Modifier.weight(1f))
-                            Label(it.amountWon.wonText(), TextSize.Caption, p.textPrimary, FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-            Box(Modifier.padding(vertical = 16.dp).fillMaxWidth().height(1.dp).background(p.divider))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Label("합계", TextSize.Caption, p.textSecondary, modifier = Modifier.weight(1f))
-                val receive = result.balancesWon.values.filter { it > 0 }.sum()
-                Label("%,d원 ".format(receive), TextSize.Caption, p.textPrimary)
-                Label("일치", TextSize.Caption, BrandSuccess, FontWeight.Bold)
-            }
-            Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                SecondaryButton("값 수정", onClick = onEdit, modifier = Modifier.weight(1f))
-                PrimaryButton("정산 요청", onClick = onRequest, modifier = Modifier.weight(1f))
-            }
         }
     }
 }
@@ -744,8 +524,3 @@ private fun CarCard(
     }
 }
 
-@Preview(widthDp = 1682, heightDp = 1210)
-@Composable
-private fun SettlementScreenPreview() {
-    SettlementScreen(initialType = VehicleType.HYBRID, onBack = {})
-}

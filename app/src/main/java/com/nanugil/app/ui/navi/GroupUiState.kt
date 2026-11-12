@@ -98,26 +98,34 @@ data class JoinState(
 
 enum class PriceBasis(val label: String) { AVERAGE("근처 평균"), LOWEST("근처 최저가") }
 
-/** 08 도착: 차별 비용 한 줄 */
-data class CarCost(val label: String, val fuelWon: Long, val tollWon: Long) {
+/** 08 도착: 차별 비용 한 줄. [energyLabel]은 연료비 이름(주유·충전·주유·충전). */
+data class CarCost(val label: String, val fuelWon: Long, val tollWon: Long, val energyLabel: String = "주유") {
     val totalWon: Long get() = fuelWon + tollWon
 }
 
 /** 08 도착: 주고받을 돈 한 줄 (+ 받음, - 보냄) */
 data class MoneyLine(val initial: String, val name: String, val detail: String, val amountWon: Long, val highlight: Boolean)
 
-/** 09 정산 요청 보냄: 받은 사람 한 줄 */
-data class PaymentStatus(val initial: String, val name: String, val paid: Boolean)
+/** 09 정산 요청 보냄: 송금 한 줄. 누르면 받음 체크가 바뀐다(카카오페이가 송금 결과를 알려 주지 않는다). */
+data class PaymentStatus(val initial: String, val name: String, val paid: Boolean, val amountWon: Long = 0)
 
 data class SettlementUi(
     val perPersonWon: Long,
     val totalWon: Long,
     val people: Int,
     val cars: List<CarCost>,
-    val basis: PriceBasis,
+    /** 근처 평균·최저가 중 고른 것. 값 수정에서 주유소를 직접 골랐으면 null. */
+    val basis: PriceBasis?,
     val lines: List<MoneyLine>,
     val sumCheckWon: Long,
     val payments: List<PaymentStatus>,
+    /** 유가를 가져온 곳 (예: "강산주유소 1,830원/L"). 근처 주유소를 못 불러왔으면 그 이유. */
+    val basisDetail: String? = null,
+    /** 값이 비었거나 틀려 정산할 수 없을 때 고칠 내용 */
+    val problem: String? = null,
+    /** 이 차 운전자 이름과 카카오페이 송금 링크 (09 QR). 링크가 없으면 등록 버튼을 보여 준다. */
+    val myName: String = "",
+    val payLink: String? = null,
 ) {
     val paidCount: Int get() = payments.count { it.paid }
 }

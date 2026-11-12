@@ -18,10 +18,12 @@ data class RequestedTransfer(
  * '정산 요청'을 누른 순간의 정산 결과. 이후 값을 고쳐도 바뀌지 않도록 송금 목록을 따로 들고 있다.
  *
  * @property myId 이 차 운전자. 이 사람의 송금 링크 QR을 보여 준다.
+ * @property perPersonWon 요청할 때의 1인 부담액. 요청 뒤에 값을 고쳐도 09 화면은 이 금액을 보여 준다.
  */
 data class SettlementRequest(
     val myId: String,
     val transfers: List<RequestedTransfer>,
+    val perPersonWon: Long = 0,
 ) {
     val isComplete: Boolean get() = transfers.all { it.done }
 
@@ -30,6 +32,7 @@ data class SettlementRequest(
 
     fun toJson(): String = JSONObject()
         .put("myId", myId)
+        .put("perPerson", perPersonWon)
         .put("transfers", JSONArray(transfers.map {
             JSONObject().put("from", it.fromId).put("to", it.toId).put("amount", it.amountWon).put("done", it.done)
         }))
@@ -37,7 +40,7 @@ data class SettlementRequest(
 
     companion object {
         fun of(settlement: Settlement, myId: String) =
-            SettlementRequest(myId, settlement.transfers.map { RequestedTransfer(it.fromId, it.toId, it.amountWon) })
+            SettlementRequest(myId, settlement.transfers.map { RequestedTransfer(it.fromId, it.toId, it.amountWon) }, settlement.perPersonShareWon)
 
         fun fromJson(json: String): SettlementRequest {
             val o = JSONObject(json)
@@ -48,6 +51,8 @@ data class SettlementRequest(
                     val t = list.getJSONObject(i)
                     RequestedTransfer(t.getString("from"), t.getString("to"), t.getLong("amount"), t.getBoolean("done"))
                 },
+                // 1인 금액을 저장하기 전에 보낸 요청에는 없다
+                perPersonWon = o.optLong("perPerson", 0),
             )
         }
     }

@@ -6,6 +6,9 @@ import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nanugil.app.BuildConfig
+import com.nanugil.app.NanugilApplication
+import com.nanugil.app.data.pay.PayLinkStore
+import com.nanugil.app.ui.settlement.PriceChoice
 import com.nanugil.app.core.geo.Wgs84Point
 import com.nanugil.app.core.geo.distanceTo
 import com.nanugil.app.data.fare.TripCostTracker
@@ -78,6 +81,10 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     private val answering = MutableStateFlow(false)
     /** 와이어프레임 v5 화면 흐름. TODO(서버): 그룹·초대 코드·멤버·송금 상태를 서버와 동기화 */
     private val groupUi = MutableStateFlow(GroupUiState())
+    /** 정산 값(차량 기록·근처 유가·송금 요청). 값 수정 화면(SettlementActivity)과 함께 본다. */
+    private val settlement = (app as NanugilApplication).settlement
+    private val payLinks = PayLinkStore(app)
+    private val payLink = MutableStateFlow(payLinks.link)
     private val themeMode = MutableStateFlow(loadThemeMode())
 
     private val groupCars: StateFlow<List<CarState>> = groupRepository.observeGroup(GROUP_ID)
@@ -181,13 +188,19 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     // ---- 화면 이벤트 ----
 
     init {
+        // 08·09 화면은 정산 세션 값을 보여 준다.
+        viewModelScope.launch {
+            combine(settlement.state, payLink) { s, link -> s.toUi(link) }.collect { ui ->
+                groupUi.value = groupUi.value.copy(settlement = ui)
+            }
+        }
         // 내장 내비가 "목적지 도착"을 알리면 08 도착(정산) 화면을 연다.
         // TODO(정산): 시나리오 7단계대로 P단(주차)일 때만 연다 (Vehicle SDK 기어 상태)
         viewModelScope.launch {
             var wasGuiding = false
             navi.state.collect { s ->
                 if (wasGuiding && !s.guiding && s.message == "목적지 도착") {
-                    groupUi.value = groupUi.value.copy(screen = AppScreen.ARRIVAL)
+                    go(AppScreen.ARRIVAL)
                 }
                 wasGuiding = s.guiding
             }
@@ -198,6 +211,8 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun go(screen: AppScreen) {
         groupUi.value = groupUi.value.copy(screen = screen)
+        // 08을 처음 열 때 운행 기록·차종·내 위치 근처 유가로 정산 값을 채운다(운행마다 한 번).
+        if (screen == AppScreen.ARRIVAL) viewModelScope.launch { settlement.load(navi.state.value.currentPosition) }
     }
 
     /** 위쪽 탭: 드라이브(안내 중이면 주행 화면, 아니면 홈) · 내 차 · 정산(보냈으면 보낸 화면) */
@@ -207,7 +222,7 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
             when (tab) {
                 NaviTab.DRIVE -> if (navi.state.value.guiding) AppScreen.DRIVE else AppScreen.HOME
                 NaviTab.CAR -> AppScreen.CAR
-                NaviTab.SETTLE -> if (g.screen == AppScreen.SETTLE_SENT) AppScreen.SETTLE_SENT else AppScreen.ARRIVAL
+                NaviTab.SETTLE -> if (settlement.state.value.request != null) AppScreen.SETTLE_SENT else AppScreen.ARRIVAL
             },
         )
     }
@@ -320,14 +335,22 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         startRoute()
     }
 
-    fun setPriceBasis(basis: PriceBasis) {
-        groupUi.value = groupUi.value.copy(settlement = MockGroups.settlement(basis))
+    fun setPriceBasis(basis: PriceBasis) =
+        settlement.choose(if (basis == PriceBasis.AVERAGE) PriceChoice.NEARBY_AVERAGE else PriceChoice.NEARBY_LOWEST)
+
+    /** [정산 요청]: 정산 결과를 확정해 09로 간다. 값이 틀려 정산할 수 없으면 그대로 둔다(08에 고칠 내용이 보인다). */
+    fun requestSettlement() {
+        if (settlement.request() != null) go(AppScreen.SETTLE_SENT)
     }
 
-    /** [정산 요청] TODO(정산): 정산 담당 화면·송금 요청과 연결 */
-    fun requestSettlement() = go(AppScreen.SETTLE_SENT)
+    /** 09에서 송금 한 줄을 누르면 받음 체크를 바꾼다 */
+    fun togglePaid(index: Int) = settlement.togglePaid(index)
 
-    fun goHome() = go(AppScreen.HOME)
+    /** 09 [홈으로]. 모두 받았으면 이번 정산을 끝내고 다음 운행을 준비한다. */
+    fun goHome() {
+        if (settlement.state.value.request?.isComplete == true) settlement.finish()
+        go(AppScreen.HOME)
+    }
 
     fun startRoute() {
         // TODO(서버): 그룹 목적지를 서버에서 받는다. 지금은 데모용 고정 목적지.
@@ -338,7 +361,11 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     fun stopRoute() = navi.cancelRoute()
 
     /** 화면이 다시 보일 때: 내비 화면에서 안내를 바꾸고 돌아왔을 수 있으니 상태를 다시 맞춘다 */
-    fun onScreenVisible() = navi.refreshRoute()
+    fun onScreenVisible() {
+        navi.refreshRoute()
+        // 송금 링크 등록 화면에서 돌아왔을 수 있다
+        payLink.value = payLinks.link
+    }
 
     /** 화면이 가려질 때: 방금 보낸 요청 때문에 내비가 튀어나온 거라면 바로 돌아온다 */
     fun onScreenHidden() = navi.onAppHidden()

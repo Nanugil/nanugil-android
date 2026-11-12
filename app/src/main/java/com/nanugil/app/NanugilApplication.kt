@@ -5,7 +5,15 @@ import android.app.Application
 import android.content.Context
 import android.util.Log
 import com.nanugil.app.data.vehicle.VehicleFuelReader
+import com.nanugil.app.data.fuel.OpinetClient
+import com.nanugil.app.data.pay.SettlementRequestStore
 import com.nanugil.app.data.vehicle.TripEnergyRecorder
+import com.nanugil.app.ui.settlement.SettlementActivity
+import com.nanugil.app.ui.settlement.SettlementSession
+import com.nanugil.app.ui.settlement.myCarType
+import com.nanugil.app.ui.settlement.vehicleTypeFromFuelTypes
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.nanugil.app.data.vehicle.VehicleGearWatcher
 import com.naver.maps.map.NaverMapSdk
 
@@ -28,6 +36,25 @@ class NanugilApplication : Application() {
 
     /** 운행 중 연료·배터리 기록. 앱이 켜지면 바로 기록을 시작한다. */
     val tripRecorder: TripEnergyRecorder by lazy { TripEnergyRecorder(this, vehicle, fuelReader).also { it.start() } }
+
+    /** 이번 운행 정산 값. #13의 08·09 화면과 값 수정 화면([SettlementActivity])이 함께 본다. */
+    val settlement: SettlementSession by lazy {
+        val opinet = OpinetClient(BuildConfig.OPINET_API_KEY)
+        SettlementSession(
+            recorder = tripRecorder,
+            requests = SettlementRequestStore(this),
+            readMyCarType = {
+                val reported = withContext(Dispatchers.IO) {
+                    runCatching { vehicleTypeFromFuelTypes(fuelReader.readFuelTypes()) }
+                        .onFailure { Log.w("NanugilApplication", "연료 종류 읽기 실패", it) }
+                        .getOrNull()
+                }
+                myCarType(reported, tripRecorder.fuel, tripRecorder.battery)
+            },
+            loadNearby = { product, at -> opinet.findStationsAround(at, product = product) },
+            loadAverage = opinet::averagePrices,
+        )
+    }
 
     override fun onCreate() {
         super.onCreate()
