@@ -2,6 +2,7 @@
 import styled from "@emotion/styled";
 import { useId, useState, type InputHTMLAttributes } from "react";
 import { Icon } from "./Icon";
+import { styleOnly } from "./styleProps";
 import { t } from "./theme";
 
 const Wrap = styled.div`display: grid; gap: ${t.space.x2s};`;
@@ -13,7 +14,7 @@ const Eye = styled.button`position: absolute; right: ${t.space.xs}; top: 50%; tr
   background: transparent; color: ${t.color.muted}; cursor: pointer;
   &:focus-visible { outline: 2px solid ${t.color.focus}; outline-offset: -2px; }
   &:active { opacity: 0.7; }`;
-const Input = styled.input<{ withIcon: boolean; withEye: boolean }>`
+const Input = styled("input", styleOnly("withIcon", "withEye"))<{ withIcon: boolean; withEye: boolean }>`
   min-height: ${t.controlH};
   padding: 0 ${(p) => (p.withEye ? "52px" : t.space.md)} 0 ${(p) => (p.withIcon ? "48px" : t.space.md)};
   border-radius: ${t.radius.control};
@@ -25,7 +26,7 @@ const Input = styled.input<{ withIcon: boolean; withEye: boolean }>`
   &[aria-invalid="true"] { outline: 2px solid ${t.color.error}; outline-offset: -1px; }
   &:disabled { opacity: 0.55; cursor: not-allowed; }
 `;
-const Help = styled.p<{ error?: boolean }>`
+const Help = styled("p", styleOnly("error"))<{ error?: boolean }>`
   min-height: 1lh;
   font-size: ${t.text.xs};
   color: ${(p) => (p.error ? t.color.error : t.color.muted)};

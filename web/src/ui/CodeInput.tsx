@@ -1,6 +1,7 @@
 "use client";
 import styled from "@emotion/styled";
 import { forwardRef, useId } from "react";
+import { styleOnly } from "./styleProps";
 import { t } from "./theme";
 
 const Wrap = styled.div`position: relative; display: grid; gap: ${t.space.xs};`;
@@ -8,7 +9,7 @@ const Boxes = styled.div`
   display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: ${t.space.xs};
   pointer-events: none;
 `;
-const Box = styled.span<{ filled: boolean; current: boolean }>`
+const Box = styled("span", styleOnly("filled", "current"))<{ filled: boolean; current: boolean }>`
   display: grid; place-items: center; aspect-ratio: 4 / 5;
   border-radius: ${t.radius.control};
   background: ${(p) => (p.filled ? t.color.cardStrong : t.color.input)};

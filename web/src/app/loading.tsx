@@ -1,9 +1,10 @@
 "use client";
 import styled from "@emotion/styled";
 import { Screen } from "@/ui/Screen";
+import { styleOnly } from "@/ui/styleProps";
 import { t } from "@/ui/theme";
 
-const Bone = styled.div<{ h: number }>`
+const Bone = styled("div", styleOnly("h"))<{ h: number }>`
   height: ${(p) => p.h}px; border-radius: ${t.radius.card}; background: ${t.color.card}; border: 1px solid ${t.color.rule};
 `;
 

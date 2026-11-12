@@ -9,8 +9,6 @@ import { t } from "./theme";
 
 const Card = styled(GlassCard)`
   justify-items: center; text-align: center; padding-block: ${t.space.xl};
-  background: color-mix(in oklab, var(--color-accent) 14%, var(--color-card));
-  border-color: color-mix(in oklab, var(--color-accent) 35%, var(--color-rule));
 `;
 const Label = styled.p`font-size: ${t.text.sm}; color: ${t.color.ink2};`;
 const Figure = styled.div`display: flex; align-items: flex-end; gap: ${t.space.xs}; max-width: 100%;`;

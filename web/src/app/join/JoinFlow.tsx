@@ -13,6 +13,7 @@ import { Field } from "@/ui/Field";
 import { GlassCard } from "@/ui/GlassCard";
 import { Icon } from "@/ui/Icon";
 import { useShake } from "@/ui/motion";
+import { styleOnly } from "@/ui/styleProps";
 import { t } from "@/ui/theme";
 
 const Title = styled.h1`font-size: ${t.text.x2};`;
@@ -21,7 +22,7 @@ const ErrorText = styled.p`color: ${t.color.error}; font-size: ${t.text.sm}; min
 const GroupName = styled.h2`font-size: ${t.text.xl};`;
 const Count = styled.p`color: ${t.color.muted}; font-size: ${t.text.sm};`;
 const List = styled.ul`list-style: none; margin: 0; padding: 0; display: grid;`;
-const Pick = styled.button<{ selected: boolean }>`
+const Pick = styled("button", styleOnly("selected"))<{ selected: boolean }>`
   display: flex; align-items: center; justify-content: space-between; gap: ${t.space.sm};
   width: 100%; min-height: 52px; padding: 0 ${t.space.xs};
   background: transparent; border: 0; border-bottom: 1px solid ${t.color.rule};

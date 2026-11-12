@@ -4,5 +4,5 @@ import { devOnly } from "../mock";
 
 export default function P() {
   if (!devOnly()) notFound();
-  return <HomeView groups={[]} />;
+  return <HomeView name="김민수" groups={[]} />;
 }
