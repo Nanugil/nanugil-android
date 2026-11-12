@@ -303,21 +303,27 @@ cd nanugil-android
 
 **API 키 설정**
 
-키는 커밋하지 않습니다. 프로젝트 루트의 `local.properties`에 아래 두 줄을 넣고 Gradle Sync 하면 `BuildConfig`로 들어갑니다. CI에서는 같은 이름의 환경변수를 씁니다.
+키는 커밋하지 않습니다. 프로젝트 루트의 `local.properties`에 아래 키를 넣고 Gradle Sync 하면 `BuildConfig`로 들어갑니다. CI에서는 같은 이름의 환경변수를 씁니다.
 
 ```properties
 NAVER_MAP_CLIENT_ID=네이버_클라우드_Client_ID
 OPINET_API_KEY=오피넷_인증키
+SUPABASE_URL=Supabase_프로젝트_URL
+SUPABASE_ANON_KEY=Supabase_anon_키
 ```
 
 | 키 | 발급 방법 |
 | --- | --- |
 | `NAVER_MAP_CLIENT_ID` | [네이버 클라우드 콘솔](https://console.ncloud.com) → AI·NAVER API → Maps → Application 등록. **Dynamic Map**을 선택하고 Android 패키지 이름에 `com.nanugil.app`을 넣는다. 과금 사고를 막으려면 콘솔에서 이용 한도를 낮게 걸어 둔다. |
 | `OPINET_API_KEY` | [오피넷 무료 API](https://www.opinet.co.kr/user/custapi/custApiInfo.do) 신청. 일반 키는 하루 300건 (기업·기관 제휴 시 1,500건) |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY` | 서버·실시간 통신 담당에게 개인 메시지로 받는다. 대시보드 Settings → API Keys의 **anon (public)** 키다. **service_role 키는 쓰지 않는다** (보안 규칙을 전부 우회하는 관리자 키) |
+
+키를 넣거나 바꾼 뒤에는 `./gradlew clean`을 한 번 해 주세요. 증분 빌드에서 키가 빈 채로 컴파일되는 경우가 있었습니다.
 
 **키가 없을 때 동작**
 - 네이버 키가 없거나 패키지 이름이 등록되지 않으면 지도 타일 없이 회색 격자에 마커만 보입니다. Logcat `NaverMap` 태그에 `[401] Unauthorized client`가 찍힙니다.
 - 오피넷 키가 없으면 주유소 패널에 "오피넷 API 키가 없습니다"가 표시됩니다.
+- Supabase 키가 없으면 서버 API(`GroupTripApi`)를 처음 부를 때 "local.properties에 SUPABASE_URL, SUPABASE_ANON_KEY를 넣어 주세요" 오류가 납니다.
 - Pleos 에뮬레이터를 기본 설정으로 띄우면 외부 도메인을 찾지 못해 오피넷 호출이 실패합니다. `emulator -avd Pleos_Connect_v2.1 -dns-server 8.8.8.8,1.1.1.1`로 띄우세요.
 
 **목업 데이터**
