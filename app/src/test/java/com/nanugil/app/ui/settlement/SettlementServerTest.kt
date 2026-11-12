@@ -12,7 +12,7 @@ class SettlementServerTest {
             tripId = "t", memberId = id, vehicleDriverMemberId = id, vehicleLabel = "$id 차", fuelType = fuel,
             startFuelMl = c["startFuel"], endFuelMl = c["endFuel"], refueledMl = c["refuel"], appliedPrice = c["price"]?.toInt(),
             startBatteryWh = c["startBat"], endBatteryWh = c["endBat"], chargedWh = c["charged"],
-            appliedPricePerKwh = c["kwh"]?.toInt(), tollEstimated = c["toll"]?.toInt(),
+            appliedPricePerKwh = c["kwh"]?.toDouble(), tollEstimated = c["toll"]?.toInt(),
         )
     }
     private fun rider(id: String, car: String) = TripMember(tripId = "t", memberId = id, vehicleDriverMemberId = car)
@@ -54,7 +54,7 @@ class SettlementServerTest {
         assertEquals(77_400L, cost.startBatteryWh)
         assertEquals(15_000L, cost.chargedWh)
         assertEquals(72_000L, cost.endBatteryWh)
-        assertEquals(348, cost.appliedPricePerKwh) // 서버 열이 정수라 반올림
+        assertEquals(348.4, cost.appliedPricePerKwh!!, 1e-9)
         assertEquals(10_000, cost.tollEstimated)
         assertEquals(0L, cost.startFuelMl)
         assertNull(cost.priceBasis) // 전기차는 유가 기준이 없다

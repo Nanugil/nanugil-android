@@ -14,7 +14,7 @@ import com.nanugil.app.core.geo.distanceTo
 import com.nanugil.app.data.fare.TripCostTracker
 import com.nanugil.app.data.group.CarState
 import com.nanugil.app.data.group.GroupLocationRepository
-import com.nanugil.app.data.mock.FakeGroupLocationRepository
+import com.nanugil.app.data.mock.RouteFollowingGroupRepository
 import com.nanugil.app.data.mock.MockGroupDriveData
 import com.nanugil.app.data.navi.NaviController
 import com.nanugil.app.data.navi.NaviPlace
@@ -52,8 +52,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- 데이터 계층 ----
-    // TODO(서버): 그룹 차량 위치·연료를 서버(실시간 동기화)에서 받는 구현으로 교체
-    private val groupRepository: GroupLocationRepository = FakeGroupLocationRepository()
     private val vehicleStatus = VehicleStatusSource(app)
     /** 기어(P단 여부) — 입력 화면을 정차 중에만 열기 위해 본다. 정산 화면(#14)과 같은 [VehicleGearWatcher] */
     private val gearVehicle = Vehicle(app)
@@ -87,6 +85,15 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     private val payLinks = PayLinkStore(app)
     private val payLink = MutableStateFlow(payLinks.link)
 
+    /**
+     * 일행 차 위치. 지금은 B차가 내 실제 내비 경로 위를 앞서 달리는 목업.
+     * TODO(서버): #15 머지 후 SupabaseGroupLocationRepository로 바꾼다 (같은 GroupLocationRepository).
+     */
+    private val groupRepository: GroupLocationRepository = RouteFollowingGroupRepository(
+        myPosition = { navi.state.value.currentPosition },
+        route = { _routePath.value },
+        guiding = { navi.state.value.guiding },
+    )
     private val groupCars: StateFlow<List<CarState>> = groupRepository.observeGroup(GROUP_ID)
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 

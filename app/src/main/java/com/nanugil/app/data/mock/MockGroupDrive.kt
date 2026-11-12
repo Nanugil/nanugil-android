@@ -21,10 +21,10 @@ object MockGroupDriveData {
     const val PROGRESS_PER_TICK = 0.01
     const val TICK_MILLIS = 2_000L
 
-    val CAR_A = MockCar(id = "car-a", driverName = "운전자 A", speedKmh = 92, startFuelPercent = 62, fuelDropPerTick = 0, isMe = true)
+    val CAR_A = MockCar(id = "car-a", driverName = "김민수", speedKmh = 92, startFuelPercent = 62, fuelDropPerTick = 0, isMe = true)
 
     /** B 차량은 연료가 매 틱 1%씩 줄어 15번째 틱쯤 연료 부족이 된다. 출발도 3틱 늦다. */
-    val CAR_B = MockCar(id = "car-b", driverName = "운전자 B", speedKmh = 88, startFuelPercent = 30, fuelDropPerTick = 1, startDelayTicks = 3)
+    val CAR_B = MockCar(id = "car-b", driverName = "이서준", speedKmh = 88, startFuelPercent = 30, fuelDropPerTick = 1, startDelayTicks = 3)
 
     val CARS = listOf(CAR_A, CAR_B)
 

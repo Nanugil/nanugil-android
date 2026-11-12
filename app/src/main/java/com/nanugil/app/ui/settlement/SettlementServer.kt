@@ -4,7 +4,7 @@ import com.nanugil.app.data.server.GroupTripApi
 import com.nanugil.app.data.server.Supabase
 import com.nanugil.app.data.server.TripCostInput
 import com.nanugil.app.data.server.TripMember
-import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 /** 서버의 진행 중 운행. [cars]는 내 차(A차)가 맨 앞. */
 data class ServerTrip(val tripId: String, val cars: List<CarInput>)
@@ -55,7 +55,7 @@ internal fun carsFromTrip(members: List<TripMember>, names: Map<String, String>,
             startFuelL = d.startFuelMl?.let(::milliToDecimalText).orEmpty(),
             refueledL = milliToDecimalText(d.refueledMl ?: 0),
             endFuelL = d.endFuelMl?.let(::milliToDecimalText).orEmpty(),
-            electricityPrice = d.appliedPricePerKwh?.takeIf { it > 0 }?.toString() ?: ChargerTier.KW100.price,
+            electricityPrice = d.appliedPricePerKwh?.takeIf { it > 0 }?.let { milliToDecimalText((it * 1000).roundToLong()) } ?: ChargerTier.KW100.price,
             startBatteryKwh = d.startBatteryWh?.let(::milliToDecimalText).orEmpty(),
             chargedKwh = milliToDecimalText(d.chargedWh ?: 0),
             endBatteryKwh = d.endBatteryWh?.let(::milliToDecimalText).orEmpty(),
@@ -86,8 +86,7 @@ internal fun CarInput.toCostInput(choice: PriceChoice): TripCostInput {
         priceBasis = if (type.usesFuel && choice == PriceChoice.NEARBY_LOWEST) "CHEAPEST" else null,
         appliedPrice = trip.fuelPriceWonPerLiter.toInt(),
         startBatteryWh = trip.startBatteryWh, chargedWh = trip.chargedWh, endBatteryWh = trip.endBatteryWh,
-        // shortcut: 서버 applied_price_per_kwh가 정수라 348.4원은 348원으로 저장한다(계산은 소수로 한다). 서버 열이 소수가 되면 그대로 보낸다.
-        appliedPricePerKwh = (trip.electricityWonPerMwh / 1000.0).roundToInt(),
+        appliedPricePerKwh = trip.electricityWonPerMwh / 1000.0,
         tollEstimated = trip.tollWon.toInt(),
     )
 }
