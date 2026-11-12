@@ -19,6 +19,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.nanugil.app.MainActivity
+import com.nanugil.app.data.vehicle.GearState
 import com.nanugil.app.ui.map.MapViewLifecycleBinder
 import com.naver.maps.map.MapView
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -35,6 +36,9 @@ import kotlinx.coroutines.launch
  * - 지도 그리기(경로선·주유소·목적지·그룹 차량 마커, 카메라): [DriveMapController]
  *
  * 라이트/다크 전환 등으로 Activity가 다시 만들어져도 ViewModel이 살아 있어 길안내가 끊기지 않는다.
+ *
+ * TODO(정산): 이 화면이 시작 화면이 되면서 기존 [MainActivity](#10 정산하기 버튼·정산 입력 화면)로 가는 길이 없어졌다.
+ *  #14(SettlementActivity, P단 게이트)와 08 도착 화면을 어떻게 합칠지 정산 담당과 정하기 전까지 MainActivity는 지우지 않는다.
  */
 class NaviDriveActivity : ComponentActivity() {
 
@@ -78,7 +82,36 @@ class NaviDriveActivity : ComponentActivity() {
             onSubmit = { viewModel.submitSearch() },
             onVoice = ::startVoiceSearch,
             onStopVoice = viewModel::stopVoiceSearch,
-            onSelect = viewModel::selectPlace,
+        )
+    }
+
+    private val groupActions by lazy {
+        GroupActions(
+            onTab = viewModel::selectTab,
+            onBack = viewModel::back,
+            onOpenDrive = viewModel::openDrive,
+            onOpenCreate = viewModel::openCreateGroup,
+            onOpenJoin = viewModel::openJoin,
+            onOpenGroup = viewModel::openGroup,
+            onCreateFormChange = viewModel::updateCreateForm,
+            onCreate = viewModel::createGroup,
+            onSearchDestination = viewModel::openSearch,
+            onNewCode = viewModel::newInviteCode,
+            onAddPassenger = viewModel::addPassenger,
+            onStartTrip = viewModel::startTrip,
+            onCodeKey = viewModel::typeCode,
+            onCodeDelete = viewModel::deleteCode,
+            onJoin = viewModel::joinGroup,
+            onCarNameChange = viewModel::setCarName,
+            onTogglePassenger = viewModel::togglePassenger,
+            onDepart = viewModel::departJoin,
+            onPriceBasis = viewModel::setPriceBasis,
+            onEditToll = {
+                // TODO(정산): 통행료 직접 수정 화면 (정산 담당)
+                Toast.makeText(this, "통행료 수정은 정산 화면에서 이어서 만들어요", Toast.LENGTH_SHORT).show()
+            },
+            onRequestSettlement = viewModel::requestSettlement,
+            onGoHome = viewModel::goHome,
         )
     }
 
@@ -93,6 +126,9 @@ class NaviDriveActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 지도는 기본(SurfaceView)으로 띄운다. 카드 뒤 지도 블러(TextureView + MapBackdrop)는 끔:
+        // 에뮬레이터에서 지도를 끌 때 CPU가 약 55~65% → 80~130%로 오르고 앱 화면을 매 프레임 다시 그려서(끊김 14%)
+        // 시연에서 지도가 부드러운 쪽을 택했다. 카드는 블러 없는 반투명 매트 유리로 그려진다 (LocalMapBackdrop = null).
         mapView = MapView(this)
         mapBinder = MapViewLifecycleBinder.bind(this, mapView, savedInstanceState)
 
@@ -103,6 +139,7 @@ class NaviDriveActivity : ComponentActivity() {
                 navi = ui.navi,
                 vehicle = ui.vehicle,
                 carsDriving = ui.carsDriving,
+                groupCars = ui.groupCars,
                 proposal = ui.proposal,
                 cost = ui.cost,
                 routeError = ui.navi.message?.takeIf { "실패" in it || "오류" in it },
@@ -116,16 +153,18 @@ class NaviDriveActivity : ComponentActivity() {
                 answerListening = ui.answerListening,
                 answerHeard = ui.answerHeard,
                 onVoiceAnswer = ::startVoiceAnswer,
+                group = ui.group,
+                groupActions = groupActions,
                 onZoomIn = { drive?.zoomBy(1.0) },
                 onZoomOut = { drive?.zoomBy(-1.0) },
                 onRecenter = { drive?.recenter() },
-                onHome = { drive?.recenter() },
-                onCars = { startActivity(Intent(this, MainActivity::class.java)) },
                 carGlow = following && ui.navi.guiding,
                 themeMode = ui.themeMode,
                 onThemeModeChange = viewModel::setThemeMode,
                 search = ui.search,
                 searchActions = searchActions,
+                canType = ui.canType,
+                gearUnknown = ui.gear == GearState.UNKNOWN,
             )
             // 지도도 화면 테마에 맞춰 낮/밤으로
             val dark = resolveDarkTheme(ui.themeMode)

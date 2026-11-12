@@ -19,6 +19,8 @@
     <uses-permission android:name="pleos.car.permission.NAVI_CUSTOM_MAP" />
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- 내 차 위치는 내장 내비(NAVI_ROUTE, getCurrentLocationInfo)에서 받으므로 위치 권한은 쓰지 않는다 -->
+    <!-- 내비 검색 화면에서 목적지를 고르는 동안(최대 3분) 앱이 얼지 않게 하는 짧은 포그라운드 서비스 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- 목적지 음성 검색 (마이크). dangerous 권한이라 App Market 심사 때 사용 사유 필요 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
@@ -63,6 +65,11 @@
                 android:name="distractionOptimized"
                 android:value="true" />
         </activity>
+
+        <service
+            android:name=".data.navi.NaviWaitService"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
     </application>
 
 </manifest>

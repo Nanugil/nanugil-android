@@ -30,7 +30,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
-import com.nanugil.app.data.search.PlaceResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.nanugil.app.R
 import com.nanugil.app.data.fare.TripCost
+import com.nanugil.app.data.group.CarState
 import com.nanugil.app.data.navi.NaviState
 import com.nanugil.app.data.navi.NaviTurn
 import ai.pleos.playground.navi.constants.TurnType
@@ -87,15 +87,15 @@ enum class ThemeMode(val label: String) {
 }
 
 // ---- 브랜드 색 (Figma "로고·브랜드 보드") ----
-private val BrandPrimary = Color(0xFF1E5EFF)
-private val BrandDanger = Color(0xFFE5484D)
-private val BrandAmber = Color(0xFFFFB020)
+internal val BrandPrimary = Color(0xFF1E5EFF)
+internal val BrandDanger = Color(0xFFE5484D)
+internal val BrandAmber = Color(0xFFFFB020)
 
 /**
  * Figma v5 시안의 두 테마. 차량 화면 설정(Display Mode)이 다크면 다크, 아니면 화이트톤(글라스).
  * 수치는 시안 프레임(1682×1210 = Pleos 앱 영역) 기준 그대로다.
  */
-private data class NaviPalette(
+internal data class NaviPalette(
     val dark: Boolean,
     val background: Color,
     val panel: Color,
@@ -113,17 +113,17 @@ private data class NaviPalette(
     val distanceWeight: FontWeight,
 )
 
-private val DarkPalette = NaviPalette(
+internal val DarkPalette = NaviPalette(
     dark = true,
     background = Color(0xFF0A0A0B),
     panel = Color(0xF21A1B1F),
     panelBorder = Color(0x14FFFFFF),
-    textPrimary = Color(0xFFF5F6F8),
+    textPrimary = Color.White,
     textSecondary = Color(0xFF9CA3AF),
-    divider = Color(0x1FFFFFFF),
-    navSelected = Color(0xFF26282E),
+    divider = Color.White.copy(alpha = 0.08f),
+    navSelected = Color.White.copy(alpha = 0.08f),
     navIcon = Color(0xFF9CA3AF),
-    secondaryButton = Color(0xFF2A2C32),
+    secondaryButton = Color.White.copy(alpha = 0.10f),
     secondaryButtonText = Color(0xFFE5E7EB),
     stopBackground = Color(0x40E5484D),
     stopIcon = BrandDanger,
@@ -131,7 +131,7 @@ private val DarkPalette = NaviPalette(
     distanceWeight = FontWeight.Bold,
 )
 
-private val LightPalette = NaviPalette(
+internal val LightPalette = NaviPalette(
     dark = false,
     background = Color(0xFFE9EDF2),
     panel = Color(0xE6FFFFFF),
@@ -139,9 +139,9 @@ private val LightPalette = NaviPalette(
     textPrimary = Color(0xFF0F172A),
     textSecondary = Color(0xFF64748B),
     divider = Color(0x1A0F172A),
-    navSelected = Color(0xFFF1F5F9),
+    navSelected = Color.White.copy(alpha = 0.45f),
     navIcon = Color(0xFF64748B),
-    secondaryButton = Color(0xFFE2E8F0),
+    secondaryButton = Color.White.copy(alpha = 0.55f),
     secondaryButtonText = Color(0xFF334155),
     stopBackground = Color(0xFFFF3B3B),
     stopIcon = Color.White,
@@ -149,13 +149,16 @@ private val LightPalette = NaviPalette(
     distanceWeight = FontWeight.Medium,
 )
 
-private val CardShape = RoundedCornerShape(28.dp)
+internal val CardShape = GlassShape
+
+/** 글자를 입력하는 화면 (정차 중에만) */
+private val INPUT_SCREENS = setOf(AppScreen.CREATE_GROUP, AppScreen.JOIN_CODE, AppScreen.JOIN_SETUP)
 
 /**
- * 나누길 주행 화면 (Figma "그룹 드라이브 v5").
+ * 나누길 화면 (Figma "나누길 와이어프레임 v5").
  *
- * 지도(MapView)는 맨 아래에 깔고 카드·버튼은 위에 겹친다. 카드가 아닌 곳의 터치는
- * 그대로 지도로 내려가서 끌기·확대·회전이 된다.
+ * 지도(MapView)는 맨 아래에 깔고, 위쪽 바([드라이브 | 내 차 | 정산])와 화면별 카드를 위에 겹친다.
+ * 카드가 아닌 곳의 터치는 그대로 지도로 내려가서 끌기·확대·회전이 된다.
  */
 @Composable
 fun NaviDriveScreen(
@@ -163,9 +166,12 @@ fun NaviDriveScreen(
     navi: NaviState,
     vehicle: VehicleStatus,
     carsDriving: Int,
+    groupCars: List<CarState>,
     proposal: MeetupProposal?,
     cost: TripCost,
     routeError: String?,
+    group: GroupUiState,
+    groupActions: GroupActions,
     onStartRoute: () -> Unit,
     onStopRoute: () -> Unit,
     onAcceptMeetup: () -> Unit,
@@ -173,8 +179,6 @@ fun NaviDriveScreen(
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     onRecenter: () -> Unit,
-    onHome: () -> Unit,
-    onCars: () -> Unit,
     /** 내 차를 따라가는 중이면 차 아래에 파란 빛을 깐다 (시안의 도로 위 블루 글로우) */
     carGlow: Boolean = false,
     themeMode: ThemeMode = ThemeMode.AUTO,
@@ -186,82 +190,128 @@ fun NaviDriveScreen(
     onDismissRestStop: () -> Unit = {},
     answerListening: Boolean = false,
     answerHeard: String = "",
-    /** 합류 팝업 음성 답변. auto=true면 팝업이 뜰 때 자동으로 부른 것 */
+    /** 합류 제안 음성 답변. auto=true면 제안이 뜰 때 자동으로 부른 것 */
     onVoiceAnswer: (auto: Boolean) -> Unit = {},
+    /** P단이면 true. 아니면 글자 입력 화면(02·04·05)을 막고, 검색은 말로만 받는다 */
+    canType: Boolean = true,
+    /** 기어를 아직 모르면 true (막는 안내 문구만 다르다) */
+    gearUnknown: Boolean = false,
 ) {
     val darkTheme = resolveDarkTheme(themeMode)
     val p = if (darkTheme) DarkPalette else LightPalette
-    // 위쪽 바의 정산 버튼으로 "지금까지 쓴 돈" 카드를 열고 닫는다 (시안에 자리가 없어 오른쪽 카드 아래에 띄운다)
-    var showFare by remember { mutableStateOf(false) }
+    val screen = group.screen
 
     Box(Modifier.fillMaxSize().background(p.background)) {
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
-        if (carGlow) CarGlow(Modifier.fillMaxSize())
+        if (carGlow && screen == AppScreen.DRIVE) CarGlow(Modifier.fillMaxSize())
 
-        TopBar(
-            p = p,
-            carsDriving = carsDriving,
-            guiding = navi.guiding,
-            fareSelected = showFare,
-            themeMode = themeMode,
-            onTheme = { onThemeModeChange(themeMode.next()) },
-            onSearch = searchActions.onOpen,
-            onHome = onHome,
-            onCars = onCars,
-            onFare = { showFare = !showFare },
-            onStop = onStopRoute,
-            modifier = Modifier.align(Alignment.TopCenter).padding(start = 32.dp, end = 32.dp, top = 26.dp).fillMaxWidth(),
-        )
-
-        val leftModifier = Modifier.align(Alignment.TopStart).padding(start = 32.dp, top = 146.dp).width(558.dp)
-        if (search.open) {
-            SearchPanel(p, search, searchActions, leftModifier)
-        } else {
-            DestinationCard(
-                p = p,
-                navi = navi,
-                routeError = routeError,
-                onStartRoute = onStartRoute,
-                onOpenSearch = searchActions.onOpen,
-                onVoiceSearch = searchActions.onVoice,
-                modifier = leftModifier,
+        // ---- 화면별 카드 ----
+        // 02·04·05는 글자를 입력하는 화면이라 정차 중(P단)에만 연다. 주행 중엔 안내 카드로 바꾸고, 입력한 값은 그대로 둔다.
+        val inputBlocked = !canType && screen in INPUT_SCREENS
+        if (inputBlocked) ParkOnlyCard(p, gearUnknown, groupActions.onBack) else when (screen) {
+            AppScreen.HOME -> HomeScreen(p, navi, group, carsDriving, groupActions)
+            AppScreen.CREATE_GROUP -> CreateGroupScreen(
+                p, group.createForm, navi.destinationName ?: MockGroups.DESTINATION, groupActions,
             )
-        }
-
-        Column(
-            Modifier.align(Alignment.TopEnd).padding(end = 32.dp, top = 146.dp).width(518.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            if (suggestion != null) {
-                RestStopCard(p, suggestion, onProposeRestStop, onDismissRestStop)
-            } else {
-                VehicleCard(p, vehicle)
+            AppScreen.LOBBY -> group.group?.let { LobbyScreen(p, it, groupActions) }
+            AppScreen.JOIN_CODE -> JoinCodeScreen(p, group.join, groupActions)
+            AppScreen.JOIN_SETUP -> JoinSetupScreen(p, group.join, groupActions)
+            AppScreen.DRIVE -> {
+                val leftModifier = Modifier.align(Alignment.TopStart).padding(start = OuterPad, top = CardTop).width(559.dp)
+                if (search.open) {
+                    SearchPanel(p, search, searchActions, leftModifier, canType)
+                } else {
+                    DestinationCard(
+                        p = p,
+                        navi = navi,
+                        routeError = routeError,
+                        onStartRoute = onStartRoute,
+                        onOpenSearch = searchActions.onOpen,
+                        onVoiceSearch = searchActions.onVoice,
+                        modifier = leftModifier,
+                    )
+                }
+                Column(
+                    Modifier.align(Alignment.TopEnd).padding(end = OuterPad, top = CardTop).width(478.dp),
+                    verticalArrangement = Arrangement.spacedBy(CardGap),
+                ) {
+                    when {
+                        proposal != null -> {
+                            // 다른 차의 정차 제안: 주행 중이라 큰 버튼 한 번이나 음성으로만 답한다
+                            LaunchedEffect(proposal.carLabel, proposal.placeName) { onVoiceAnswer(true) }
+                            MeetupCard(
+                                p, proposal, answerListening, answerHeard,
+                                onAccept = onAcceptMeetup, onSkip = onSkipMeetup, onVoice = { onVoiceAnswer(false) },
+                            )
+                        }
+                        suggestion != null -> RestStopCard(p, suggestion, onProposeRestStop, onDismissRestStop)
+                        groupCars.isNotEmpty() -> GroupCarsCard(p, groupCars, navi)
+                    }
+                }
             }
-            if (showFare) FareCard(p, cost)
+            AppScreen.CAR -> Column(
+                Modifier.padding(start = OuterPad, top = CardTop).width(559.dp),
+                verticalArrangement = Arrangement.spacedBy(CardGap),
+            ) {
+                VehicleCard(p, vehicle)
+                FareCard(p, cost)
+            }
+            AppScreen.ARRIVAL -> ArrivalScreen(p, group.settlement, groupActions)
+            AppScreen.SETTLE_SENT -> SettleSentScreen(p, group.settlement, groupActions)
         }
 
+        // 지도 버튼(확대·축소·내 위치)은 운행 전 화면에서도 쓴다. 오른쪽 아래는 어느 화면에서든 비어 있다.
         MapControls(
             p = p,
             onZoomIn = onZoomIn,
             onZoomOut = onZoomOut,
             onRecenter = onRecenter,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 48.dp),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = OuterPad, bottom = 48.dp),
         )
 
-        // 다른 차의 정차 제안: 주행 중이라 큰 버튼 한 번이나 음성으로만 답한다
-        if (proposal != null) {
-            LaunchedEffect(proposal.carLabel, proposal.placeName) { onVoiceAnswer(true) }
-            MeetupPopup(
-                p = p,
-                proposal = proposal,
-                listening = answerListening,
-                heard = answerHeard,
-                onAccept = onAcceptMeetup,
-                onSkip = onSkipMeetup,
-                onVoice = { onVoiceAnswer(false) },
-                modifier = Modifier.align(Alignment.Center),
+        // 목적지 검색(내장 내비 검색으로 넘김)은 어느 화면에서든 왼쪽 위에 띄운다
+        if (search.open && screen != AppScreen.DRIVE) {
+            SearchPanel(
+                p, search, searchActions,
+                Modifier.align(Alignment.TopStart).padding(start = OuterPad, top = CardTop).width(559.dp),
+                canType,
             )
         }
+
+        // ---- 위쪽 바 ----
+        val g = group.group
+        val title = when (screen) {
+            AppScreen.HOME -> "나누길"
+            AppScreen.CREATE_GROUP -> "그룹 만들기"
+            AppScreen.LOBBY -> g?.name ?: "초대 코드"
+            AppScreen.JOIN_CODE -> "코드로 참여"
+            AppScreen.JOIN_SETUP -> "운행 참가"
+            AppScreen.DRIVE -> if (navi.guiding) "${carsDriving}대 주행 중" else "드라이브"
+            AppScreen.CAR -> "내 차"
+            AppScreen.ARRIVAL -> "도착"
+            AppScreen.SETTLE_SENT -> "정산"
+        }
+        val chip = when {
+            screen == AppScreen.DRIVE && navi.guiding -> TopChip.END_TRIP
+            screen == AppScreen.LOBBY || screen == AppScreen.ARRIVAL -> TopChip.HOST
+            // 안내 중이거나 기어가 P가 아니면(D·R·N) 주행 중
+            navi.guiding || (!canType && !gearUnknown) -> TopChip.DRIVING
+            else -> TopChip.STOPPED
+        }
+        AppTopBar(
+            p = p,
+            title = title,
+            showBack = screen in setOf(AppScreen.CREATE_GROUP, AppScreen.LOBBY, AppScreen.JOIN_CODE, AppScreen.JOIN_SETUP),
+            tab = screen.tab,
+            chip = chip,
+            themeMode = themeMode,
+            onBack = groupActions.onBack,
+            onTab = groupActions.onTab,
+            onSearch = searchActions.onOpen,
+            onTheme = { onThemeModeChange(themeMode.next()) },
+            onEndTrip = onStopRoute,
+            modifier = Modifier.align(Alignment.TopCenter).padding(start = OuterPad, end = OuterPad, top = 28.dp).fillMaxWidth(),
+        )
     }
 }
 
@@ -270,7 +320,7 @@ fun NaviDriveScreen(
  * (DriveMapController.DRIVE_PIVOT_Y). 터치는 받지 않으므로 지도 조작을 막지 않는다.
  */
 @Composable
-private fun CarGlow(modifier: Modifier) {
+internal fun CarGlow(modifier: Modifier) {
     Canvas(modifier) {
         val center = Offset(size.width * 0.5f, size.height * 0.75f)
         val radius = size.minDimension * 0.32f
@@ -286,87 +336,10 @@ private fun CarGlow(modifier: Modifier) {
     }
 }
 
-// ---- 위쪽 바: 메뉴 · 로고 · 주행 대수 · 안내 종료 ----
-
-@Composable
-private fun TopBar(
-    p: NaviPalette,
-    carsDriving: Int,
-    guiding: Boolean,
-    fareSelected: Boolean,
-    themeMode: ThemeMode,
-    onTheme: () -> Unit,
-    onSearch: () -> Unit,
-    onHome: () -> Unit,
-    onCars: () -> Unit,
-    onFare: () -> Unit,
-    onStop: () -> Unit,
-    modifier: Modifier,
-) {
-    Panel(p, modifier.height(92.dp), RoundedCornerShape(24.dp)) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            NavButton(p, R.drawable.ic_home, selected = !fareSelected, onClick = onHome)
-            NavButton(p, R.drawable.ic_car, selected = false, onClick = onCars)
-            NavButton(p, R.drawable.ic_card, selected = fareSelected, onClick = onFare)
-            Box(Modifier.padding(horizontal = 16.dp).width(1.dp).height(44.dp).background(p.divider))
-            Image(
-                painterResource(R.drawable.logo_nanugil),
-                contentDescription = "나누길",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.size(60.dp).clip(CircleShape),
-            )
-            Label("${carsDriving}대 주행 중", 32.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(start = 16.dp))
-            Spacer(Modifier.weight(1f))
-            SquareIconButton(p, R.drawable.ic_search, onSearch)
-            ThemeButton(p, themeMode, onTheme)
-            if (guiding) {
-                Box(
-                    Modifier.size(64.dp).clip(CircleShape).background(p.stopBackground).clickable(onClick = onStop),
-                    contentAlignment = Alignment.Center,
-                ) { Icon(R.drawable.ic_stop, p.stopIcon, 30.dp) }
-            }
-        }
-    }
-}
-
-/** 라이트·다크 전환 버튼: 지금 상태 아이콘만 (◑ 자동 / ☀ 라이트 / ☾ 다크) */
-@Composable
-private fun ThemeButton(p: NaviPalette, mode: ThemeMode, onClick: () -> Unit) {
-    val icon = when (mode) {
-        ThemeMode.AUTO -> R.drawable.ic_theme_auto
-        ThemeMode.LIGHT -> R.drawable.ic_theme_light
-        ThemeMode.DARK -> R.drawable.ic_theme_dark
-    }
-    Box(
-        Modifier.padding(end = 14.dp).size(64.dp).clip(RoundedCornerShape(18.dp))
-            .background(p.navSelected).clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) { Icon(icon, p.textPrimary, 30.dp) }
-}
-
-@Composable
-private fun SquareIconButton(p: NaviPalette, iconRes: Int, onClick: () -> Unit) {
-    Box(
-        Modifier.padding(end = 14.dp).size(64.dp).clip(RoundedCornerShape(18.dp))
-            .background(p.navSelected).clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) { Icon(iconRes, p.textPrimary, 30.dp) }
-}
-
-@Composable
-private fun NavButton(p: NaviPalette, iconRes: Int, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier.size(72.dp).clip(RoundedCornerShape(18.dp))
-            .background(if (selected) p.navSelected else Color.Transparent)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) { Icon(iconRes, if (selected) BrandPrimary else p.navIcon, 30.dp) }
-}
-
 // ---- 왼쪽 카드: 목적지 · 도착 · 이동 경로 ----
 
 @Composable
-private fun DestinationCard(
+internal fun DestinationCard(
     p: NaviPalette,
     navi: NaviState,
     routeError: String?,
@@ -439,11 +412,11 @@ private fun DestinationCard(
     }
 }
 
-private enum class Marker { Current, Stop, Destination }
+internal enum class Marker { Current, Stop, Destination }
 
 /** "300m 앞 좌회전 · 성남시청 방면" 안내 + 그다음 회전 한 줄 */
 @Composable
-private fun TurnBanner(p: NaviPalette, turn: NaviTurn, after: NaviTurn?, modifier: Modifier) {
+internal fun TurnBanner(p: NaviPalette, turn: NaviTurn, after: NaviTurn?, modifier: Modifier) {
     Column(modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(BrandPrimary).padding(22.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -469,7 +442,7 @@ private fun TurnBanner(p: NaviPalette, turn: NaviTurn, after: NaviTurn?, modifie
 }
 
 /** 회전 종류 → 화살표 글자 (아이콘 리소스 없이 기본 글꼴로 그린다) */
-private fun TurnType.arrow(): String = when (this) {
+internal fun TurnType.arrow(): String = when (this) {
     TurnType.TURN_LEFT, TurnType.TURN_SHARP_L -> "←"
     TurnType.TURN_RIGHT, TurnType.TURN_SHARP_R -> "→"
     TurnType.TURN_KEEP_L, TurnType.TURN_EXIT_IC_L, TurnType.TURN_ENTER_IC_L,
@@ -484,7 +457,7 @@ private fun TurnType.arrow(): String = when (this) {
     else -> "↑"
 }
 
-private fun TurnType.korean(): String = when (this) {
+internal fun TurnType.korean(): String = when (this) {
     TurnType.TURN_LEFT -> "좌회전"
     TurnType.TURN_SHARP_L -> "급좌회전"
     TurnType.TURN_RIGHT -> "우회전"
@@ -509,7 +482,7 @@ private fun TurnType.korean(): String = when (this) {
 }
 
 @Composable
-private fun TimelineRow(
+internal fun TimelineRow(
     p: NaviPalette,
     marker: Marker,
     title: String,
@@ -534,7 +507,7 @@ private fun TimelineRow(
 }
 
 @Composable
-private fun TimelineConnector(p: NaviPalette, highlighted: Boolean) {
+internal fun TimelineConnector(p: NaviPalette, highlighted: Boolean) {
     Box(
         Modifier.padding(start = 11.dp).width(2.dp).height(18.dp)
             .background(if (highlighted) BrandPrimary else p.timelineConnector),
@@ -545,7 +518,7 @@ private fun TimelineConnector(p: NaviPalette, highlighted: Boolean) {
 
 /** 시나리오 4단계: 내 차 연료 부족 → "근처 ○○휴게소 들를까요?" [제안] [괜찮아요] */
 @Composable
-private fun RestStopCard(p: NaviPalette, s: RestStopSuggestion, onPropose: () -> Unit, onDismiss: () -> Unit) {
+internal fun RestStopCard(p: NaviPalette, s: RestStopSuggestion, onPropose: () -> Unit, onDismiss: () -> Unit) {
     Panel(p, Modifier.fillMaxWidth(), CardShape) {
         Column(Modifier.padding(horizontal = 32.dp, vertical = 30.dp)) {
             Label(if (s.isEv) "배터리가 부족해요" else "연료가 부족해요", 24.sp, BrandAmber, FontWeight.Bold)
@@ -575,80 +548,10 @@ private fun RestStopCard(p: NaviPalette, s: RestStopSuggestion, onPropose: () ->
     }
 }
 
-/**
- * 시나리오 5단계: "B차가 ○○휴게소 정차를 제안했어요" [합류] [괜찮아요].
- * 주행 중에 보는 화면이라 글자는 크게, 버튼은 크게 두 개만, 음성으로도 답할 수 있다.
- */
-@Composable
-private fun MeetupPopup(
-    p: NaviPalette,
-    proposal: MeetupProposal,
-    listening: Boolean,
-    heard: String,
-    onAccept: () -> Unit,
-    onSkip: () -> Unit,
-    onVoice: () -> Unit,
-    modifier: Modifier,
-) {
-    Panel(p, modifier.width(760.dp), RoundedCornerShape(36.dp)) {
-        Column(Modifier.padding(horizontal = 44.dp, vertical = 40.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(R.drawable.ic_group_car, BrandPrimary, 36.dp)
-                Label(
-                    "${proposal.carLabel} · ${proposal.driverName}",
-                    26.sp, p.textSecondary, modifier = Modifier.padding(start = 12.dp),
-                )
-            }
-            Label(
-                "${proposal.carLabel}가 ${proposal.placeName} 정차를 제안했어요",
-                42.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(top = 14.dp),
-            )
-            Label(
-                listOfNotNull(
-                    proposal.distanceMeters?.let { "${formatKm(it)} 전방" },
-                    "${proposal.carLabel} 연료 ${proposal.fuelPercent}%",
-                ).joinToString(" · "),
-                28.sp, p.textSecondary, modifier = Modifier.padding(top = 10.dp),
-            )
-            Row(Modifier.padding(top = 34.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                BigButton("합류", BrandPrimary, Color.White, onAccept, Modifier.weight(1f))
-                BigButton("괜찮아요", p.secondaryButton, p.textPrimary, onSkip, Modifier.weight(1f))
-            }
-            // 음성 답변: "합류" / "괜찮아요"
-            Row(
-                Modifier.padding(top = 22.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp))
-                    .clickable(enabled = !listening, onClick = onVoice).padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    Modifier.size(56.dp).clip(CircleShape).background(if (listening) BrandDanger else p.navSelected),
-                    contentAlignment = Alignment.Center,
-                ) { Icon(R.drawable.ic_mic, if (listening) Color.White else p.textPrimary, 28.dp) }
-                Label(
-                    when {
-                        listening && heard.isNotBlank() -> "“$heard”"
-                        listening -> "듣고 있어요… \"합류\" 또는 \"괜찮아요\"라고 말하세요"
-                        else -> "말로 답하기"
-                    },
-                    26.sp, if (listening) p.textPrimary else p.textSecondary, modifier = Modifier.padding(start = 16.dp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun BigButton(text: String, background: Color, textColor: Color, onClick: () -> Unit, modifier: Modifier) {
-    Box(
-        modifier.height(104.dp).clip(RoundedCornerShape(22.dp)).background(background).clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) { Label(text, 38.sp, textColor, FontWeight.Bold) }
-}
-
 // ---- 오른쪽 카드 ② 내 차 상태 (Pleos Vehicle SDK) — 합류 제안이 없을 때 ----
 
 @Composable
-private fun VehicleCard(p: NaviPalette, vehicle: VehicleStatus) {
+internal fun VehicleCard(p: NaviPalette, vehicle: VehicleStatus) {
     Panel(p, Modifier.fillMaxWidth(), CardShape) {
         Column(Modifier.padding(horizontal = 32.dp, vertical = 30.dp)) {
             val percent = vehicle.energyPercent
@@ -681,7 +584,7 @@ private fun VehicleCard(p: NaviPalette, vehicle: VehicleStatus) {
     }
 }
 
-private fun efficiencyText(v: VehicleStatus): String = if (v.isEv) {
+internal fun efficiencyText(v: VehicleStatus): String = if (v.isEv) {
     v.evEfficiencyKmPerKwh?.let { "전비 %.1fkm/kWh".format(it) } ?: "전비 정보 없음"
 } else {
     v.fuelEconomyLPer100Km?.takeIf { it > 0 }?.let { "연비 %.1fkm/L".format(100f / it) } ?: "연비 정보 없음"
@@ -690,7 +593,7 @@ private fun efficiencyText(v: VehicleStatus): String = if (v.isEv) {
 // ---- 오른쪽 카드 ③ 지금까지 쓴 돈 (위쪽 바 정산 버튼) ----
 
 @Composable
-private fun FareCard(p: NaviPalette, cost: TripCost) {
+internal fun FareCard(p: NaviPalette, cost: TripCost) {
     Panel(p, Modifier.fillMaxWidth(), CardShape) {
         Column(Modifier.padding(horizontal = 32.dp, vertical = 30.dp)) {
             Label("1인 · 지금까지", 24.sp, p.textSecondary)
@@ -711,7 +614,7 @@ private fun FareCard(p: NaviPalette, cost: TripCost) {
 // ---- 오른쪽 아래: 확대 · 축소 · 현재 위치 ----
 
 @Composable
-private fun MapControls(
+internal fun MapControls(
     p: NaviPalette,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
@@ -730,19 +633,14 @@ private fun MapControls(
 
 // ---- 공통 조각 ----
 
+/** 모든 카드·위쪽 바의 바탕. 글래스모피즘 규칙은 [GlassSurface]에 있다. */
 @Composable
-private fun Panel(p: NaviPalette, modifier: Modifier, shape: Shape, content: @Composable () -> Unit) {
-    Box(
-        modifier
-            .shadow(if (p.dark) 24.dp else 18.dp, shape, ambientColor = Color.Black, spotColor = Color.Black)
-            .clip(shape)
-            .background(p.panel)
-            .border(1.dp, p.panelBorder, shape),
-    ) { content() }
+internal fun Panel(p: NaviPalette, modifier: Modifier, shape: Shape, solid: Boolean = false, content: @Composable () -> Unit) {
+    GlassSurface(dark = p.dark, modifier = modifier, shape = shape, solid = solid) { content() }
 }
 
 @Composable
-private fun PrimaryButton(text: String, enabled: Boolean, onClick: () -> Unit, modifier: Modifier) {
+internal fun PrimaryButton(text: String, enabled: Boolean, onClick: () -> Unit, modifier: Modifier) {
     val shape = RoundedCornerShape(14.dp)
     Box(
         modifier.height(72.dp).clip(shape)
@@ -753,7 +651,7 @@ private fun PrimaryButton(text: String, enabled: Boolean, onClick: () -> Unit, m
 }
 
 @Composable
-private fun SecondaryButton(p: NaviPalette, text: String, onClick: () -> Unit, modifier: Modifier) {
+internal fun SecondaryButton(p: NaviPalette, text: String, onClick: () -> Unit, modifier: Modifier) {
     val shape = RoundedCornerShape(14.dp)
     Box(
         modifier.height(72.dp).clip(shape).background(p.secondaryButton).clickable(onClick = onClick),
@@ -762,14 +660,14 @@ private fun SecondaryButton(p: NaviPalette, text: String, onClick: () -> Unit, m
 }
 
 @Composable
-private fun IconTap(p: NaviPalette, iconRes: Int, onClick: () -> Unit) {
+internal fun IconTap(p: NaviPalette, iconRes: Int, onClick: () -> Unit) {
     Box(Modifier.size(80.dp).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         Icon(iconRes, p.textPrimary, 32.dp)
     }
 }
 
 @Composable
-private fun Icon(iconRes: Int, tint: Color, size: Dp) {
+internal fun Icon(iconRes: Int, tint: Color, size: Dp) {
     Image(
         painterResource(iconRes),
         contentDescription = null,
@@ -779,7 +677,7 @@ private fun Icon(iconRes: Int, tint: Color, size: Dp) {
 }
 
 @Composable
-private fun Label(
+internal fun Label(
     text: String,
     size: TextUnit,
     color: Color,
@@ -791,7 +689,10 @@ private fun Label(
         text,
         modifier = modifier,
         maxLines = 1,
-        style = TextStyle(color = color, fontSize = size, fontWeight = weight, letterSpacing = letterSpacing),
+        style = TextStyle(
+            color = color, fontSize = size, fontWeight = weight, letterSpacing = letterSpacing,
+            shadow = LocalTextShadow.current,
+        ),
     )
 }
 
@@ -803,22 +704,34 @@ data class SearchActions(
     val onSubmit: () -> Unit = {},
     val onVoice: () -> Unit = {},
     val onStopVoice: () -> Unit = {},
-    val onSelect: (PlaceResult) -> Unit = {},
 )
 
-/** 목적지 검색: 검색창 + 마이크 + 결과 목록 (왼쪽 카드 자리에 뜬다) */
+/**
+ * 목적지 검색: 검색창 + 마이크 (왼쪽 카드 자리에 뜬다).
+ * 검색은 내장 내비가 한다. 검색어를 넘기면 내비 검색 화면이 열리고, 거기서 고르면 안내가 시작되면서 이 화면으로 돌아온다.
+ */
 @Composable
-private fun SearchPanel(p: NaviPalette, search: SearchUiState, actions: SearchActions, modifier: Modifier) {
+internal fun SearchPanel(
+    p: NaviPalette,
+    search: SearchUiState,
+    actions: SearchActions,
+    modifier: Modifier,
+    /** 주행 중(P단 아님)이면 자판을 띄우지 않고 마이크로만 검색한다 */
+    canType: Boolean = true,
+) {
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    LaunchedEffect(Unit) { if (!search.listening) focus.requestFocus() }
+    LaunchedEffect(canType) {
+        if (canType && !search.listening) focus.requestFocus() else keyboard?.hide()
+    }
 
-    Panel(p, modifier, CardShape) {
+    // 홈·그룹 만들기 카드 위에 겹쳐 뜨므로 불투명하게
+    Panel(p, modifier, CardShape, solid = true) {
         Column(Modifier.padding(horizontal = 28.dp, vertical = 26.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Label("목적지 검색", 24.sp, p.textSecondary, modifier = Modifier.weight(1f))
                 Box(
-                    Modifier.size(56.dp).clip(CircleShape).clickable(onClick = actions.onClose),
+                    Modifier.size(MinTouch).clip(CircleShape).clickable(onClick = actions.onClose),
                     contentAlignment = Alignment.Center,
                 ) { Icon(R.drawable.ic_close, p.textSecondary, 28.dp) }
             }
@@ -838,7 +751,8 @@ private fun SearchPanel(p: NaviPalette, search: SearchUiState, actions: SearchAc
                         value = shown,
                         onValueChange = actions.onQueryChange,
                         singleLine = true,
-                        readOnly = search.listening,
+                        readOnly = search.listening || !canType,
+                        enabled = canType || search.listening,
                         textStyle = TextStyle(color = p.textPrimary, fontSize = 30.sp),
                         cursorBrush = SolidColor(BrandPrimary),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -849,7 +763,12 @@ private fun SearchPanel(p: NaviPalette, search: SearchUiState, actions: SearchAc
                         modifier = Modifier.fillMaxWidth().focusRequester(focus),
                     )
                     if (shown.isEmpty()) {
-                        Label(if (search.listening) "듣고 있어요… 말씀하세요" else "장소·주소를 입력하세요", 30.sp, p.textSecondary)
+                        val hint = when {
+                            search.listening -> "듣고 있어요… 말씀하세요"
+                            !canType -> "주행 중엔 마이크로 말해 주세요"
+                            else -> "장소·주소를 입력하세요"
+                        }
+                        Label(hint, 30.sp, p.textSecondary)
                     }
                 }
                 Box(
@@ -864,43 +783,31 @@ private fun SearchPanel(p: NaviPalette, search: SearchUiState, actions: SearchAc
             }
 
             val error = search.error
-            when {
-                search.searching -> Label("검색 중…", 26.sp, p.textSecondary, modifier = Modifier.padding(top = 22.dp))
+            if (error != null) {
                 // 안내 문구가 길 수 있어 여러 줄로
-                error != null -> Text(
+                Text(
                     error,
                     modifier = Modifier.padding(top = 22.dp),
                     maxLines = 3,
                     style = TextStyle(color = BrandDanger, fontSize = 24.sp),
                 )
-                search.searched && search.results.isEmpty() ->
-                    Label("검색 결과가 없어요", 26.sp, p.textSecondary, modifier = Modifier.padding(top = 22.dp))
+            } else {
+                Text(
+                    "검색하면 내장 내비에서 결과를 골라요. 안내가 시작되면 이 화면으로 돌아와요.",
+                    modifier = Modifier.padding(top = 18.dp),
+                    maxLines = 2,
+                    style = TextStyle(color = p.textSecondary, fontSize = 22.sp),
+                )
             }
-
-            // 결과 (가까운 순)
-            Column(Modifier.padding(top = 12.dp)) {
-                search.results.forEachIndexed { i, place ->
-                    if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(p.divider))
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                            .clickable {
-                                keyboard?.hide()
-                                actions.onSelect(place)
-                            }
-                            .padding(vertical = 16.dp, horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(R.drawable.ic_pin, BrandPrimary, 28.dp)
-                        Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                            Label(place.name, 28.sp, p.textPrimary, FontWeight.Bold)
-                            Label(place.address, 22.sp, p.textSecondary, modifier = Modifier.padding(top = 2.dp))
-                        }
-                        place.distanceMeters?.let {
-                            Label(formatKm(it), 26.sp, p.textPrimary, p.distanceWeight, Modifier.padding(start = 12.dp))
-                        }
-                    }
-                }
-            }
+            PrimaryButton(
+                text = "내비에서 검색",
+                enabled = search.query.isNotBlank() && !search.listening,
+                onClick = {
+                    keyboard?.hide()
+                    actions.onSubmit()
+                },
+                modifier = Modifier.padding(top = 18.dp).fillMaxWidth(),
+            )
         }
     }
 }
@@ -915,16 +822,16 @@ fun resolveDarkTheme(mode: ThemeMode): Boolean = when (mode) {
 
 // ---- 표시 형식 ----
 
-private const val LOW_ENERGY_PERCENT = 15
-private val CLOCK_FORMAT = SimpleDateFormat("HH:mm", Locale.KOREA)
+internal const val LOW_ENERGY_PERCENT = 15
+internal val CLOCK_FORMAT = SimpleDateFormat("HH:mm", Locale.KOREA)
 
-private fun arrivalTime(remainSeconds: Int): String =
+internal fun arrivalTime(remainSeconds: Int): String =
     CLOCK_FORMAT.format(Date(System.currentTimeMillis() + remainSeconds * 1000L))
 
-private fun formatMinutes(seconds: Int): String {
+internal fun formatMinutes(seconds: Int): String {
     val minutes = seconds / 60
     return if (minutes >= 60) "${minutes / 60}시간 ${minutes % 60}분" else "${minutes}분"
 }
 
-private fun formatKm(meters: Int): String =
+internal fun formatKm(meters: Int): String =
     if (meters >= 10_000) "${meters / 1000}km" else if (meters >= 1000) "%.1fkm".format(meters / 1000.0) else "${meters}m"

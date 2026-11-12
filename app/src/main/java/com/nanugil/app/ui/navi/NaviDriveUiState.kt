@@ -1,10 +1,10 @@
 package com.nanugil.app.ui.navi
 
+import com.nanugil.app.data.vehicle.GearState
 import com.nanugil.app.data.fare.TripCost
 import com.nanugil.app.data.group.CarState
 import com.nanugil.app.data.mock.MockGroupDriveData
 import com.nanugil.app.data.navi.NaviState
-import com.nanugil.app.data.search.PlaceResult
 import com.nanugil.app.data.vehicle.VehicleStatus
 
 /**
@@ -27,8 +27,14 @@ data class NaviDriveUiState(
     val cost: TripCost = TripCost(0.0, 0, 0, MockGroupDriveData.SHARE_MEMBERS),
     val themeMode: ThemeMode = ThemeMode.AUTO,
     val search: SearchUiState = SearchUiState(),
+    /** 와이어프레임 v5 화면 흐름 (홈 · 그룹 만들기 · 초대 코드 · 참여 · 주행 · 정산) */
+    val group: GroupUiState = GroupUiState(),
+    /** 내 차 기어. 글자 입력 화면은 P단에서만 연다 */
+    val gear: GearState = GearState.UNKNOWN,
 ) {
     val carsDriving: Int get() = groupCars.size
+    /** 주행 중 글자 입력 금지 (#9 기본 규칙, App Market 심사). 기어를 모를 때도 막는다 */
+    val canType: Boolean get() = gear == GearState.PARK
 }
 
 /** 내 차 연료 부족 → 그룹에 휴게소 정차를 제안할지 묻는 카드 */
@@ -45,10 +51,6 @@ data class RestStopSuggestion(
 data class SearchUiState(
     val open: Boolean = false,
     val query: String = "",
-    val results: List<PlaceResult> = emptyList(),
-    val searching: Boolean = false,
-    /** 한 번이라도 검색했는지 (결과 없음 안내용) */
-    val searched: Boolean = false,
     val error: String? = null,
     val listening: Boolean = false,
     /** 음성 인식 중 실시간 글자 */
