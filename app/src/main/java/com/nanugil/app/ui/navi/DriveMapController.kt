@@ -516,7 +516,7 @@ class DriveMapController(context: Context, private val map: NaverMap) {
 
     private data class LabelKey(val title: String, val sub: String?, val subColor: Int, val dark: Boolean, val gap: Int)
 
-    private fun carLabel(car: CarState) = car.carId.substringAfterLast('-').uppercase() + "차"
+    private fun carLabel(car: CarState) = car.label + "차"
 
     private fun formatDistance(m: Double) = if (m < 1_000) "${m.roundToInt()}m" else "%.1fkm".format(m / 1_000)
 

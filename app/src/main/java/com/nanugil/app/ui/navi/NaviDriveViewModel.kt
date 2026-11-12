@@ -20,9 +20,12 @@ import com.nanugil.app.data.navi.NaviController
 import com.nanugil.app.data.navi.NaviPlace
 import com.nanugil.app.data.navi.NaviState
 import com.nanugil.app.data.route.NaverDirectionsClient
+import com.nanugil.app.data.server.MyCarSnapshot
+import com.nanugil.app.data.server.ServerGroupCars
 import com.nanugil.app.data.voice.VoiceSearch
 import com.nanugil.app.data.vehicle.VehicleGearWatcher
 import com.nanugil.app.data.vehicle.VehicleStatusSource
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +33,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
@@ -47,6 +51,7 @@ import kotlinx.coroutines.launch
  *
  * 화면(Activity)은 이벤트 함수만 부르고, 데이터는 Repository를 통해서만 얻는다.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- 데이터 계층 ----
@@ -84,16 +89,34 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     private val payLink = MutableStateFlow(payLinks.link)
 
     /**
-     * 일행 차 위치. 지금은 B차가 내 실제 내비 경로 위를 앞서 달리는 목업.
-     * TODO(서버): #15 머지 후 SupabaseGroupLocationRepository로 바꾼다 (같은 GroupLocationRepository).
+     * 지금 들어가 있는 서버 그룹 ID. null이면 서버 없이 목업 일행 차를 보여 준다.
+     * 그룹 만들기·코드 참여·운행 시작을 서버에 연결하면(이슈 #18 3번) 그 화면에서 [useServerGroup]으로 넣는다.
      */
-    private val groupRepository: GroupLocationRepository = RouteFollowingGroupRepository(
+    private val serverGroupId = MutableStateFlow<String?>(null)
+    /** 서버 그룹이 없을 때: B차가 내 실제 내비 경로 위를 앞서 달리는 목업 */
+    private val mockGroup: GroupLocationRepository = RouteFollowingGroupRepository(
         myPosition = { navi.state.value.currentPosition },
         route = { _routePath.value },
         guiding = { navi.state.value.guiding },
     )
-    private val groupCars: StateFlow<List<CarState>> = groupRepository.observeGroup(GROUP_ID)
+    /** 서버 그룹이 있을 때: 진행 중 운행의 차들을 받고, 내 차 상태를 1초마다 보낸다 (전송은 주행 3초·정차 30초) */
+    private val serverGroup = ServerGroupCars()
+    /** 일행 차 (나 포함, isMe) */
+    private val groupCars: StateFlow<List<CarState>> = serverGroupId
+        .flatMapLatest { id -> if (id == null) mockGroup.observeGroup(GROUP_ID) else serverGroup.cars(id, ::myCarSnapshot) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** 서버로 보낼 내 차 상태. 내장 내비가 아직 위치를 모르면 null (보내지 않는다) */
+    private fun myCarSnapshot(): MyCarSnapshot? {
+        val n = navi.state.value
+        val position = n.currentPosition ?: return null
+        return MyCarSnapshot(
+            position = position,
+            etaMinutes = if (n.guiding) (n.remainTimeSeconds ?: 0) / 60 else 0,
+            // 연료를 못 읽으면 100으로 보낸다 (0이면 다른 차 화면에 연료 부족 합류 제안이 잘못 뜬다)
+            fuelPercent = vehicleStatus.status.value.energyPercent ?: 100,
+        )
+    }
 
     /** 화면 전체 상태. 어느 값 하나만 바뀌어도 새 스냅샷이 나온다. */
     private val baseState = combine(
@@ -349,6 +372,11 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     /** 09에서 송금 한 줄을 누르면 받음 체크를 바꾼다 */
     fun togglePaid(index: Int) = settlement.togglePaid(index)
 
+    /** 서버 그룹에 들어가면 그 ID를, 나가면 null(목업으로 돌아감)을 넣는다. 일행 차를 서버에서 받기 시작한다. */
+    fun useServerGroup(groupId: String?) {
+        serverGroupId.value = groupId
+    }
+
     /** 09 [홈으로]. 모두 받았으면 이번 정산을 끝내고 다음 운행을 준비한다. */
     fun goHome() {
         if (settlement.state.value.request?.isComplete == true) settlement.finish()
@@ -489,7 +517,7 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         if (MockGroupDriveData.MEETUP_NAME in navi.waypointNames) return null
         val car = cars.firstOrNull { it.isLowFuel && !it.isMe } ?: return null
         return MeetupProposal(
-            carLabel = car.carId.substringAfterLast('-').uppercase() + "차",
+            carLabel = car.label + "차",
             driverName = car.driverName,
             placeName = MockGroupDriveData.MEETUP_NAME,
             distanceMeters = navi.currentPosition?.distanceTo(MockGroupDriveData.MEETUP_POSITION)?.toInt(),
