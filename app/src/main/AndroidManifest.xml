@@ -14,7 +14,26 @@
     <uses-permission android:name="android.car.permission.CAR_INFO" />
     <uses-permission android:name="pleos.car.permission.CAR_DRIVE" />
     <uses-permission android:name="pleos.car.permission.CAR_SAFETY" />
+    <!-- NAVI_ROUTE: 목적지·경유지·위치 조회 / NAVI_ROUTE_SEARCH: 경로 요청·경유지 추가·재탐색 (내장 내비, ADR-001) -->
+    <uses-permission android:name="pleos.car.permission.NAVI_ROUTE" />
+    <uses-permission android:name="pleos.car.permission.NAVI_ROUTE_SEARCH" />
+    <!-- NAVI_CUSTOM_MAP: 앱에서 내장 내비의 장소 검색·안내 화면을 연다 -->
+    <uses-permission android:name="pleos.car.permission.NAVI_CUSTOM_MAP" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 내 차 위치는 내장 내비(NAVI_ROUTE, getCurrentLocationInfo)에서 받으므로 위치 권한은 쓰지 않는다 -->
+    <!-- 내비 검색 화면에서 목적지를 고르는 동안(최대 3분) 앱이 얼지 않게 하는 짧은 포그라운드 서비스 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- 목적지 음성 검색 (마이크). dangerous 권한이라 App Market 심사 때 사용 사유 필요 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Android 11+ 패키지 가시성: 내장 내비 앱을 실행하려면 선언해야 한다 -->
+    <queries>
+        <package android:name="ai.umos.maps.android.navigation.app" />
+        <!-- 음성 인식 엔진(SpeechRecognizer)을 찾으려면 선언해야 한다 -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
 
     <!-- 네이버 지도 인증 키는 NanugilApplication에서 코드로 설정한다 (매니페스트 meta-data 불필요). -->
     <application
@@ -27,14 +46,26 @@
         <uses-library
             android:name="android.car"
             android:required="false" />
+        <!-- 그룹 지도·정산 화면. 주행 화면의 차량 버튼으로 들어온다 (런처 아이콘 없음). -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="false">
+            <!-- 지도는 주행 중에도 보는 화면이라 주행 중 사용 제한(UX Restrictions)에서 뺀다 -->
+            <meta-data
+                android:name="distractionOptimized"
+                android:value="true" />
+        </activity>
+
+        <!-- 앱 진입점(런처 아이콘은 이것 하나). TMAP식 주행 화면, 일반 Activity라 지도 끌기·확대·회전이 된다. -->
+        <activity
+            android:name=".ui.navi.NaviDriveActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- 그룹 드라이브 지도: 주행 중에도 띄울 수 있는 화면 (AAOS 주행 중 사용 제한 대상 아님) -->
+            <!-- 주행 중에도 띄울 수 있는 화면 (AAOS 주행 중 사용 제한 대상 아님) -->
             <meta-data
                 android:name="distractionOptimized"
                 android:value="true" />
@@ -49,6 +80,10 @@
         <activity
             android:name=".ui.settlement.PayLinkSetupActivity"
             android:exported="false" />
+        <service
+            android:name=".data.navi.NaviWaitService"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
     </application>
 
 </manifest>
