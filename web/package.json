@@ -13,6 +13,7 @@
     "seed": "tsx --env-file=.env.local scripts/seed-demo.ts"
   },
   "dependencies": {
+    "@emotion/cache": "^11.14.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@gsap/react": "^2.1.2",
