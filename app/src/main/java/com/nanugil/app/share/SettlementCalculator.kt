@@ -14,16 +14,26 @@ package com.nanugil.app.share
  * @property refueledMl 운행 중 주유한 양의 합계(mL). 주유하지 않았으면 0.
  * @property endFuelMl 도착 시 연료량(mL).
  * @property fuelPriceWonPerLiter 적용 유가(원/L). 오피넷에서 고른 근처 또는 최저가 유가.
+ * @property startBatteryWh 출발 시 배터리 잔량(Wh). 전기차·하이브리드만. Pleos `getEvBatteryLevel` 단위.
+ * @property chargedWh 운행 중 충전한 양의 합계(Wh). 충전하지 않았으면 0.
+ * @property endBatteryWh 도착 시 배터리 잔량(Wh).
+ * @property electricityWonPerMwh 충전 단가(원/MWh = 원/kWh × 1000). 공식 공공 충전요금이 325.6원/kWh처럼 소수라서 1000배로 받는다.
  * @property tollWon 통행료(원). `tollFare` 예상액이나 운전자가 수정한 값.
+ *
+ * 연료차는 배터리 값을, 전기차는 연료 값을 0으로 둔다. 하이브리드는 둘 다 넣는다.
  */
 data class VehicleTrip(
     val vehicleId: String,
     val driverId: String,
     val passengerIds: List<String> = emptyList(),
-    val startFuelMl: Long,
+    val startFuelMl: Long = 0,
     val refueledMl: Long = 0,
-    val endFuelMl: Long,
-    val fuelPriceWonPerLiter: Long,
+    val endFuelMl: Long = 0,
+    val fuelPriceWonPerLiter: Long = 0,
+    val startBatteryWh: Long = 0,
+    val chargedWh: Long = 0,
+    val endBatteryWh: Long = 0,
+    val electricityWonPerMwh: Long = 0,
     val tollWon: Long = 0,
 )
 
@@ -96,11 +106,33 @@ object SettlementCalculator {
         return Math.addExact(milliWon, ML_PER_LITER / 2) / ML_PER_LITER
     }
 
-    /** 차량 비용(원) = 주유비 추정 + 통행료. */
+    /**
+     * 이번 운행에 쓴 전력량(Wh) = 출발 배터리 + 충전량 − 도착 배터리.
+     *
+     * @throws IllegalArgumentException 값이 음수이거나 결과가 음수일 때(충전량 누락이나 센서 오류 의심).
+     */
+    fun usedEnergyWh(startBatteryWh: Long, chargedWh: Long, endBatteryWh: Long): Long {
+        require(startBatteryWh >= 0) { "출발 배터리는 0 이상이어야 합니다: $startBatteryWh" }
+        require(chargedWh >= 0) { "충전량은 0 이상이어야 합니다: $chargedWh" }
+        require(endBatteryWh >= 0) { "도착 배터리는 0 이상이어야 합니다: $endBatteryWh" }
+        val used = Math.addExact(startBatteryWh, chargedWh) - endBatteryWh
+        require(used >= 0) {
+            "사용 전력이 음수입니다(출발 $startBatteryWh + 충전 $chargedWh < 도착 $endBatteryWh Wh). 충전량 누락이나 센서 오류를 확인하세요."
+        }
+        return used
+    }
+
+    /**
+     * 차량 비용(원) = 주유비 추정 + 충전비 추정 + 통행료.
+     * 충전비 = 사용 전력(Wh) × 단가(원/MWh) ÷ 1,000,000, 원 단위 반올림.
+     */
     fun vehicleCostWon(trip: VehicleTrip): Long {
         require(trip.tollWon >= 0) { "통행료는 0 이상이어야 합니다: ${trip.vehicleId}" }
-        val used = usedFuelMl(trip.startFuelMl, trip.refueledMl, trip.endFuelMl)
-        return Math.addExact(fuelCostWon(used, trip.fuelPriceWonPerLiter), trip.tollWon)
+        val fuel = fuelCostWon(usedFuelMl(trip.startFuelMl, trip.refueledMl, trip.endFuelMl), trip.fuelPriceWonPerLiter)
+        require(trip.electricityWonPerMwh >= 0) { "충전 단가는 0 이상이어야 합니다: ${trip.vehicleId}" }
+        val usedWh = usedEnergyWh(trip.startBatteryWh, trip.chargedWh, trip.endBatteryWh)
+        val electricity = Math.addExact(Math.multiplyExact(usedWh, trip.electricityWonPerMwh), 500_000) / 1_000_000
+        return Math.addExact(Math.addExact(fuel, electricity), trip.tollWon)
     }
 
     /**
@@ -109,10 +141,9 @@ object SettlementCalculator {
      * 1. 차량별 비용을 구해 운전자가 낸 돈으로 본다.
      * 2. 1인 부담액 = 전체 비용 ÷ 전체 인원을 [roundingUnitWon] 단위로 내림한다.
      *    내림으로 남은 금액은 받을 사람들이 나눠서 덜 받는다. 원 단위 처리 정책은 팀에서 아직 정하지 않아 단위만 바꿀 수 있게 했다.
-     * 3. 같은 차 동승자는 그 차 운전자가 받을 돈이 남아 있는 만큼 먼저 그 운전자에게 보낸다.
-     *    운전자가 오히려 보낼 사람이면 동승자를 운전자에게 거쳐 보내게 하지 않는다(운전자가 남의 돈을 대신 전달하지 않도록).
-     *    남은 잔액은 금액이 큰 사람끼리 먼저 짝지어 보낸다.
-     *    비용을 적게 낸 운전자도 부담액보다 덜 냈으면 다른 운전자에게 보낸다.
+     * 3. 동승자는 모두 똑같이 1인 부담액 전액을 자기 차 운전자에게 보낸다. 동승자가 보낼 상대는 항상 한 명이다.
+     *    그다음 운전자끼리 남은 잔액을 금액이 큰 사람끼리 먼저 짝지어 정산한다.
+     *    그래서 운전자가 다른 차 몫까지 받아 넘겨주는 경우가 생긴다.
      *
      * @param trips 그룹의 차량 기록. 비어 있으면 안 되고, 한 사람이 두 차에 들어가면 안 된다.
      * @param roundingUnitWon 1인 부담액의 단위(원). 1이면 원 단위, 10이면 10원 단위로 내림한다.
@@ -186,18 +217,17 @@ object SettlementCalculator {
         val remaining = LinkedHashMap(balances)
         val transfers = mutableListOf<Transfer>()
 
-        fun pay(from: String, to: String) {
-            val amount = minOf(-remaining.getValue(from), remaining.getValue(to))
+        fun pay(from: String, to: String, amount: Long = minOf(-remaining.getValue(from), remaining.getValue(to))) {
             if (amount <= 0) return
             transfers += Transfer(from, to, amount)
             remaining[from] = remaining.getValue(from) + amount
             remaining[to] = remaining.getValue(to) - amount
         }
 
-        // 1차: 같은 차 동승자 → 그 차 운전자 (운전자가 받을 돈이 있는 만큼만)
-        trips.forEach { trip -> trip.passengerIds.forEach { pay(it, trip.driverId) } }
+        // 1차: 동승자 → 자기 차 운전자, 부담액 전액. 나머지는 받을 사람(운전자)만 흡수하므로 동승자 잔액은 늘 −부담액이다
+        trips.forEach { trip -> trip.passengerIds.forEach { pay(it, trip.driverId, -remaining.getValue(it)) } }
 
-        // 2차: 남은 잔액이 큰 사람끼리 먼저 짝지어 한 사람이 여러 번 나눠 보내는 일을 줄인다(동점이면 입력 순서)
+        // 2차: 운전자끼리. 잔액이 큰 사람끼리 먼저 짝지어 한 사람이 여러 번 나눠 보내는 일을 줄인다(동점이면 입력 순서)
         val debtors = remaining.filterValues { it < 0 }.entries.sortedBy { it.value }.map { it.key }
         val creditors = remaining.filterValues { it > 0 }.entries.sortedByDescending { it.value }.map { it.key }
         for (debtor in debtors) {

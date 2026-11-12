@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -18,6 +19,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.nanugil.app.data.pay.PayLinkStore
+import com.nanugil.app.ui.settlement.PayLinkSetupActivity
+import com.nanugil.app.ui.settlement.SettlementActivity
 import com.nanugil.app.MainActivity
 import com.nanugil.app.data.vehicle.GearState
 import com.nanugil.app.ui.map.MapViewLifecycleBinder
@@ -37,8 +41,7 @@ import kotlinx.coroutines.launch
  *
  * 라이트/다크 전환 등으로 Activity가 다시 만들어져도 ViewModel이 살아 있어 길안내가 끊기지 않는다.
  *
- * TODO(정산): 이 화면이 시작 화면이 되면서 기존 [MainActivity](#10 정산하기 버튼·정산 입력 화면)로 가는 길이 없어졌다.
- *  #14(SettlementActivity, P단 게이트)와 08 도착 화면을 어떻게 합칠지 정산 담당과 정하기 전까지 MainActivity는 지우지 않는다.
+ * 정산: 08 도착·09 정산 요청 보냄은 이 화면이 그리고, 값 수정은 [SettlementActivity](P단 전용)에서 한다.
  */
 class NaviDriveActivity : ComponentActivity() {
 
@@ -106,11 +109,14 @@ class NaviDriveActivity : ComponentActivity() {
             onTogglePassenger = viewModel::togglePassenger,
             onDepart = viewModel::departJoin,
             onPriceBasis = viewModel::setPriceBasis,
-            onEditToll = {
-                // TODO(정산): 통행료 직접 수정 화면 (정산 담당)
-                Toast.makeText(this, "통행료 수정은 정산 화면에서 이어서 만들어요", Toast.LENGTH_SHORT).show()
+            // 값 수정은 글자를 넣는 화면이라 P단 전용 Activity로 연다(주행 중이면 그 화면이 스스로 닫힌다).
+            onEditToll = { startActivity(SettlementActivity.intent(this)) },
+            onRequestSettlement = {
+                viewModel.requestSettlement()
+                if (PayLinkStore(this).link == null) startActivity(PayLinkSetupActivity.intent(this))
             },
-            onRequestSettlement = viewModel::requestSettlement,
+            onTogglePaid = viewModel::togglePaid,
+            onEditPayLink = { startActivity(PayLinkSetupActivity.intent(this)) },
             onGoHome = viewModel::goHome,
         )
     }
@@ -159,15 +165,13 @@ class NaviDriveActivity : ComponentActivity() {
                 onZoomOut = { drive?.zoomBy(-1.0) },
                 onRecenter = { drive?.recenter() },
                 carGlow = following && ui.navi.guiding,
-                themeMode = ui.themeMode,
-                onThemeModeChange = viewModel::setThemeMode,
                 search = ui.search,
                 searchActions = searchActions,
                 canType = ui.canType,
                 gearUnknown = ui.gear == GearState.UNKNOWN,
             )
-            // 지도도 화면 테마에 맞춰 낮/밤으로
-            val dark = resolveDarkTheme(ui.themeMode)
+            // 지도도 차량 주간·야간 모드에 맞춰 낮/밤으로
+            val dark = isSystemInDarkTheme()
             LaunchedEffect(dark, drive) { drive?.setDarkTheme(dark) }
         }
 

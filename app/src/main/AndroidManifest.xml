@@ -8,8 +8,10 @@
     <!--
       Pleos App Market 심사: 승인되지 않은 권한을 선언하면 탈락하므로 실제로 쓰는 것만 선언한다.
       CAR_ENERGY: 연료 잔량·연비·EV 배터리 / CAR_DRIVE: 주행거리·트립 / CAR_SAFETY: 경고등
+      android CAR_INFO (normal): 탱크 용량 INFO_FUEL_CAPACITY. Pleos SDK에 없어 AAOS 속성으로 읽는다.
     -->
     <uses-permission android:name="pleos.car.permission.CAR_ENERGY" />
+    <uses-permission android:name="android.car.permission.CAR_INFO" />
     <uses-permission android:name="pleos.car.permission.CAR_DRIVE" />
     <uses-permission android:name="pleos.car.permission.CAR_SAFETY" />
     <!-- NAVI_ROUTE: 목적지·경유지·위치 조회 / NAVI_ROUTE_SEARCH: 경로 요청·경유지 추가·재탐색 (내장 내비, ADR-001) -->
@@ -41,6 +43,9 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Nanugil">
+        <uses-library
+            android:name="android.car"
+            android:required="false" />
         <!-- 그룹 지도·정산 화면. 주행 화면의 차량 버튼으로 들어온다 (런처 아이콘 없음). -->
         <activity
             android:name=".MainActivity"
@@ -66,6 +71,15 @@
                 android:value="true" />
         </activity>
 
+        <!-- 정산 입력: 글자 입력 화면이라 distractionOptimized를 붙이지 않는다. 주행 중에는 시스템이 가린다. -->
+        <activity
+            android:name=".ui.settlement.SettlementActivity"
+            android:exported="false" />
+
+        <!-- 송금 링크 등록: 글자 입력 화면이라 distractionOptimized를 붙이지 않는다. -->
+        <activity
+            android:name=".ui.settlement.PayLinkSetupActivity"
+            android:exported="false" />
         <service
             android:name=".data.navi.NaviWaitService"
             android:exported="false"

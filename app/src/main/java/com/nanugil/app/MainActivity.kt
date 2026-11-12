@@ -3,23 +3,21 @@ package com.nanugil.app
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
@@ -30,9 +28,16 @@ import com.nanugil.app.data.mock.MockGroupDriveData
 import com.nanugil.app.data.navi.NaviController
 import com.nanugil.app.data.navi.NaviPlace
 import com.nanugil.app.data.route.NaverDirectionsClient
+import com.nanugil.app.data.vehicle.settlementBlockReason
 import com.nanugil.app.ui.drive.GroupDriveScreen
-import com.nanugil.app.ui.settlement.SettlementScreen
+import com.nanugil.app.data.pay.PayLinkStore
+import com.nanugil.app.ui.settlement.PayLinkSetupActivity
+import com.nanugil.app.ui.settlement.SettlementActivity
 
+/**
+ * 그룹 드라이브 지도. 주행 중에 보는 화면이라 매니페스트에 `distractionOptimized`를 붙인다 (#11 NaviDriveActivity와 같은 방식).
+ * 글자를 입력하는 정산은 주행 중 사용 표시가 없는 [SettlementActivity]로 따로 연다.
+ */
 class MainActivity : ComponentActivity() {
 
     // 서버가 정해지기 전까지는 가짜 그룹 데이터로 화면을 돌린다.
@@ -43,47 +48,44 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 처음 켰을 때 한 번 운전자 송금 링크를 묻는다. 건너뛰면 정산 요청할 때 다시 묻는다.
+        if (savedInstanceState == null && !PayLinkStore(this).asked) startActivity(PayLinkSetupActivity.intent(this))
         naviController = NaviController(this).also { it.connect() }
+        val gearWatcher = nanugilApp.gearWatcher
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    // 화면이 두 개뿐이라 상태 하나로 전환. 화면이 늘면 Navigation Compose로 바꾼다.
-                    var showSettlement by rememberSaveable { mutableStateOf(false) }
-                    BackHandler(enabled = showSettlement) { showSettlement = false }
-
-                    if (showSettlement) {
-                        SettlementScreen(onBack = { showSettlement = false })
-                    } else {
-                        val naviState by naviController.state.collectAsState()
-                        Box(Modifier.fillMaxSize()) {
-                            GroupDriveScreen(
-                                groupRepository = groupRepository,
-                                opinetClient = opinetClient,
-                                directionsClient = directionsClient,
-                                naviState = naviState,
-                                onStartRoute = {
-                                    naviController.startRoute(
-                                        NaviPlace(name = GROUP_DESTINATION_NAME, position = MockGroupDriveData.DESTINATION),
-                                    )
-                                },
-                                onCancelRoute = naviController::cancelRoute,
-                                onSearchPlace = naviController::searchPlace,
-                                onOpenNavi = naviController::openNaviScreen,
-                                onPickDestination = { point ->
-                                    naviController.startRoute(NaviPlace(name = "지도에서 선택한 곳", position = point))
-                                },
-                                onProposeMeetup = { station ->
-                                    // TODO(서버): 합류 이벤트를 그룹 전체에 푸시 → 각 차량이 같은 addMeetupStop을 실행
-                                    naviController.addMeetupStop(NaviPlace(name = station.name, position = station.position))
-                                    Toast.makeText(this@MainActivity, "${station.name} 내비 경유지로 추가", Toast.LENGTH_SHORT).show()
-                                },
-                            )
-                            // TODO: 주행 중 텍스트 입력 금지. 정차 중(P단) 또는 운행 종료 후에만 정산 화면을 연다.
-                            ExtendedFloatingActionButton(
-                                onClick = { showSettlement = true },
-                                modifier = Modifier.align(Alignment.TopStart).padding(24.dp),
-                            ) { Text("정산하기") }
-                        }
+                    val naviState by naviController.state.collectAsState()
+                    val gear by gearWatcher.gear.collectAsState()
+                    Box(Modifier.fillMaxSize()) {
+                        GroupDriveScreen(
+                            groupRepository = groupRepository,
+                            opinetClient = opinetClient,
+                            directionsClient = directionsClient,
+                            naviState = naviState,
+                            onStartRoute = {
+                                naviController.startRoute(
+                                    NaviPlace(name = GROUP_DESTINATION_NAME, position = MockGroupDriveData.DESTINATION),
+                                )
+                            },
+                            onCancelRoute = naviController::cancelRoute,
+                            onSearchPlace = naviController::searchPlace,
+                            onOpenNavi = naviController::openNaviScreen,
+                            onPickDestination = { point ->
+                                naviController.startRoute(NaviPlace(name = "지도에서 선택한 곳", position = point))
+                            },
+                            onProposeMeetup = { station ->
+                                // TODO(서버): 합류 이벤트를 그룹 전체에 푸시 → 각 차량이 같은 addMeetupStop을 실행
+                                naviController.addMeetupStop(NaviPlace(name = station.name, position = station.position))
+                                Toast.makeText(this@MainActivity, "${station.name} 내비 경유지로 추가", Toast.LENGTH_SHORT).show()
+                            },
+                        )
+                        // 주행 중 텍스트 입력 금지: P단에서만 연다. TODO: 운행 종료(서버의 trip 상태)도 열어 주는 조건에 넣기
+                        SettlementEntryButton(
+                            blockReason = settlementBlockReason(gear),
+                            onClick = { startActivity(SettlementActivity.intent(this@MainActivity)) },
+                            modifier = Modifier.align(Alignment.TopStart).padding(24.dp),
+                        )
                     }
                 }
             }
@@ -104,6 +106,23 @@ class MainActivity : ComponentActivity() {
     private companion object {
         /** 서버가 붙기 전까지 쓰는 그룹 목적지 이름 (좌표는 MockGroupDriveData.DESTINATION) */
         const val GROUP_DESTINATION_NAME = "가평 펜션"
+    }
+}
+
+/** 지도 위 '정산하기' 버튼. [blockReason]이 있으면 누를 수 없고, 그 이유를 버튼 아래에 보여 준다. */
+@Composable
+private fun SettlementEntryButton(blockReason: String?, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Button(onClick = onClick, enabled = blockReason == null) { Text("정산하기") }
+        if (blockReason != null) {
+            Text(
+                blockReason,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            )
+        }
     }
 }
 
