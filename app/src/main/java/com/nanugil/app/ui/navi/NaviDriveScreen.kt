@@ -1,8 +1,7 @@
 package com.nanugil.app.ui.navi
 
-import android.content.Context
-import android.content.res.Configuration
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -75,19 +74,6 @@ data class MeetupProposal(
     val distanceMeters: Int?,
     val fuelPercent: Int,
 )
-
-/**
- * 화면 테마. 위쪽 바 버튼으로 라이트 ↔ 다크를 바꾼다.
- * "자동(차량 설정 따르기)"은 뺐다: 앱은 차량 화면 테마를 바꿀 수 없어서(시스템 권한 필요) 자동은 둘 중 하나와 똑같아 보였다.
- * 처음 켤 때는 차량 화면 설정(시스템 다크 모드)으로 시작한다.
- */
-enum class ThemeMode(val label: String) {
-    LIGHT("라이트"),
-    DARK("다크"),
-    ;
-
-    fun next(): ThemeMode = if (this == LIGHT) DARK else LIGHT
-}
 
 // ---- 브랜드 색 (Figma "로고·브랜드 보드") ----
 internal val BrandPrimary = Color(0xFF1E5EFF)
@@ -184,8 +170,6 @@ fun NaviDriveScreen(
     onRecenter: () -> Unit,
     /** 내 차를 따라가는 중이면 차 아래에 파란 빛을 깐다 (시안의 도로 위 블루 글로우) */
     carGlow: Boolean = false,
-    themeMode: ThemeMode = ThemeMode.LIGHT,
-    onThemeModeChange: (ThemeMode) -> Unit = {},
     search: SearchUiState = SearchUiState(),
     searchActions: SearchActions = SearchActions(),
     suggestion: RestStopSuggestion? = null,
@@ -200,8 +184,7 @@ fun NaviDriveScreen(
     /** 기어를 아직 모르면 true (막는 안내 문구만 다르다) */
     gearUnknown: Boolean = false,
 ) {
-    val darkTheme = resolveDarkTheme(themeMode)
-    val p = if (darkTheme) DarkPalette else LightPalette
+    val p = vehiclePalette()
     val screen = group.screen
 
     Box(Modifier.fillMaxSize().background(p.background)) {
@@ -307,11 +290,9 @@ fun NaviDriveScreen(
             showBack = screen in setOf(AppScreen.CREATE_GROUP, AppScreen.LOBBY, AppScreen.JOIN_CODE, AppScreen.JOIN_SETUP),
             tab = screen.tab,
             chip = chip,
-            themeMode = themeMode,
             onBack = groupActions.onBack,
             onTab = groupActions.onTab,
             onSearch = searchActions.onOpen,
-            onTheme = { onThemeModeChange(themeMode.next()) },
             onEndTrip = onStopRoute,
             modifier = Modifier.align(Alignment.TopCenter).padding(start = OuterPad, end = OuterPad, top = 28.dp).fillMaxWidth(),
         )
@@ -815,21 +796,13 @@ internal fun SearchPanel(
     }
 }
 
-/** 테마 선택을 실제 다크 여부로 바꾼다. */
-fun resolveDarkTheme(mode: ThemeMode): Boolean = mode == ThemeMode.DARK
-
 /**
- * 위쪽 바에서 고른 테마. 정산 값 수정처럼 다른 Activity도 같은 테마로 그리려고 꺼내 둔다.
- * 저장값이 없거나 예전 "AUTO"면 차량 화면 설정(시스템 다크 모드)으로 시작한다.
+ * 화면 테마는 차량(시스템) 주간·야간 모드를 그대로 따른다. 앱 안에 따로 바꾸는 버튼을 두지 않는다.
+ * 앱은 차량 화면 테마를 바꿀 수 없어서(MODIFY_DAY_NIGHT_MODE는 시스템 앱 전용) 버튼을 두면 앱만 바뀌어 차량 화면과 어긋났다.
+ * 실제 차는 조도 센서·전조등으로 야간 모드를 바꾸고, 그러면 이 값도 바로 바뀐다.
  */
-fun savedThemeMode(context: Context): ThemeMode {
-    val saved = context.getSharedPreferences("navi_ui", Context.MODE_PRIVATE).getString("theme_mode", null)
-    val systemDark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-    return ThemeMode.entries.firstOrNull { it.name == saved } ?: if (systemDark) ThemeMode.DARK else ThemeMode.LIGHT
-}
-
-/** [savedThemeMode]에 맞는 #13 색 묶음 */
-internal fun savedPalette(context: Context): NaviPalette = if (resolveDarkTheme(savedThemeMode(context))) DarkPalette else LightPalette
+@Composable
+internal fun vehiclePalette(): NaviPalette = if (isSystemInDarkTheme()) DarkPalette else LightPalette
 
 // ---- 표시 형식 ----
 

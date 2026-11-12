@@ -104,11 +104,9 @@ internal fun AppTopBar(
     showBack: Boolean,
     tab: NaviTab,
     chip: TopChip,
-    themeMode: ThemeMode,
     onBack: () -> Unit,
     onTab: (NaviTab) -> Unit,
     onSearch: () -> Unit,
-    onTheme: () -> Unit,
     onEndTrip: () -> Unit,
     modifier: Modifier,
 ) {
@@ -160,11 +158,6 @@ internal fun AppTopBar(
             // 오른쪽: 검색 · 테마 · 상태 칩
             Row(Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {
                 SmallIconButton(p, R.drawable.ic_search, onSearch)
-                SmallIconButton(
-                    p,
-                    if (themeMode == ThemeMode.DARK) R.drawable.ic_theme_dark else R.drawable.ic_theme_light,
-                    onTheme,
-                )
                 StatusChip(p, chip, onEndTrip)
             }
         }

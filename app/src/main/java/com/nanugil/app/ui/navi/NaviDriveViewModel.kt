@@ -3,7 +3,6 @@ package com.nanugil.app.ui.navi
 import ai.pleos.playground.vehicle.Vehicle
 import android.app.Application
 import android.content.Context
-import android.content.res.Configuration
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nanugil.app.BuildConfig
@@ -69,7 +68,6 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     private val _routePath = MutableStateFlow<List<Wgs84Point>>(emptyList())
     /** 지도에 그릴 경로선 (현재 위치 → 경유지 → 목적지) */
     val routePath: StateFlow<List<Wgs84Point>> = _routePath.asStateFlow()
-    private val prefs = app.getSharedPreferences(PREFS_UI, Context.MODE_PRIVATE)
     private val voice = VoiceSearch(app)
     private val search = MutableStateFlow(SearchUiState())
 
@@ -86,7 +84,6 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     private val settlement = (app as NanugilApplication).settlement
     private val payLinks = PayLinkStore(app)
     private val payLink = MutableStateFlow(payLinks.link)
-    private val themeMode = MutableStateFlow(loadThemeMode())
 
     private val groupCars: StateFlow<List<CarState>> = groupRepository.observeGroup(GROUP_ID)
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -97,15 +94,13 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         vehicleStatus.status,
         groupCars,
         meetupHandled,
-        themeMode,
-    ) { navi, vehicle, cars, handled, theme ->
+    ) { navi, vehicle, cars, handled ->
         NaviDriveUiState(
             navi = navi,
             vehicle = vehicle,
             groupCars = cars,
             proposal = meetupProposal(navi, cars, handled),
             cost = tripCost.update(navi, vehicle),
-            themeMode = theme,
         )
     }
 
@@ -121,7 +116,7 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
                 answerListening = answer && v.listening,
                 answerHeard = if (answer) v.partial else "",
             )
-        }.stateIn(viewModelScope, SharingStarted.Eagerly, NaviDriveUiState(themeMode = themeMode.value))
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, NaviDriveUiState())
 
     init {
         navi.connect()
@@ -471,10 +466,6 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
 
     fun stopVoiceSearch() = voice.stop()
 
-    fun setThemeMode(mode: ThemeMode) {
-        themeMode.value = mode
-        prefs.edit().putString(KEY_THEME, mode.name).apply()
-    }
 
     override fun onCleared() {
         vehicleStatus.stop()
@@ -517,12 +508,9 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
 
     private enum class RestStopPhase { NONE, SENT, HANDLED }
 
-    private fun loadThemeMode(): ThemeMode = savedThemeMode(getApplication())
 
     private companion object {
         const val GROUP_ID = "demo"
-        const val PREFS_UI = "navi_ui"
-        const val KEY_THEME = "theme_mode"
         /** 위치 한 번 사이(≈1초) 이보다 멀리 움직이면 위치 점프로 본다 (≈ 360km/h) */
         const val MAX_STEP_M = 100.0
         const val LIVE_INFO_INTERVAL_MS = 1_000L

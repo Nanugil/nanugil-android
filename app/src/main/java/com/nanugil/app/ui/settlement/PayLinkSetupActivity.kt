@@ -40,7 +40,7 @@ import com.nanugil.app.ui.navi.Label
 import com.nanugil.app.ui.navi.Panel
 import com.nanugil.app.ui.navi.PrimaryButton
 import com.nanugil.app.ui.navi.SecondaryButton
-import com.nanugil.app.ui.navi.savedPalette
+import com.nanugil.app.ui.navi.vehiclePalette
 
 /**
  * 운전자 카카오페이 송금 링크 등록. 앱을 처음 켤 때 한 번 띄우고, 09 정산 요청 화면에서도 열 수 있다.
@@ -52,9 +52,9 @@ class PayLinkSetupActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val store = PayLinkStore(this)
         val gearWatcher = nanugilApp.gearWatcher
-        // #13 위쪽 바에서 고른 라이트·다크를 그대로 쓴다
-        val p = savedPalette(this)
         setContent {
+            // 차량 주간·야간 모드를 따른다 (#13 화면과 같다)
+            val p = vehiclePalette()
             val gear by gearWatcher.gear.collectAsState()
             var text by remember { mutableStateOf(store.link.orEmpty()) }
             var error by remember { mutableStateOf<String?>(null) }

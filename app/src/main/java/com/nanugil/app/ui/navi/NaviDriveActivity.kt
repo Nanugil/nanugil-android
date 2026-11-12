@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -164,15 +165,13 @@ class NaviDriveActivity : ComponentActivity() {
                 onZoomOut = { drive?.zoomBy(-1.0) },
                 onRecenter = { drive?.recenter() },
                 carGlow = following && ui.navi.guiding,
-                themeMode = ui.themeMode,
-                onThemeModeChange = viewModel::setThemeMode,
                 search = ui.search,
                 searchActions = searchActions,
                 canType = ui.canType,
                 gearUnknown = ui.gear == GearState.UNKNOWN,
             )
-            // 지도도 화면 테마에 맞춰 낮/밤으로
-            val dark = resolveDarkTheme(ui.themeMode)
+            // 지도도 차량 주간·야간 모드에 맞춰 낮/밤으로
+            val dark = isSystemInDarkTheme()
             LaunchedEffect(dark, drive) { drive?.setDarkTheme(dark) }
         }
 
