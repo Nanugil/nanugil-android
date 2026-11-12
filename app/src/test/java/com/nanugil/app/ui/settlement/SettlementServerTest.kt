@@ -1,0 +1,68 @@
+package com.nanugil.app.ui.settlement
+
+import com.nanugil.app.data.server.TripMember
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+class SettlementServerTest {
+
+    private fun driver(id: String, fuel: String, vararg cost: Pair<String, Long>) = cost.toMap().let { c ->
+        TripMember(
+            tripId = "t", memberId = id, vehicleDriverMemberId = id, vehicleLabel = "$id 차", fuelType = fuel,
+            startFuelMl = c["startFuel"], endFuelMl = c["endFuel"], refueledMl = c["refuel"], appliedPrice = c["price"]?.toInt(),
+            startBatteryWh = c["startBat"], endBatteryWh = c["endBat"], chargedWh = c["charged"],
+            appliedPricePerKwh = c["kwh"]?.toInt(), tollEstimated = c["toll"]?.toInt(),
+        )
+    }
+    private fun rider(id: String, car: String) = TripMember(tripId = "t", memberId = id, vehicleDriverMemberId = car)
+
+    private val names = mapOf("a" to "김민수", "b" to "이서준", "p1" to "정예린", "p2" to "박지우", "p3" to "최하은")
+
+    @Test
+    fun tripMembers_becomeCars_withMyCarFirst() {
+        val members = listOf(
+            driver("b", "GASOLINE", "startFuel" to 50_000, "endFuel" to 20_000, "price" to 1_804, "toll" to 15_000),
+            rider("p2", "b"), rider("p3", "b"),
+            driver("a", "EV"), // 내 차: 비용은 아직 서버에 없다(이 기기 운행 기록으로 채운다)
+            rider("p1", "a"),
+        )
+        val cars = carsFromTrip(members, names, myMemberId = "a")
+
+        assertEquals(listOf("김민수", "이서준"), cars.map { it.driver })
+        assertEquals(VehicleType.ELECTRIC, cars[0].type)
+        assertEquals("정예린", cars[0].passengers)
+        assertEquals("", cars[0].startBatteryKwh)
+        assertEquals("박지우, 최하은", cars[1].passengers)
+        assertEquals("50", cars[1].startFuelL)
+        assertEquals("20", cars[1].endFuelL)
+        assertEquals("1804", cars[1].fuelPrice)
+        assertEquals("15000", cars[1].tollWon)
+    }
+
+    @Test
+    fun otherDriverWithoutSavedCost_showsWhatIsMissing() {
+        val cars = carsFromTrip(listOf(driver("a", "EV", "startBat" to 70_000, "endBat" to 50_000, "kwh" to 348), driver("b", "DIESEL")), names, "a")
+        val message = settleOrMessage(cars).second
+        assertEquals("2번 차 출발 연료 값을 입력하세요.", message)
+    }
+
+    @Test
+    fun myCar_becomesCostInput() {
+        val ev = CarInput(VehicleType.ELECTRIC, "김민수", electricityPrice = "348.4", startBatteryKwh = "77.4", chargedKwh = "15", endBatteryKwh = "72", tollWon = "10000")
+        val cost = ev.toCostInput(PriceChoice.NEARBY_LOWEST)
+        assertEquals(77_400L, cost.startBatteryWh)
+        assertEquals(15_000L, cost.chargedWh)
+        assertEquals(72_000L, cost.endBatteryWh)
+        assertEquals(348, cost.appliedPricePerKwh) // 서버 열이 정수라 반올림
+        assertEquals(10_000, cost.tollEstimated)
+        assertEquals(0L, cost.startFuelMl)
+        assertNull(cost.priceBasis) // 전기차는 유가 기준이 없다
+        assertNull(cost.fuelCalcMethod)
+
+        val gas = CarInput(VehicleType.GASOLINE, "이서준", fuelPrice = "1804", startFuelL = "50", endFuelL = "20")
+        assertEquals("CHEAPEST", gas.toCostInput(PriceChoice.NEARBY_LOWEST).priceBasis)
+        assertNull(gas.toCostInput(PriceChoice.NEARBY_AVERAGE).priceBasis)
+        assertEquals(1_804, gas.toCostInput(PriceChoice.PICKED).appliedPrice)
+    }
+}

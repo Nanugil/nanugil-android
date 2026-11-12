@@ -34,7 +34,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * 나누길 내비 화면의 상태와 동작.
@@ -208,7 +210,12 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     private fun go(screen: AppScreen) {
         groupUi.value = groupUi.value.copy(screen = screen)
         // 08을 처음 열 때 운행 기록·차종·내 위치 근처 유가로 정산 값을 채운다(운행마다 한 번).
-        if (screen == AppScreen.ARRIVAL) viewModelScope.launch { settlement.load(navi.state.value.currentPosition) }
+        if (screen == AppScreen.ARRIVAL) viewModelScope.launch {
+            // 내비가 아직 위치를 안 줬으면 잠깐 기다린다. 그래도 없으면 세션이 데모 출발지로 찾는다.
+            val here = navi.state.value.currentPosition
+                ?: withTimeoutOrNull(POSITION_WAIT_MS) { navi.state.first { it.currentPosition != null }.currentPosition }
+            settlement.load(here)
+        }
     }
 
     /** 위쪽 탭: 드라이브(안내 중이면 주행 화면, 아니면 홈) · 내 차 · 정산(보냈으면 보낸 화면) */
@@ -336,7 +343,10 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
 
     /** [정산 요청]: 정산 결과를 확정해 09로 간다. 값이 틀려 정산할 수 없으면 그대로 둔다(08에 고칠 내용이 보인다). */
     fun requestSettlement() {
-        if (settlement.request() != null) go(AppScreen.SETTLE_SENT)
+        if (settlement.request() == null) return
+        go(AppScreen.SETTLE_SENT)
+        // 다른 차 앱이 같은 정산을 계산하도록 내 차 비용을 서버에 올린다
+        viewModelScope.launch { settlement.saveMyCost() }
     }
 
     /** 09에서 송금 한 줄을 누르면 받음 체크를 바꾼다 */
@@ -511,6 +521,8 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
 
     private companion object {
         const val GROUP_ID = "demo"
+        /** 08을 열 때 내비 현재 위치를 기다리는 최대 시간 */
+        const val POSITION_WAIT_MS = 5_000L
         /** 위치 한 번 사이(≈1초) 이보다 멀리 움직이면 위치 점프로 본다 (≈ 360km/h) */
         const val MAX_STEP_M = 100.0
         const val LIVE_INFO_INTERVAL_MS = 1_000L

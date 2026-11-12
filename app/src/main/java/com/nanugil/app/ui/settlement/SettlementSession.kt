@@ -1,5 +1,6 @@
 package com.nanugil.app.ui.settlement
 
+import android.util.Log
 import com.nanugil.app.core.geo.Wgs84Point
 import com.nanugil.app.data.fuel.FuelProduct
 import com.nanugil.app.data.fuel.GasStation
@@ -28,6 +29,8 @@ enum class PriceChoice { NEARBY_AVERAGE, NEARBY_LOWEST, PICKED }
  *
  * @property chosen 유종별로 유가를 가져온 주유소. 근처 평균이면 비어 있다.
  * @property request 보낸 정산 요청(09 화면). 보내기 전이면 null.
+ * @property tripId 서버의 진행 중 운행. 없으면 데모 값으로 정산한다.
+ * @property serverNote 서버 연결 상태 안내 (예: 데모 값 사용, 비용 저장 실패). 문제없으면 null.
  */
 data class SettlementState(
     val cars: List<CarInput>,
@@ -37,6 +40,8 @@ data class SettlementState(
     val priceSource: PriceSource = PriceSource.LOADING,
     val choice: PriceChoice = PriceChoice.NEARBY_LOWEST,
     val request: SettlementRequest? = null,
+    val tripId: String? = null,
+    val serverNote: String? = null,
 ) {
     /** 이 차(A차) 운전자. 이 사람에게 송금한다. */
     val myDriver: String get() = cars.firstOrNull()?.driver?.trim().orEmpty()
@@ -56,6 +61,7 @@ class SettlementSession(
     private val loadNearby: suspend (FuelProduct, Wgs84Point) -> List<GasStation>,
     private val loadAverage: suspend () -> Map<FuelProduct, Int>,
     private val initialCars: () -> List<CarInput> = ::demoCars,
+    private val server: SettlementServer? = null,
 ) {
     private val _state = MutableStateFlow(SettlementState(cars = initialCars(), request = requests.load()))
     val state: StateFlow<SettlementState> = _state.asStateFlow()
@@ -70,11 +76,48 @@ class SettlementSession(
     suspend fun load(here: Wgs84Point?) = loadLock.withLock {
         if (loaded) return@withLock
         loaded = true
+        loadTrip()
         _state.update { s -> s.copy(cars = s.cars.mapFirst { it.withRecorded(recorder.fuel, recorder.battery) }) }
         readMyCarType()?.let { type ->
             _state.update { s -> s.copy(cars = s.cars.mapFirst { if (it.type != type) it.withType(type, s.prices) else it }) }
         }
         loadPrices(here)
+    }
+
+    // 서버에 진행 중 운행이 있으면 그 참가자·차량별 비용으로 바꾼다. 없거나 연결이 안 되면 데모 값 그대로.
+    private suspend fun loadTrip() {
+        val server = server ?: return
+        try {
+            val trip = server.loadTrip()
+            if (trip == null || trip.cars.isEmpty()) {
+                _state.update { it.copy(serverNote = "진행 중인 운행이 없어 예시 값으로 정산합니다") }
+            } else {
+                _state.update { it.copy(cars = trip.cars, tripId = trip.tripId, serverNote = null) }
+            }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Log.w(TAG, "운행 불러오기 실패", e)
+            _state.update { it.copy(serverNote = "서버에 연결하지 못해 예시 값으로 정산합니다") }
+        }
+    }
+
+    /**
+     * 정산 요청 뒤 내 차(A차) 비용을 서버에 저장한다(T6 도착 → T8). 다른 차 앱이 이 값으로 같은 정산을 계산한다.
+     * 운행이 없으면 아무것도 안 한다. 실패해도 정산 요청은 그대로 두고 안내만 남긴다.
+     */
+    suspend fun saveMyCost() {
+        val s = _state.value
+        val tripId = s.tripId ?: return
+        val server = server ?: return
+        val car = s.cars.firstOrNull() ?: return
+        try {
+            server.saveMyCost(tripId, car, s.choice)
+            _state.update { it.copy(serverNote = null) }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Log.w(TAG, "내 차 비용 저장 실패", e)
+            _state.update { it.copy(serverNote = "내 차 비용을 서버에 저장하지 못했습니다") }
+        }
     }
 
     // 근처 최저가 → 전국 평균 → 예시값 순. 사용자가 이미 고친 유가 칸은 건드리지 않는다.
@@ -160,6 +203,10 @@ class SettlementSession(
     )
 
     private fun List<CarInput>.mapFirst(f: (CarInput) -> CarInput) = mapIndexed { i, c -> if (i == 0) f(c) else c }
+
+    private companion object {
+        const val TAG = "SettlementSession"
+    }
 }
 
 /**

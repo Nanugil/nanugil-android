@@ -635,6 +635,7 @@ internal fun ArrivalScreen(p: NaviPalette, s: SettlementUi, actions: GroupAction
                 // 유가를 가져온 주유소(최저가·직접 고름) 또는 근처를 못 불러온 이유
                 s.basisDetail?.let { Label(it, 19.sp, p.textSecondary, modifier = Modifier.padding(top = 10.dp)) }
                 s.problem?.let { Label(it, 19.sp, BrandAmber, FontWeight.Bold, Modifier.padding(top = 10.dp)) }
+                s.serverNote?.let { Label(it, 19.sp, p.textSecondary, modifier = Modifier.padding(top = 6.dp)) }
             }
         }
         Panel(p, Modifier.align(Alignment.TopEnd).width(HalfRight), CardShape) {
@@ -682,6 +683,7 @@ internal fun SettleSentScreen(p: NaviPalette, s: SettlementUi, actions: GroupAct
                 ) { Icon(R.drawable.ic_check, Color.White, 46.dp) }
                 Title(p, "정산 요청 보냄", Modifier.padding(top = 22.dp))
                 Label("${s.myName}에게 카카오페이로 | 1인 ${won(s.perPersonWon)}", 22.sp, p.textSecondary, modifier = Modifier.padding(top = 4.dp))
+                s.serverNote?.let { Label(it, 19.sp, BrandAmber, FontWeight.Bold, Modifier.padding(top = 4.dp)) }
                 // 운전자 송금 링크 QR. 동승자가 폰 카메라로 찍으면 카카오페이 송금이 열린다(금액은 직접 입력).
                 val link = s.payLink
                 if (link != null) {
