@@ -306,7 +306,7 @@ fun NaviDriveScreen(
         AppTopBar(
             p = p,
             title = title,
-            showBack = screen in setOf(AppScreen.CREATE_GROUP, AppScreen.LOBBY, AppScreen.JOIN_CODE, AppScreen.JOIN_SETUP),
+            showBack = screen in setOf(AppScreen.CREATE_GROUP, AppScreen.LOBBY, AppScreen.JOIN_CODE, AppScreen.JOIN_SETUP, AppScreen.SETTLE_SENT),
             tab = screen.tab,
             chip = chip,
             onBack = groupActions.onBack,

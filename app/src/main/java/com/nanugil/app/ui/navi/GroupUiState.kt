@@ -126,6 +126,8 @@ data class SettlementUi(
     /** 이 차 운전자 이름과 카카오페이 송금 링크 (09 QR). 링크가 없으면 등록 버튼을 보여 준다. */
     val myName: String = "",
     val payLink: String? = null,
+    /** 서버 연결 상태 안내 (예시 값 사용, 비용 저장 실패). 문제없으면 null. */
+    val serverNote: String? = null,
 ) {
     val paidCount: Int get() = payments.count { it.paid }
 }

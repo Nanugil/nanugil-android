@@ -10,6 +10,7 @@ import com.nanugil.app.data.pay.SettlementRequestStore
 import com.nanugil.app.data.vehicle.TripEnergyRecorder
 import com.nanugil.app.ui.settlement.SettlementActivity
 import com.nanugil.app.ui.settlement.SettlementSession
+import com.nanugil.app.ui.settlement.SupabaseSettlementServer
 import com.nanugil.app.ui.settlement.myCarType
 import com.nanugil.app.ui.settlement.vehicleTypeFromFuelTypes
 import kotlinx.coroutines.Dispatchers
@@ -53,6 +54,8 @@ class NanugilApplication : Application() {
             },
             loadNearby = { product, at -> opinet.findStationsAround(at, product = product) },
             loadAverage = opinet::averagePrices,
+            // Supabase 키가 없으면(local.properties) 서버 없이 예시 값으로 정산한다
+            server = SupabaseSettlementServer().takeIf { BuildConfig.SUPABASE_URL.isNotBlank() },
         )
     }
 

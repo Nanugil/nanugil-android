@@ -59,5 +59,6 @@ internal fun SettlementState.toUi(payLink: String?): SettlementUi {
         problem = message,
         myName = request?.myId ?: myDriver,
         payLink = payLink,
+        serverNote = serverNote,
     )
 }
