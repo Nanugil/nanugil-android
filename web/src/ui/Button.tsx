@@ -1,9 +1,12 @@
 "use client";
+import { css } from "@emotion/react";
 import styled from "@emotion/styled";
+import Link from "next/link";
 import { t } from "./theme";
 
-/** 화면마다 primary는 하나. ghost는 테두리만 있는 보조 버튼. aria-busy면 진행 중. */
-export const Button = styled.button<{ variant?: "primary" | "ghost" }>`
+type Variant = { variant?: "primary" | "ghost" };
+
+const base = (p: Variant) => css`
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -12,9 +15,9 @@ export const Button = styled.button<{ variant?: "primary" | "ghost" }>`
   min-height: ${t.controlH};
   padding: 0 ${t.space.lg};
   border-radius: ${t.radius.control};
-  border: 1px solid ${(p) => (p.variant === "ghost" ? t.color.rule : "transparent")};
-  background: ${(p) => (p.variant === "ghost" ? "transparent" : t.color.accent)};
-  color: ${(p) => (p.variant === "ghost" ? t.color.ink : t.color.accentInk)};
+  border: 1px solid ${p.variant === "ghost" ? t.color.rule : "transparent"};
+  background: ${p.variant === "ghost" ? "transparent" : t.color.accent};
+  color: ${p.variant === "ghost" ? t.color.ink : t.color.accentInk};
   font-weight: 600;
   font-size: ${t.text.md};
   text-decoration: none;
@@ -27,6 +30,13 @@ export const Button = styled.button<{ variant?: "primary" | "ghost" }>`
   }
   &:active:not(:disabled) { transform: scale(0.98); }
   &:focus-visible { outline: 2px solid ${t.color.focus}; outline-offset: 2px; }
-  &:disabled { opacity: 0.55; cursor: not-allowed; }
+  &:disabled, &[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
   &[aria-busy="true"] { cursor: progress; opacity: 0.75; }
 `;
+
+/** 화면마다 primary는 하나. ghost는 테두리만 있는 보조 버튼. aria-busy면 진행 중. */
+export const Button = styled.button<Variant>`${base}`;
+/** 버튼 모양의 페이지 이동 */
+export const ButtonLink = styled(Link)<Variant>`${base}`;
+/** 버튼 모양의 바깥 링크 (카카오페이 송금 등) */
+export const ButtonA = styled.a<Variant>`${base}`;
