@@ -25,8 +25,8 @@ import kotlin.math.sin
  * - 안내 전이면: B차가 내 근처 [PARKED_M]에 서 있다 (정차).
  * 연료는 [MockGroupDriveData.CAR_B]처럼 2초마다 1%씩 줄어 약 30초 뒤 연료 부족 → 합류 제안이 뜬다.
  *
- * TODO(서버): #15 머지 후 SupabaseGroupLocationRepository로 바꾼다. 인터페이스([GroupLocationRepository])가 같아서
- *  NaviDriveViewModel에서 이 저장소를 만드는 한 줄만 바꾸면 된다.
+ * 서버 그룹에 들어가면 NaviDriveViewModel이 [com.nanugil.app.data.server.ServerGroupCars]로 바꿔 쓴다.
+ * 이 목업은 서버 그룹이 없을 때(서버 없이 시연·개발할 때)만 쓴다.
  */
 class RouteFollowingGroupRepository(
     /** 내 차 현재 위치 (내장 내비). 모르면 null */
