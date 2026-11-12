@@ -223,7 +223,16 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
                 ?: withTimeoutOrNull(POSITION_WAIT_MS) { navi.state.first { it.currentPosition != null }.currentPosition }
             settlement.load(here)
         }
+        // 08을 보는 동안 다른 차가 나중에 저장한 비용을 받아 온다. 08을 떠나면 멈춘다.
+        if (screen == AppScreen.ARRIVAL && tripRefresh?.isActive != true) tripRefresh = viewModelScope.launch {
+            while (groupUi.value.screen == AppScreen.ARRIVAL) {
+                delay(TRIP_REFRESH_MS)
+                if (groupUi.value.screen == AppScreen.ARRIVAL) settlement.refreshTrip()
+            }
+        }
     }
+
+    private var tripRefresh: Job? = null
 
     /** 위쪽 탭: 드라이브(안내 중이면 주행 화면, 아니면 홈) · 내 차 · 정산(보냈으면 보낸 화면) */
     fun selectTab(tab: NaviTab) {
@@ -536,6 +545,8 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         const val GROUP_ID = "demo"
         /** 08을 열 때 내비 현재 위치를 기다리는 최대 시간 */
         const val POSITION_WAIT_MS = 5_000L
+        /** 08에서 운행(다른 차 비용)을 다시 읽는 간격 (#18: 10~15초) */
+        const val TRIP_REFRESH_MS = 10_000L
         /** 위치 한 번 사이(≈1초) 이보다 멀리 움직이면 위치 점프로 본다 (≈ 360km/h) */
         const val MAX_STEP_M = 100.0
         const val LIVE_INFO_INTERVAL_MS = 1_000L

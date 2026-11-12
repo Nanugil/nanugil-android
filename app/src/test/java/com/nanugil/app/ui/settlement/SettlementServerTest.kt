@@ -48,6 +48,25 @@ class SettlementServerTest {
     }
 
     @Test
+    fun refresh_fillsOnlyCarsStillWithoutCost() {
+        val local = carsFromTrip(listOf(driver("a", "EV"), driver("b", "DIESEL"), driver("c", "GASOLINE")), names + ("c" to "최운전"), "a")
+            .let { cars -> cars.mapIndexed { i, c -> if (i == 2) c.copy(startFuelL = "30", endFuelL = "25") else c } } // c차는 사용자가 직접 넣음
+        val fresh = carsFromTrip(
+            listOf(
+                driver("a", "EV", "startBat" to 1), driver("b", "DIESEL", "startFuel" to 40_000, "endFuel" to 35_000),
+                driver("c", "GASOLINE", "startFuel" to 50_000), driver("d", "EV"),
+            ),
+            names + ("c" to "최운전") + ("d" to "새운전"), "a",
+        )
+        val merged = withSavedCosts(local, fresh)
+
+        assertEquals("", merged[0].startBatteryKwh) // 내 차는 이 기기 값
+        assertEquals("40", merged[1].startFuelL) // 나중에 저장된 비용
+        assertEquals("30", merged[2].startFuelL) // 고친 값은 그대로
+        assertEquals("새운전", merged[3].driver)
+    }
+
+    @Test
     fun myCar_becomesCostInput() {
         val ev = CarInput(VehicleType.ELECTRIC, "김민수", electricityPrice = "348.4", startBatteryKwh = "77.4", chargedKwh = "15", endBatteryKwh = "72", tollWon = "10000")
         val cost = ev.toCostInput(PriceChoice.NEARBY_LOWEST)

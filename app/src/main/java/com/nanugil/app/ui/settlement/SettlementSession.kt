@@ -102,6 +102,26 @@ class SettlementSession(
     }
 
     /**
+     * 08을 보는 동안 주기적으로 운행을 다시 읽어, 다른 차가 나중에 저장(T8)한 비용을 채운다.
+     * 실시간 알림이 빠질 때가 있어 다시 읽기로 맞춘다(#18). 실패하면 다음 번에 다시 한다.
+     */
+    suspend fun refreshTrip() = loadLock.withLock {
+        val s = _state.value
+        val tripId = s.tripId ?: return@withLock
+        val server = server ?: return@withLock
+        if (s.request != null) return@withLock
+        val trip = try {
+            server.loadTrip()
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Log.w(TAG, "운행 다시 읽기 실패", e)
+            return@withLock
+        }
+        if (trip?.tripId != tripId) return@withLock
+        _state.update { it.copy(cars = withSavedCosts(it.cars, trip.cars)) }
+    }
+
+    /**
      * 정산 요청 뒤 내 차(A차) 비용을 서버에 저장한다(T6 도착 → T8). 다른 차 앱이 이 값으로 같은 정산을 계산한다.
      * 운행이 없으면 아무것도 안 한다. 실패해도 정산 요청은 그대로 두고 안내만 남긴다.
      */
@@ -216,6 +236,19 @@ class SettlementSession(
     private companion object {
         const val TAG = "SettlementSession"
     }
+}
+
+/**
+ * 다시 읽은 운행([fresh], 내 차가 맨 앞)을 지금 값에 합친다. 내 차와 값이 있는 차는 그대로 두고(사용자가 고친 값 포함),
+ * 아직 비용이 없던 다른 차만 서버 값으로 바꾼다. 새로 생긴 차는 뒤에 붙인다.
+ */
+internal fun withSavedCosts(local: List<CarInput>, fresh: List<CarInput>): List<CarInput> {
+    val others = fresh.drop(1)
+    val byDriver = others.associateBy { it.driver }
+    val merged = local.mapIndexed { i, c ->
+        if (i > 0 && c.startFuelL.isBlank() && c.startBatteryKwh.isBlank()) byDriver[c.driver] ?: c else c
+    }
+    return merged + others.filter { f -> merged.none { it.driver == f.driver } }
 }
 
 /**
