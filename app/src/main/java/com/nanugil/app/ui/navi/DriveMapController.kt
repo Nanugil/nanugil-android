@@ -347,7 +347,7 @@ class DriveMapController(context: Context, private val map: NaverMap) {
                 else -> null
             },
             subColor = if (car.isLowFuel) DANGER else groupSubInk,
-            topGapDp = 32,
+            topGapDp = 26,
         )
     }
 
@@ -434,15 +434,16 @@ class DriveMapController(context: Context, private val map: NaverMap) {
     }
 
     /**
-     * 일행 차 아이콘: 내 차 아이콘(ic_nav_arrow: 흰 테두리 원 + 파란 원 + 흰 화살표)과 같은 모양에 색만 다르다.
+     * 일행 차 아이콘: 내 차 아이콘(ic_nav_arrow: 흰 테두리 원 + 파란 원 + 흰 화살표)과 같은 모양에 색이 다르고 더 작다.
+     * 색만으로 구분하면 색각이 다른 운전자에게 불리해서 크기도 다르게 둔다 (내 차 56dp, 일행 [GROUP_ICON_DP]dp).
      * 연료가 부족하면 흰 테두리 대신 빨간 테두리. 색·연료 상태별로 한 번만 그려 둔다.
      */
     private fun carIcon(color: Int, lowFuel: Boolean): OverlayImage =
         iconCache.getOrPut(color to lowFuel) {
-            val size = dp(56)
+            val size = dp(GROUP_ICON_DP)
             val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
             val c = Canvas(bmp)
-            // ic_nav_arrow와 같은 56칸 좌표계
+            // ic_nav_arrow와 같은 56칸 좌표계를 크기에 맞춰 줄여 그린다
             val k = size / 56f
             c.scale(k, k)
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
@@ -663,8 +664,13 @@ class DriveMapController(context: Context, private val map: NaverMap) {
         const val ROUTE_OUTLINE_FAR_DP = 1
         const val ROUTE_OUTLINE_NEAR_DP = 4
 
-        /** 일행 차 색 (지도 위 화살표·팝업 점). 내 차가 파란 화살표라 파랑은 뺐다 */
-        val GROUP_COLORS = intArrayOf(0xFFA855F7.toInt(), 0xFF14B8A6.toInt(), 0xFFF472B6.toInt(), 0xFFF59E0B.toInt())
+        /**
+         * 일행 차 색 (지도 위 화살표·팝업 점). 첫 색(시연의 B차)은 내 차 파랑에서 가장 먼 주황.
+         * 연료 부족 빨간 테두리와 헷갈리는 분홍은 뺐다.
+         */
+        val GROUP_COLORS = intArrayOf(0xFFF59E0B.toInt(), 0xFF14B8A6.toInt(), 0xFFA855F7.toInt())
+        /** 일행 차 아이콘 크기 (내 차 ic_nav_arrow는 56dp) */
+        const val GROUP_ICON_DP = 44
         const val DANGER = 0xFFE5484D.toInt()
         /** 이보다 느리면 서 있는 것으로 그린다 */
         const val STOPPED_KMH = 3
