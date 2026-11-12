@@ -517,14 +517,7 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
 
     private enum class RestStopPhase { NONE, SENT, HANDLED }
 
-    private fun systemIsDark(): Boolean =
-        (getApplication<Application>().resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-
-    private fun loadThemeMode(): ThemeMode {
-        val saved = prefs.getString(KEY_THEME, null)
-        // 저장값이 없거나 예전 "AUTO"면 차량 화면 설정(시스템 다크 모드)으로 시작한다
-        return ThemeMode.entries.firstOrNull { it.name == saved } ?: if (systemIsDark()) ThemeMode.DARK else ThemeMode.LIGHT
-    }
+    private fun loadThemeMode(): ThemeMode = savedThemeMode(getApplication())
 
     private companion object {
         const val GROUP_ID = "demo"

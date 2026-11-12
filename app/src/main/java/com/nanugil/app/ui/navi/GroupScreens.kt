@@ -51,8 +51,8 @@ import com.nanugil.app.data.navi.NaviState
 internal val OuterPad = 32.dp
 internal val CardTop = 143.dp
 internal val CardGap = 24.dp
-private val InnerPad = 30.dp
-private val SmallShape = RoundedCornerShape(14.dp)
+internal val InnerPad = 30.dp
+internal val SmallShape = RoundedCornerShape(14.dp)
 
 // 카드 너비 (시안: 넓은 왼쪽 952 + 오른쪽 638, 반반 793 + 795, 주행 559 + 478, 코드 입력 1031 + 557)
 internal val WideLeft = 952.dp
@@ -777,7 +777,7 @@ internal fun ParkOnlyCard(p: NaviPalette, gearUnknown: Boolean, onBack: () -> Un
 // ================= 작은 부품 =================
 
 @Composable
-private fun Caption(p: NaviPalette, text: String, modifier: Modifier = Modifier) =
+internal fun Caption(p: NaviPalette, text: String, modifier: Modifier = Modifier) =
     Label(text, 20.sp, p.textSecondary, modifier = modifier)
 
 @Composable
@@ -810,7 +810,7 @@ private fun MetaRow(
 }
 
 @Composable
-private fun Tag(p: NaviPalette, text: String, accent: Boolean) {
+internal fun Tag(p: NaviPalette, text: String, accent: Boolean) {
     Label(
         text, 19.sp, if (accent) Color(0xFF6E9BFF) else p.textSecondary, FontWeight.Bold,
         Modifier.clip(RoundedCornerShape(8.dp))
@@ -820,7 +820,7 @@ private fun Tag(p: NaviPalette, text: String, accent: Boolean) {
 }
 
 @Composable
-private fun Avatar(p: NaviPalette, text: String, accent: Boolean, modifier: Modifier = Modifier) {
+internal fun Avatar(p: NaviPalette, text: String, accent: Boolean, modifier: Modifier = Modifier) {
     Box(
         modifier.size(48.dp).clip(CircleShape).background(if (accent) BrandPrimary else p.secondaryButton),
         contentAlignment = Alignment.Center,
@@ -857,7 +857,7 @@ private fun CodeBoxes(p: NaviPalette, code: String, modifier: Modifier = Modifie
 }
 
 @Composable
-private fun FieldBox(p: NaviPalette, modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
+internal fun FieldBox(p: NaviPalette, modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
     Row(
         modifier.padding(top = 10.dp).fillMaxWidth().height(76.dp).clip(SmallShape)
             .background(p.navSelected).padding(horizontal = 22.dp),

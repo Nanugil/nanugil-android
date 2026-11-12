@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import com.nanugil.app.data.vehicle.GearState
 import com.nanugil.app.data.vehicle.settlementBlockReason
 import com.nanugil.app.nanugilApp
+import com.nanugil.app.ui.navi.savedPalette
 
 /**
  * 정산 값 수정 화면 (차량별 연료·배터리·통행료, 차종, 충전기 출력, 주유소 선택).
@@ -49,6 +50,8 @@ class SettlementActivity : ComponentActivity() {
 
                     SettlementEditScreen(
                         session = session,
+                        // #13 위쪽 바에서 고른 라이트·다크를 그대로 쓴다
+                        p = savedPalette(this@SettlementActivity),
                         onBack = ::finish,
                         readMyFuelMl = fuelReader::readFuelMl,
                         readMyBatteryWh = fuelReader::readBatteryWh,

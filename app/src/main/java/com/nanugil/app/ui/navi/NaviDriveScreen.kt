@@ -1,5 +1,7 @@
 package com.nanugil.app.ui.navi
 
+import android.content.Context
+import android.content.res.Configuration
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -815,6 +817,19 @@ internal fun SearchPanel(
 
 /** 테마 선택을 실제 다크 여부로 바꾼다. */
 fun resolveDarkTheme(mode: ThemeMode): Boolean = mode == ThemeMode.DARK
+
+/**
+ * 위쪽 바에서 고른 테마. 정산 값 수정처럼 다른 Activity도 같은 테마로 그리려고 꺼내 둔다.
+ * 저장값이 없거나 예전 "AUTO"면 차량 화면 설정(시스템 다크 모드)으로 시작한다.
+ */
+fun savedThemeMode(context: Context): ThemeMode {
+    val saved = context.getSharedPreferences("navi_ui", Context.MODE_PRIVATE).getString("theme_mode", null)
+    val systemDark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+    return ThemeMode.entries.firstOrNull { it.name == saved } ?: if (systemDark) ThemeMode.DARK else ThemeMode.LIGHT
+}
+
+/** [savedThemeMode]에 맞는 #13 색 묶음 */
+internal fun savedPalette(context: Context): NaviPalette = if (resolveDarkTheme(savedThemeMode(context))) DarkPalette else LightPalette
 
 // ---- 표시 형식 ----
 
