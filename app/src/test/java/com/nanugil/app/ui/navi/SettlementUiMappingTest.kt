@@ -66,4 +66,13 @@ class SettlementUiMappingTest {
         assertEquals("1번 차 운전자 이름을 입력하세요.", ui.problem)
         assertEquals(0L, ui.totalWon)
     }
+
+    @Test
+    fun paymentPages_fourPerPage() {
+        assertEquals(1, paymentPages(0))
+        assertEquals(1, paymentPages(4))
+        assertEquals(2, paymentPages(5))
+        assertEquals(2, paymentPages(7))
+        assertEquals(3, paymentPages(9))
+    }
 }

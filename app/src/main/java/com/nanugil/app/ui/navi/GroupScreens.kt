@@ -22,6 +22,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -703,11 +706,14 @@ internal fun SettleSentScreen(p: NaviPalette, s: SettlementUi, actions: GroupAct
         Panel(p, Modifier.align(Alignment.TopEnd).width(HalfRight), CardShape) {
             Column(Modifier.padding(InnerPad)) {
                 Caption(p, "받은 사람 ${s.paidCount}/${s.payments.size} · 받으면 눌러서 체크")
-                val shown = s.payments.take(4)
-                shown.forEachIndexed { i, pay ->
+                // 한 화면에 4명씩. 넘치면 아래 [이전]·[다음]으로 넘겨 모든 사람을 확인한다.
+                val pages = paymentPages(s.payments.size)
+                var page by remember(pages) { mutableIntStateOf(0) }
+                val from = page * PAYMENTS_PER_PAGE
+                s.payments.drop(from).take(PAYMENTS_PER_PAGE).forEachIndexed { i, pay ->
                     if (i > 0) Divider(p)
                     Row(
-                        Modifier.fillMaxWidth().clickable { actions.onTogglePaid(i) }.padding(vertical = 10.dp),
+                        Modifier.fillMaxWidth().clickable { actions.onTogglePaid(from + i) }.padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Avatar(p, pay.initial, accent = false)
@@ -716,26 +722,26 @@ internal fun SettleSentScreen(p: NaviPalette, s: SettlementUi, actions: GroupAct
                         Tag(p, if (pay.paid) "송금 완료" else "확인 전", accent = pay.paid)
                     }
                 }
-                val rest = s.payments.drop(shown.size)
-                if (rest.isNotEmpty()) {
+                if (pages > 1) {
                     Divider(p)
-                    // 나머지는 한 줄로 묶었으니 누르면 한꺼번에 체크(모두 받았으면 한꺼번에 해제)
-                    val target = !rest.all { it.paid }
-                    Row(
-                        Modifier.fillMaxWidth().clickable {
-                            rest.forEachIndexed { j, pay -> if (pay.paid != target) actions.onTogglePaid(shown.size + j) }
-                        }.padding(vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Avatar(p, "+${rest.size}", accent = false)
-                        Label("외 ${rest.size}명", 24.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(start = 16.dp).weight(1f))
-                        Tag(p, if (rest.all { it.paid }) "송금 완료" else "확인 전", accent = rest.all { it.paid })
+                    Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        SecondaryButton(p, "‹ 이전", { if (page > 0) page-- }, Modifier.width(140.dp))
+                        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                            Label("${page + 1} / $pages", 22.sp, p.textSecondary, FontWeight.Bold)
+                        }
+                        SecondaryButton(p, "다음 ›", { if (page < pages - 1) page++ }, Modifier.width(140.dp))
                     }
                 }
             }
         }
     }
 }
+
+/** 09 송금 목록 한 페이지에 보이는 줄 수 */
+internal const val PAYMENTS_PER_PAGE = 4
+
+/** 송금 [count]줄을 몇 페이지로 나누는지 (0줄도 1페이지) */
+internal fun paymentPages(count: Int): Int = maxOf(1, (count + PAYMENTS_PER_PAGE - 1) / PAYMENTS_PER_PAGE)
 
 // ================= 주행 중 입력 막기 =================
 
