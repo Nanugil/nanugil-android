@@ -1,10 +1,10 @@
 /* Hallmark · shape: app screen · genre: modern-minimal · theme: custom (나누길 v5, Figma 로고·브랜드 보드)
  * paper: #060A12 dark / #F1F5F9 light · accent: #1E5EFF · display: Pretendard · body: Pretendard
  * nav: top bar, wordmark and one action · signature: the settlement ledger, one big per-person amount over each transfer's status · states: loading, empty, error, full
- * axes: navy-glass/pretendard/blue · posture: phone-first single column · contrast: pass · v2.0.0 */
+ * axes: navy-flat/pretendard/blue · posture: phone-first single column · contrast: pass · v2.0.0 */
 /* Hallmark · waive 26b · src/ui/Button.tsx carries hover, active, focus-visible, disabled and aria-busy · control states live in Emotion component styles, which this file never sees */
 /* Hallmark · dismissed 74 · #0F172A is the brand Ink from the user Figma board, kept on purpose */
-/* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V3 · weakest: V, glass on navy can read generic, so the dot-matrix amount (the car dashboard) carries the screen and glow stays on the one primary action */
+/* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V3 · weakest: V, flat navy can read plain, so the dot-matrix amount (the car dashboard) carries the screen; no shadows or gradients anywhere */
 
 :root {
   --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px;
@@ -23,18 +23,17 @@
 
   /* 다크(기본): v5 차량 화면처럼 네이비 바탕 위 반투명 카드 */
   --color-paper: #060A12;
-  --color-paper-2: color-mix(in oklab, var(--brand-navy) 55%, var(--color-paper));
-  --color-card: color-mix(in oklab, #FFFFFF 5%, transparent);
-  --color-card-strong: color-mix(in oklab, #FFFFFF 11%, transparent);
+  /* 평면: 그림자·그라데이션 없이 면의 밝기와 1px 테두리로만 높낮이를 나눈다 */
+  --color-card: color-mix(in oklab, var(--brand-navy) 22%, #0B111C);
+  --color-card-strong: color-mix(in oklab, var(--brand-navy) 30%, #182233);
   --color-ink: var(--brand-surface);
   --color-ink-2: color-mix(in oklab, var(--brand-surface) 78%, var(--color-paper));
   --color-muted: color-mix(in oklab, var(--brand-surface) 60%, var(--color-paper));
-  --color-rule: color-mix(in oklab, #FFFFFF 12%, transparent);
+  --color-rule: color-mix(in oklab, #FFFFFF 9%, transparent);
   --color-accent: var(--brand-primary); --color-accent-ink: #FFFFFF;
   --color-focus: color-mix(in oklab, var(--brand-primary) 70%, #FFFFFF);
   --color-success: var(--brand-success); --color-error: #FF6B6F; --color-warn: var(--brand-amber);
-  --color-input: color-mix(in oklab, #FFFFFF 6%, transparent);
-  --glow-top: color-mix(in oklab, #FFFFFF 10%, transparent);
+  --color-input: color-mix(in oklab, var(--brand-navy) 18%, #0E1520);
   --font-body: "Pretendard Variable", Pretendard, ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-body);
   --font-icon: "Material Symbols Rounded";
@@ -44,9 +43,8 @@
 @media (prefers-color-scheme: light) {
   :root {
     --color-paper: var(--brand-surface);
-    --color-paper-2: color-mix(in oklab, var(--brand-primary) 6%, var(--brand-surface));
     --color-card: #FFFFFF;
-    --color-card-strong: #FFFFFF;
+    --color-card-strong: color-mix(in oklab, var(--brand-ink) 5%, #FFFFFF);
     --color-ink: var(--brand-ink);
     --color-ink-2: color-mix(in oklab, var(--brand-ink) 80%, #FFFFFF);
     --color-muted: color-mix(in oklab, var(--brand-ink) 60%, #FFFFFF);
@@ -54,7 +52,6 @@
     --color-focus: var(--brand-primary);
     --color-error: var(--brand-danger);
     --color-input: #FFFFFF;
-    --glow-top: color-mix(in oklab, var(--brand-primary) 8%, transparent);
     color-scheme: light;
   }
 }
@@ -65,7 +62,7 @@ html { scrollbar-color: var(--color-muted) var(--color-paper); -webkit-text-size
 body {
   margin: 0; min-height: 100dvh; color: var(--color-ink); font-family: var(--font-body); font-size: var(--text-md);
   line-height: 1.55; -webkit-font-smoothing: antialiased; caret-color: var(--color-accent);
-  background: radial-gradient(120% 60% at 50% 0%, var(--color-paper-2), var(--color-paper) 70%) fixed, var(--color-paper);
+  background: var(--color-paper);
 }
 ::selection { background: color-mix(in oklab, var(--color-accent) 30%, transparent); color: var(--color-ink); }
 :focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }

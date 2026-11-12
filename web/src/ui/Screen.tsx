@@ -9,8 +9,7 @@ const Bar = styled.header`
   position: sticky; top: 0; z-index: var(--z-sticky);
   display: flex; align-items: center; justify-content: space-between; gap: ${t.space.sm};
   min-height: 56px; padding: 0 ${t.gutter};
-  background: color-mix(in oklab, var(--color-paper) 72%, transparent);
-  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  background: ${t.color.paper};
   border-bottom: 1px solid ${t.color.rule};
 `;
 const Brand = styled(Link)`

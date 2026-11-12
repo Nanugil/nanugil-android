@@ -16,12 +16,7 @@ const base = (p: Variant) => css`
   padding: 0 ${t.space.lg};
   border-radius: ${t.radius.control};
   border: 1px solid ${p.variant === "ghost" ? t.color.rule : "transparent"};
-  background: ${p.variant === "ghost"
-    ? "linear-gradient(180deg, var(--glow-top), transparent), var(--color-card)"
-    : "linear-gradient(180deg, color-mix(in oklab, var(--color-accent) 70%, #FFFFFF), var(--color-accent) 55%)"};
-  box-shadow: ${p.variant === "ghost"
-    ? "inset 0 1px 0 var(--glow-top)"
-    : "inset 0 1px 0 rgb(255 255 255 / 0.35), inset 0 -8px 16px -8px rgb(0 0 0 / 0.25), 0 10px 28px -8px color-mix(in oklab, var(--color-accent) 70%, transparent)"};
+  background: ${p.variant === "ghost" ? "transparent" : t.color.accent};
   color: ${p.variant === "ghost" ? t.color.ink : t.color.accentInk};
   font-weight: 600;
   font-size: ${t.text.md};

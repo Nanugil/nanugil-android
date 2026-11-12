@@ -16,7 +16,6 @@ const Eye = styled.button`position: absolute; right: ${t.space.xs}; top: 50%; tr
 const Input = styled.input<{ withIcon: boolean; withEye: boolean }>`
   min-height: ${t.controlH};
   padding: 0 ${(p) => (p.withEye ? "52px" : t.space.md)} 0 ${(p) => (p.withIcon ? "48px" : t.space.md)};
-  box-shadow: inset 0 1px 0 var(--glow-top);
   border-radius: ${t.radius.control};
   border: 1px solid ${t.color.rule};
   background: ${t.color.input};
