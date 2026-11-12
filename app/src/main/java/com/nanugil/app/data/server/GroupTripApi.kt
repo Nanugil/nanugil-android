@@ -8,6 +8,7 @@ import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
@@ -28,6 +29,9 @@ import kotlinx.serialization.json.putJsonArray
  * SQL은 supabase/migrations/20261111000000_group_trip.sql.
  */
 object GroupTripApi {
+
+    /** [tripChanges]가 알림 없이도 다시 읽게 하는 간격. PM 확인 결과 첫 알림이 빠질 수 있어 10~15초 권장. */
+    const val TRIP_RECHECK_MS = 15_000L
 
     private val db get() = Supabase.client.postgrest
 
@@ -55,6 +59,7 @@ object GroupTripApi {
      * T5. 그룹의 운행이 시작·종료되거나 차량이 도착하면 한 번씩 알린다. 받으면 [activeTrip]·[tripMembers]를 다시 읽는다.
      * 구독이 붙는 순간에도 한 번 알린다. 그때 처음 상태를 읽으면 "읽은 뒤 구독 전" 사이의 변화를 놓치지 않는다.
      * 'group:{그룹 ID}' private 채널 (멤버만 들어올 수 있다). 수집을 멈추면 채널을 닫는다.
+     * 알림이 빠지는 때가 있어서(서버가 쉬다 깨어난 직후 첫 알림) [TRIP_RECHECK_MS]마다 알림 없이도 한 번씩 알린다.
      */
     fun tripChanges(groupId: String): Flow<Unit> = flow {
         Supabase.ensureSignedIn()
@@ -67,7 +72,8 @@ object GroupTripApi {
         channel.subscribe(blockUntilSubscribed = true)
         try {
             emit(Unit)
-            emitAll(merge(trips, members).map { })
+            val recheck = flow { while (true) { delay(TRIP_RECHECK_MS); emit(Unit) } }
+            emitAll(merge(trips.map { }, members.map { }, recheck))
         } finally {
             withContext(NonCancellable) { Supabase.client.realtime.removeChannel(channel) }
         }
