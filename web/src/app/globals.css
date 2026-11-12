@@ -1,10 +1,10 @@
 /* Hallmark · shape: app screen · genre: modern-minimal · theme: custom (나누길 v5, Figma 로고·브랜드 보드)
- * paper: #0B0D11 dark / #F1F5F9 light · accent: #1E5EFF · display: Pretendard · body: Pretendard
+ * paper: #F1F5F9 (light only) · accent: #1E5EFF · display: Pretendard · body: Pretendard
  * nav: top bar, wordmark and one action · signature: the settlement ledger, one big per-person amount over each transfer's status · states: loading, empty, error, full
- * axes: charcoal-flat/pretendard/blue · posture: phone-first single column · contrast: pass · v2.0.0 */
+ * axes: surface-flat/pretendard/blue · posture: phone-first single column · contrast: pass · v2.0.0 */
 /* Hallmark · waive 26b · src/ui/Button.tsx carries hover, active, focus-visible, disabled and aria-busy · control states live in Emotion component styles, which this file never sees */
 /* Hallmark · dismissed 74 · #0F172A is the brand Ink from the user Figma board, kept on purpose */
-/* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V3 · weakest: V, flat charcoal can read plain, so the dot-matrix amount (the car dashboard) carries the screen; no shadows or gradients anywhere */
+/* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V3 · weakest: V, flat light can read plain, so the dot-matrix amount (the car dashboard) carries the screen; no shadows or gradients anywhere */
 
 :root {
   --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px;
@@ -21,39 +21,22 @@
   --brand-primary: #1E5EFF; --brand-navy: #002C5F; --brand-amber: #FFB020; --brand-danger: #E5484D;
   --brand-success: #12A150; --brand-ink: #0F172A; --brand-surface: #F1F5F9;
 
-  /* 다크(기본): v5 차량 화면처럼 네이비 바탕 위 반투명 카드 */
-  --color-paper: #0B0D11;
-  /* 평면 차콜: 면은 무채색에 가깝게 두고 파랑은 강조(버튼·내 차·보냈어요)에만 쓴다. 높낮이는 밝기와 1px 테두리로 */
-  --color-card: #15181E;
-  --color-card-strong: #1E222A;
-  --color-ink: var(--brand-surface);
-  --color-ink-2: color-mix(in oklab, var(--brand-surface) 78%, var(--color-paper));
-  --color-muted: color-mix(in oklab, var(--brand-surface) 60%, var(--color-paper));
-  --color-rule: color-mix(in oklab, #FFFFFF 8%, transparent);
+  /* 라이트 한 가지 (다크 모드 없음). 면은 Surface·흰색, 파랑은 강조에만 */
+  --color-paper: var(--brand-surface);
+  --color-card: #FFFFFF;
+  --color-card-strong: color-mix(in oklab, var(--brand-ink) 5%, #FFFFFF);
+  --color-ink: var(--brand-ink);
+  --color-ink-2: color-mix(in oklab, var(--brand-ink) 78%, #FFFFFF);
+  --color-muted: color-mix(in oklab, var(--brand-ink) 58%, #FFFFFF);
+  --color-rule: color-mix(in oklab, var(--brand-ink) 11%, transparent);
   --color-accent: var(--brand-primary); --color-accent-ink: #FFFFFF;
-  --color-focus: color-mix(in oklab, var(--brand-primary) 70%, #FFFFFF);
-  --color-success: var(--brand-success); --color-error: #FF6B6F; --color-warn: var(--brand-amber);
-  --color-input: #111419;
+  --color-focus: var(--brand-primary);
+  --color-success: var(--brand-success); --color-error: var(--brand-danger); --color-warn: var(--brand-amber);
+  --color-input: #FFFFFF;
   --font-body: "Pretendard Variable", Pretendard, ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-body);
   --font-icon: "Material Symbols Rounded";
-  color-scheme: dark;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    --color-paper: var(--brand-surface);
-    --color-card: #FFFFFF;
-    --color-card-strong: color-mix(in oklab, var(--brand-ink) 5%, #FFFFFF);
-    --color-ink: var(--brand-ink);
-    --color-ink-2: color-mix(in oklab, var(--brand-ink) 80%, #FFFFFF);
-    --color-muted: color-mix(in oklab, var(--brand-ink) 60%, #FFFFFF);
-    --color-rule: color-mix(in oklab, var(--brand-ink) 12%, transparent);
-    --color-focus: var(--brand-primary);
-    --color-error: var(--brand-danger);
-    --color-input: #FFFFFF;
-    color-scheme: light;
-  }
+  color-scheme: light;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
