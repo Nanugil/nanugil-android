@@ -3,6 +3,7 @@ import styled from "@emotion/styled";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Icon } from "./Icon";
+import { TabBar } from "./TabBar";
 import { t } from "./theme";
 
 const Bar = styled.header`
@@ -19,12 +20,12 @@ const Brand = styled(Link)`
 const Mark = styled.img`width: 28px; height: 28px; border-radius: 8px;`;
 const Main = styled.main`
   width: 100%; max-width: ${t.container}; margin-inline: auto;
-  padding: ${t.space.lg} ${t.gutter} ${t.space.x2l};
+  padding: ${t.space.lg} ${t.gutter} calc(${t.space.x2l} + 72px + env(safe-area-inset-bottom));
   display: grid; gap: ${t.space.lg}; align-content: start;
 `;
 
-/** 모든 화면의 틀: 위쪽 바(워드마크 + 동작 하나)와 가운데 한 줄 본문. */
-export function Screen({ action, children }: { action?: ReactNode; children: ReactNode }) {
+/** 모든 화면의 틀: 위쪽 바(워드마크 + 동작 하나), 가운데 한 줄 본문, 아래 탭바(로그인 전 화면은 nav={false}). */
+export function Screen({ action, children, nav = true }: { action?: ReactNode; children: ReactNode; nav?: boolean }) {
   return (
     <>
       <Bar>
@@ -32,6 +33,7 @@ export function Screen({ action, children }: { action?: ReactNode; children: Rea
         {action}
       </Bar>
       <Main>{children}</Main>
+      {nav && <TabBar />}
     </>
   );
 }

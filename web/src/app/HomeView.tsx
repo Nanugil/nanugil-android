@@ -33,7 +33,6 @@ const SettleLink = styled(Link)`flex: none; display: inline-flex; align-items: c
 
 /** 홈. groups가 null이면 불러오기 실패, 빈 배열이면 아직 참여한 그룹이 없다. */
 export function HomeView({ groups }: { groups: HomeGroup[] | null }) {
-  const join = <ButtonLink href="/join" variant="ghost" style={{ width: "auto", minHeight: 40 }}><Icon name="add" />코드로 참여</ButtonLink>;
   if (groups === null) {
     return (
       <Screen>
@@ -57,7 +56,7 @@ export function HomeView({ groups }: { groups: HomeGroup[] | null }) {
     );
   }
   return (
-    <Screen action={join}>
+    <Screen>
       <Title>내 그룹</Title>
       <List>
         {groups.map((g) => (

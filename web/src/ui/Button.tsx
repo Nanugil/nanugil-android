@@ -35,8 +35,10 @@ const base = (p: Variant) => css`
 `;
 
 /** 화면마다 primary는 하나. ghost는 테두리만 있는 보조 버튼. aria-busy면 진행 중. */
-export const Button = styled.button<Variant>`${base}`;
+// variant는 스타일 전용이라 DOM(특히 Link가 그리는 <a>)으로 넘기지 않는다
+const noVariant = { shouldForwardProp: (prop: string) => prop !== "variant" };
+export const Button = styled("button", noVariant)<Variant>`${base}`;
 /** 버튼 모양의 페이지 이동 */
-export const ButtonLink = styled(Link)<Variant>`${base}`;
+export const ButtonLink = styled(Link, noVariant)<Variant>`${base}`;
 /** 버튼 모양의 바깥 링크 (카카오페이 송금 등) */
-export const ButtonA = styled.a<Variant>`${base}`;
+export const ButtonA = styled("a", noVariant)<Variant>`${base}`;
