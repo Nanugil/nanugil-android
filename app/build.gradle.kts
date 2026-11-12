@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 // API 키는 커밋하지 않는 local.properties(또는 CI 환경변수)에서 읽는다.
@@ -29,6 +30,9 @@ android {
 
         buildConfigField("String", "NAVER_MAP_CLIENT_ID", "\"${secret("NAVER_MAP_CLIENT_ID")}\"")
         buildConfigField("String", "OPINET_API_KEY", "\"${secret("OPINET_API_KEY")}\"")
+        // Supabase anon key는 공개용 키라 앱에 들어가도 된다. 데이터 보호는 RLS·RPC 검사가 맡는다 (docs/group-trip-api.md 보안 규칙).
+        buildConfigField("String", "SUPABASE_URL", "\"${secret("SUPABASE_URL")}\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"${secret("SUPABASE_ANON_KEY")}\"")
         // TODO(서버): 경로선(Directions 5) 테스트용. Secret은 출시 전에 서버 프록시로 옮긴다 (ADR-002).
         buildConfigField("String", "NAVER_MAP_CLIENT_SECRET", "\"${secret("NAVER_MAP_CLIENT_SECRET")}\"")
         // 선택: NCP 스타일 에디터로 만든 지도 스타일 ID (Figma 시안의 회색 블록 지도). 없으면 기본 내비 지도를 다듬어 쓴다.
@@ -62,6 +66,11 @@ dependencies {
     implementation(libs.vehicle.sdk)
     implementation(libs.navihelper.sdk)
     implementation(libs.naver.map.sdk)
+    implementation(platform(libs.supabase.bom))
+    implementation(libs.supabase.auth)
+    implementation(libs.supabase.postgrest)
+    implementation(libs.supabase.realtime)
+    implementation(libs.ktor.client.okhttp)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
