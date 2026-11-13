@@ -6,12 +6,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
@@ -22,7 +20,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
@@ -70,20 +67,15 @@ private val DarkSheen = Brush.linearGradient(
 
 /** 라이트 테마(Figma "화이트톤 글라스") */
 private val LightBase = Color(0xFFF1F5F9)
-private const val LightAlpha = 0.80f
+// 다크와 비슷하게 지도가 살짝 비치도록: 바탕 80% → 72%, 왼쪽 위 흰빛 55% → 16% (다크 결과 같은 세기)
+private const val LightAlpha = 0.72f
 private val LightSheen = Brush.linearGradient(
-    0f to Color.White.copy(alpha = 0.55f),
-    0.5f to Color.White.copy(alpha = 0.1f),
+    0f to Color.White.copy(alpha = 0.16f),
+    0.5f to Color.White.copy(alpha = 0.04f),
     1f to Color(0xFF8FAEFF).copy(alpha = 0.08f),
     start = Offset.Zero,
     end = Offset(1400f, 1400f),
 )
-
-/** 글래스 위 글자에 깔리는 그림자. [Label]이 읽어서 쓴다. */
-internal val LocalTextShadow = staticCompositionLocalOf<Shadow?> { null }
-
-private val DarkTextShadow = Shadow(color = Color.Black.copy(alpha = 0.4f), offset = Offset(0f, 1f), blurRadius = 4f)
-private val LightTextShadow = Shadow(color = Color.White.copy(alpha = 0.6f), offset = Offset(0f, 1f), blurRadius = 3f)
 
 /**
  * Matte Dark Glass 표면. 모든 카드·위쪽 바가 이걸 쓴다.
@@ -158,9 +150,7 @@ internal fun GlassSurface(
                     )
                 },
         )
-        // ④ 글자 그림자
-        CompositionLocalProvider(LocalTextShadow provides if (dark) DarkTextShadow else LightTextShadow) {
-            content()
-        }
+        // ④ 내용. 글자 그림자는 빛 번짐처럼 보여서 깔지 않는다 (카드 바탕이 불투명에 가까워 없어도 잘 읽힌다)
+        content()
     }
 }

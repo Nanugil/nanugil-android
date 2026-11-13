@@ -178,23 +178,24 @@ private fun StatusChip(p: NaviPalette, chip: TopChip, onEndTrip: () -> Unit) {
         TopChip.STOPPED -> R.drawable.ic_pause to "정차 중"
         TopChip.DRIVING -> R.drawable.ic_nav_arrow to "주행 중"
         TopChip.HOST -> R.drawable.ic_person to "방장"
-        TopChip.END_TRIP -> R.drawable.ic_stop to "운행 종료"
+        TopChip.END_TRIP -> R.drawable.ic_end_trip to "운행 종료"
     }
     val danger = chip == TopChip.END_TRIP
     val accent = when {
-        danger -> BrandDanger
+        danger -> Color.White
         chip == TopChip.DRIVING -> BrandPrimary
         else -> p.textSecondary
     }
     Row(
         Modifier.height(MinTouch).clip(RoundedCornerShape(16.dp))
-            .background(if (danger) BrandDanger.copy(alpha = 0.18f) else p.navSelected)
+            // 운행 종료는 지도 위에서도 또렷하게 불투명한 빨강 버튼으로
+            .background(if (danger) BrandDanger else p.navSelected)
             .clickable(enabled = danger, onClick = onEndTrip)
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, accent, 22.dp)
-        Label(text, 22.sp, if (danger) BrandDanger else p.textPrimary, FontWeight.Bold, Modifier.padding(start = 10.dp))
+        Icon(icon, accent, if (danger) 32.dp else 22.dp)
+        Label(text, 22.sp, if (danger) Color.White else p.textPrimary, FontWeight.Bold, Modifier.padding(start = 10.dp))
     }
 }
 

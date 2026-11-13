@@ -700,7 +700,6 @@ internal fun Label(
         maxLines = 1,
         style = TextStyle(
             color = color, fontSize = size, fontWeight = weight, letterSpacing = letterSpacing,
-            shadow = LocalTextShadow.current,
         ),
     )
 }
