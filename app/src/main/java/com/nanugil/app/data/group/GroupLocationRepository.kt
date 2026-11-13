@@ -13,6 +13,8 @@ data class CarState(
     /** 연료(또는 배터리) 잔량 0~100 */
     val fuelPercent: Int,
     val isMe: Boolean = false,
+    /** 화면에 쓰는 차 이름 글자 ("B" → "B차"). 목업은 carId 끝 글자("car-b" → "B"), 서버는 운전자 순서로 붙인다 */
+    val label: String = carId.substringAfterLast('-').uppercase(),
 ) {
     val isLowFuel: Boolean get() = fuelPercent <= LOW_FUEL_PERCENT
 

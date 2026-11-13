@@ -521,7 +521,7 @@ internal fun GroupCarsCard(p: NaviPalette, cars: List<CarState>, navi: NaviState
             Caption(p, "일행")
             cars.forEachIndexed { i, car ->
                 if (i > 0) Divider(p)
-                val label = car.carId.substringAfterLast('-').uppercase()
+                val label = car.label
                 val eta = if (car.isMe) navi.remainTimeSeconds?.let { it / 60 } ?: car.etaMinutes else car.etaMinutes
                 Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Avatar(p, label, accent = car.isMe)
