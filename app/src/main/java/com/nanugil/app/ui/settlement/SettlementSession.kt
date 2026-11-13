@@ -141,7 +141,7 @@ class SettlementSession(
             return@withLock
         }
         if (trip?.tripId != tripId) return@withLock
-        _state.update { it.copy(cars = withSavedCosts(it.cars, trip.cars)) }
+        _state.update { it.copy(cars = withSavedCosts(it.cars, trip.cars, it.iDrive)) }
     }
 
     /**
@@ -267,13 +267,15 @@ class SettlementSession(
  * 다시 읽은 운행([fresh], 내 차가 맨 앞)을 지금 값에 합친다. 내 차와 값이 있는 차는 그대로 두고(사용자가 고친 값 포함),
  * 아직 비용이 없던 다른 차만 서버 값으로 바꾼다. 새로 생긴 차는 뒤에 붙인다.
  */
-internal fun withSavedCosts(local: List<CarInput>, fresh: List<CarInput>): List<CarInput> {
+internal fun withSavedCosts(local: List<CarInput>, fresh: List<CarInput>, iDrive: Boolean = true): List<CarInput> {
     // 멤버 ID로 맞춘다(같은 이름의 운전자가 있을 수 있다). ID가 없으면 이름으로.
     fun CarInput.key() = memberId.ifBlank { driver }
-    val others = fresh.drop(1)
+    // 운전자 기기는 A차를 이 기기 값으로 두고, 동승자 기기는 A차도 서버 값으로 채운다
+    val mine = if (iDrive) 1 else 0
+    val others = fresh.drop(mine)
     val byKey = others.associateBy { it.key() }
     val merged = local.mapIndexed { i, c ->
-        if (i > 0 && c.costMissing) byKey[c.key()] ?: c else c
+        if (i >= mine && c.costMissing) byKey[c.key()] ?: c else c
     }
     return merged + others.filter { f -> merged.none { it.key() == f.key() } }
 }

@@ -99,4 +99,13 @@ class SettlementUiMappingTest {
         assertNull(ui.waiting)
         assertEquals("1번 차 출발 연료 값을 입력하세요.", ui.problem)
     }
+
+    @Test
+    fun passengerDevice_waitsForMyRideDriverToo() {
+        // 동승자 기기에서 A차는 남의 차라, 비었으면 직접 넣을 게 아니라 그 운전자가 저장하길 기다린다
+        val ui = SettlementState(cars = listOf(CarInput(VehicleType.DIESEL, "김민수"), cars[1]), tripId = "t", iDrive = false).toUi(payLink = null)
+
+        assertEquals("A차(김민수) 비용 저장을 기다리는 중", ui.waiting)
+        assertNull(ui.problem)
+    }
 }

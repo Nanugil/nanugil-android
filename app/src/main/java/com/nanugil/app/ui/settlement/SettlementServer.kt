@@ -8,7 +8,7 @@ import com.nanugil.app.data.server.TripMember
 import kotlin.math.roundToLong
 
 /**
- * 서버의 진행 중 운행. [cars]는 내 차(A차)가 맨 앞.
+ * 서버의 진행 중 운행. [cars]는 내가 탄 차(A차)가 맨 앞.
  * @property iDrive 이 기기 사용자가 운전자인지. 동승자면 [cars]의 맨 앞은 남의 차라 이 기기 기록으로 채우거나 저장하지 않는다.
  */
 data class ServerTrip(val tripId: String, val cars: List<CarInput>, val iDrive: Boolean = true)
@@ -53,7 +53,9 @@ class SupabaseSettlementServer : SettlementServer {
  * 다른 운전자가 아직 비용을 저장(T8)하지 않았으면 그 칸은 비워 두고, 08 화면에 "값을 입력하세요"가 뜬다.
  */
 internal fun carsFromTrip(members: List<TripMember>, names: Map<String, String>, myMemberId: String?): List<CarInput> {
-    val drivers = members.filter { it.isDriver }.sortedByDescending { it.memberId == myMemberId }
+    // 내가 탄 차가 맨 앞: 운전자면 내 차, 동승자면 내 행의 vehicle_driver_member_id 차
+    val myCar = members.firstOrNull { it.memberId == myMemberId }?.vehicleDriverMemberId ?: myMemberId
+    val drivers = members.filter { it.isDriver }.sortedByDescending { it.memberId == myCar }
     return drivers.map { d ->
         val passengers = members.filter { !it.isDriver && it.vehicleDriverMemberId == d.memberId }
             .mapNotNull { names[it.memberId] }

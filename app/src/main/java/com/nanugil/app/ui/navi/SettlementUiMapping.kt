@@ -17,7 +17,7 @@ import com.nanugil.app.ui.settlement.won
 internal fun SettlementState.toUi(payLink: String?): SettlementUi {
     val (result, message) = settled
     // 서버 운행에서 아직 비용을 저장하지 않은 다른 차. 그 차를 0원으로 정산하지 않고 "기다리는 중"으로 보여 준다.
-    fun waitingAt(i: Int) = tripId != null && i > 0 && this.cars[i].costMissing
+    fun waitingAt(i: Int) = tripId != null && (i > 0 || !iDrive) && this.cars[i].costMissing
     val waiting = this.cars.indices.filter(::waitingAt).takeIf { it.isNotEmpty() }
         ?.joinToString(", ") { i -> "${carName(i)}(${this.cars[i].driver})" }?.let { "$it 비용 저장을 기다리는 중" }
     val names = cars.map { it.driver.trim() }

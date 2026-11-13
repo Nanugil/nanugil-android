@@ -114,4 +114,17 @@ class SettlementServerTest {
         }
         assertNull(car.toCostInput(PriceChoice.PICKED).tollAdjusted) // 내비 안내 없이 직접 넣은 값
     }
+
+    @Test
+    fun passengerDevice_putsMyRideFirst_andRefreshFillsIt() {
+        // p2는 b차 동승자: 서버 순서와 상관없이 b차가 A차
+        val members = listOf(driver("a", "EV"), rider("p1", "a"), driver("b", "DIESEL"), rider("p2", "b"))
+        val local = carsFromTrip(members, names, myMemberId = "p2")
+        assertEquals(listOf("이서준", "김민수"), local.map { it.driver })
+
+        // b가 나중에 저장하면 동승자 기기의 A차도 채워진다
+        val fresh = carsFromTrip(listOf(driver("a", "EV"), driver("b", "DIESEL", "startFuel" to 40_000, "endFuel" to 35_000)), names, "p2")
+        assertEquals("", withSavedCosts(local, fresh)[0].startFuelL) // 운전자 기기면 A차는 이 기기 값
+        assertEquals("40", withSavedCosts(local, fresh, iDrive = false)[0].startFuelL)
+    }
 }
