@@ -610,7 +610,7 @@ internal fun ArrivalScreen(p: NaviPalette, s: SettlementUi, actions: GroupAction
                         Avatar(p, c.label.take(1), accent = i == 0)
                         Column(Modifier.weight(1f).padding(start = 16.dp)) {
                             Label(c.label, 24.sp, p.textPrimary, FontWeight.Bold)
-                            Label("${c.energyLabel} ${num(c.fuelWon)} | 통행료 ${num(c.tollWon)}", 19.sp, p.textSecondary)
+                            Label("${c.energyLabel} ${num(c.fuelWon)} | ${c.tollLabel} ${num(c.tollWon)}", 19.sp, p.textSecondary)
                         }
                         Label(won(c.totalWon), 26.sp, p.textPrimary, FontWeight.Bold)
                     }
