@@ -1,13 +1,17 @@
 package com.nanugil.app.ui.settlement
 
 import com.nanugil.app.data.server.GroupTripApi
+import com.nanugil.app.data.server.ServerException
 import com.nanugil.app.data.server.Supabase
 import com.nanugil.app.data.server.TripCostInput
 import com.nanugil.app.data.server.TripMember
 import kotlin.math.roundToLong
 
-/** 서버의 진행 중 운행. [cars]는 내 차(A차)가 맨 앞. */
-data class ServerTrip(val tripId: String, val cars: List<CarInput>)
+/**
+ * 서버의 진행 중 운행. [cars]는 내 차(A차)가 맨 앞.
+ * @property iDrive 이 기기 사용자가 운전자인지. 동승자면 [cars]의 맨 앞은 남의 차라 이 기기 기록으로 채우거나 저장하지 않는다.
+ */
+data class ServerTrip(val tripId: String, val cars: List<CarInput>, val iDrive: Boolean = true)
 
 /** 정산이 서버(#15 Supabase)에서 쓰는 것: 운행 참가자·차량별 비용 읽기(T3), 내 차 비용 저장(T6·T8). */
 interface SettlementServer {
@@ -28,11 +32,18 @@ class SupabaseSettlementServer : SettlementServer {
         val members = GroupTripApi.members(trip.groupId)
         val names = members.associate { it.id to it.displayName }
         val myMemberId = members.firstOrNull { it.userId == me }?.id
-        return ServerTrip(trip.id, carsFromTrip(GroupTripApi.tripMembers(trip.id), names, myMemberId))
+        val tripMembers = GroupTripApi.tripMembers(trip.id)
+        val iDrive = tripMembers.any { it.isDriver && it.memberId == myMemberId }
+        return ServerTrip(trip.id, carsFromTrip(tripMembers, names, myMemberId), iDrive)
     }
 
     override suspend fun saveMyCost(tripId: String, car: CarInput, choice: PriceChoice) {
-        GroupTripApi.markArrived(tripId)
+        try {
+            GroupTripApi.markArrived(tripId)
+        } catch (e: ServerException) {
+            // 누가 운행을 먼저 끝냈으면(T4) 도착 처리는 안 되지만, 끝난 운행에도 비용은 저장된다(T8)
+            if (e.code != "TRIP_NOT_ACTIVE") throw e
+        }
         GroupTripApi.saveTripCost(tripId, car.toCostInput(choice))
     }
 }
@@ -50,6 +61,7 @@ internal fun carsFromTrip(members: List<TripMember>, names: Map<String, String>,
         CarInput(
             type = type,
             driver = names[d.memberId].orEmpty(),
+            memberId = d.memberId,
             passengers = passengers.joinToString(", "),
             fuelPrice = d.appliedPrice?.takeIf { it > 0 }?.toString() ?: type.defaultFuelPrice,
             startFuelL = d.startFuelMl?.let(::milliToDecimalText).orEmpty(),

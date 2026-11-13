@@ -1,9 +1,13 @@
 package com.nanugil.app.ui.navi
 
+import com.nanugil.app.share.SettlementCalculator
 import com.nanugil.app.ui.settlement.PriceChoice
 import com.nanugil.app.ui.settlement.PriceSource
 import com.nanugil.app.ui.settlement.SettlementState
 import com.nanugil.app.ui.settlement.VehicleType
+import com.nanugil.app.ui.settlement.carName
+import com.nanugil.app.ui.settlement.costMissing
+import com.nanugil.app.ui.settlement.toTrips
 import com.nanugil.app.ui.settlement.won
 
 /**
@@ -12,17 +16,23 @@ import com.nanugil.app.ui.settlement.won
  */
 internal fun SettlementState.toUi(payLink: String?): SettlementUi {
     val (result, message) = settled
+    // 서버 운행에서 아직 비용을 저장하지 않은 다른 차. 그 차를 0원으로 정산하지 않고 "기다리는 중"으로 보여 준다.
+    fun waitingAt(i: Int) = tripId != null && i > 0 && this.cars[i].costMissing
+    val waiting = this.cars.indices.filter(::waitingAt).takeIf { it.isNotEmpty() }
+        ?.joinToString(", ") { i -> "${carName(i)}(${this.cars[i].driver})" }?.let { "$it 비용 저장을 기다리는 중" }
     val names = cars.map { it.driver.trim() }
     val passengers = cars.sumOf { c -> c.passengers.split(',').count { it.isNotBlank() } }
     val cars = cars.mapIndexed { i, c ->
         val toll = runCatching { won(c.tollWon, "", required = false) }.getOrDefault(0)
-        val cost = result?.vehicleCostsWon?.get("car${i + 1}") ?: 0
+        // 다른 차를 기다리는 동안에도 값이 있는 차는 그 차 비용을 보여 준다
+        val alone = { runCatching { SettlementCalculator.vehicleCostWon(toTrips(listOf(c)).single()) }.getOrDefault(0) }
+        val cost = result?.vehicleCostsWon?.get("car${i + 1}") ?: if (waiting != null) alone() else 0
         val energy = when (c.type) {
             VehicleType.ELECTRIC -> "충전"
             VehicleType.HYBRID -> "주유·충전"
             else -> "주유"
         }
-        CarCost("${'A' + i}차", fuelWon = (cost - toll).coerceAtLeast(0), tollWon = toll, energyLabel = energy)
+        CarCost("${'A' + i}차", fuelWon = (cost - toll).coerceAtLeast(0), tollWon = toll, energyLabel = energy, waiting = waitingAt(i))
     }
     val share = result?.perPersonShareWon ?: 0
     val lines = buildList {
@@ -41,7 +51,7 @@ internal fun SettlementState.toUi(payLink: String?): SettlementUi {
     return SettlementUi(
         // 보낸 요청이 있으면 그때 금액(09). 요청 뒤에 값을 고쳐도 보낸 금액은 바뀌지 않는다.
         perPersonWon = request?.perPersonWon?.takeIf { it > 0 } ?: share,
-        totalWon = result?.totalCostWon ?: 0,
+        totalWon = result?.totalCostWon ?: if (waiting != null) cars.filterNot { it.waiting }.sumOf { it.totalWon } else 0,
         people = names.size + passengers,
         cars = cars,
         basis = when (choice) {
@@ -56,9 +66,10 @@ internal fun SettlementState.toUi(payLink: String?): SettlementUi {
             PaymentStatus(t.fromId.take(1), if (toMe) t.fromId else "${t.fromId} → ${t.toId}", t.done, t.amountWon)
         },
         basisDetail = basisDetail,
-        problem = message,
+        problem = message.takeIf { waiting == null }, // 기다리는 차의 "값을 입력하세요"는 사용자가 고칠 일이 아니다
         myName = request?.myId ?: myDriver,
         payLink = payLink,
         serverNote = serverNote,
+        waiting = waiting,
     )
 }

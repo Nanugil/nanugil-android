@@ -67,6 +67,22 @@ class SettlementServerTest {
     }
 
     @Test
+    fun refresh_matchesCarsByMemberId_evenWithSameDriverName() {
+        // 운전자 둘이 이름이 같다(김민수). 이름으로 맞추면 b의 비용이 c 자리에 들어간다
+        val sameName = mapOf("a" to "나", "b" to "김민수", "c" to "김민수")
+        val local = carsFromTrip(listOf(driver("a", "EV"), driver("b", "DIESEL"), driver("c", "GASOLINE")), sameName, "a")
+        val fresh = carsFromTrip(
+            listOf(driver("a", "EV"), driver("b", "DIESEL"), driver("c", "GASOLINE", "startFuel" to 30_000, "endFuel" to 20_000)),
+            sameName, "a",
+        )
+        val merged = withSavedCosts(local, fresh)
+
+        assertEquals(listOf("a", "b", "c"), merged.map { it.memberId })
+        assertEquals("", merged[1].startFuelL) // b는 아직 저장 전
+        assertEquals("30", merged[2].startFuelL) // c의 비용은 c 자리에
+    }
+
+    @Test
     fun myCar_becomesCostInput() {
         val ev = CarInput(VehicleType.ELECTRIC, "김민수", electricityPrice = "348.4", startBatteryKwh = "77.4", chargedKwh = "15", endBatteryKwh = "72", tollWon = "10000")
         val cost = ev.toCostInput(PriceChoice.NEARBY_LOWEST)

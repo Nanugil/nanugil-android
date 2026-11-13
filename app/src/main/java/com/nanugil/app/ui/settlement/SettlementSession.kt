@@ -31,6 +31,7 @@ enum class PriceChoice { NEARBY_AVERAGE, NEARBY_LOWEST, PICKED }
  * @property request 보낸 정산 요청(09 화면). 보내기 전이면 null.
  * @property tripId 서버의 진행 중 운행. 없으면 데모 값으로 정산한다.
  * @property serverNote 서버 연결 상태 안내 (예: 데모 값 사용, 비용 저장 실패). 문제없으면 null.
+ * @property iDrive 이 기기 사용자가 A차(맨 앞) 운전자인지. 서버 운행에서 동승자면 false라 내 차 기록으로 채우거나 저장하지 않는다.
  */
 data class SettlementState(
     val cars: List<CarInput>,
@@ -42,6 +43,7 @@ data class SettlementState(
     val request: SettlementRequest? = null,
     val tripId: String? = null,
     val serverNote: String? = null,
+    val iDrive: Boolean = true,
 ) {
     /** 이 차(A차) 운전자. 이 사람에게 송금한다. */
     val myDriver: String get() = cars.firstOrNull()?.driver?.trim().orEmpty()
@@ -77,9 +79,12 @@ class SettlementSession(
         if (loaded) return@withLock
         loaded = true
         loadTrip()
-        _state.update { s -> s.copy(cars = s.cars.mapFirst { it.withRecorded(recorder.fuel, recorder.battery) }) }
-        readMyCarType()?.let { type ->
-            _state.update { s -> s.copy(cars = s.cars.mapFirst { if (it.type != type) it.withType(type, s.prices) else it }) }
+        // 동승자면 A차는 남의 차라 이 기기의 운행 기록·차종으로 채우지 않는다
+        if (_state.value.iDrive) {
+            _state.update { s -> s.copy(cars = s.cars.mapFirst { it.withRecorded(recorder.fuel, recorder.battery) }) }
+            readMyCarType()?.let { type ->
+                _state.update { s -> s.copy(cars = s.cars.mapFirst { if (it.type != type) it.withType(type, s.prices) else it }) }
+            }
         }
         loadPrices(here)
     }
@@ -92,7 +97,7 @@ class SettlementSession(
             if (trip == null || trip.cars.isEmpty()) {
                 _state.update { it.copy(serverNote = "진행 중인 운행이 없어 예시 값으로 정산합니다") }
             } else {
-                _state.update { it.copy(cars = trip.cars, tripId = trip.tripId, serverNote = null) }
+                _state.update { it.copy(cars = trip.cars, tripId = trip.tripId, iDrive = trip.iDrive, serverNote = null) }
             }
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
@@ -129,6 +134,7 @@ class SettlementSession(
         val s = _state.value
         val tripId = s.tripId ?: return
         val server = server ?: return
+        if (!s.iDrive) return // 동승자는 저장할 내 차가 없다(서버가 NOT_DRIVER로 거부)
         val car = s.cars.firstOrNull() ?: return
         try {
             server.saveMyCost(tripId, car, s.choice)
@@ -243,13 +249,18 @@ class SettlementSession(
  * 아직 비용이 없던 다른 차만 서버 값으로 바꾼다. 새로 생긴 차는 뒤에 붙인다.
  */
 internal fun withSavedCosts(local: List<CarInput>, fresh: List<CarInput>): List<CarInput> {
+    // 멤버 ID로 맞춘다(같은 이름의 운전자가 있을 수 있다). ID가 없으면 이름으로.
+    fun CarInput.key() = memberId.ifBlank { driver }
     val others = fresh.drop(1)
-    val byDriver = others.associateBy { it.driver }
+    val byKey = others.associateBy { it.key() }
     val merged = local.mapIndexed { i, c ->
-        if (i > 0 && c.startFuelL.isBlank() && c.startBatteryKwh.isBlank()) byDriver[c.driver] ?: c else c
+        if (i > 0 && c.costMissing) byKey[c.key()] ?: c else c
     }
-    return merged + others.filter { f -> merged.none { it.driver == f.driver } }
+    return merged + others.filter { f -> merged.none { it.key() == f.key() } }
 }
+
+/** 서버 운행에서 이 차 운전자가 아직 비용을 저장(T8)하지 않았는지. 출발 연료·배터리가 둘 다 비어 있다. */
+internal val CarInput.costMissing: Boolean get() = startFuelL.isBlank() && startBatteryKwh.isBlank()
 
 /**
  * 서버가 붙기 전 데모 그룹(#13 MockGroups와 같은 사람들). A차가 이 기기가 달린 내 차라 운행 기록으로 다시 채워진다.
