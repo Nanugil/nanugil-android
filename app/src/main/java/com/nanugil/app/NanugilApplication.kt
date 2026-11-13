@@ -12,6 +12,7 @@ import com.nanugil.app.data.vehicle.TripEnergyRecorder
 import com.nanugil.app.ui.settlement.SettlementActivity
 import com.nanugil.app.ui.settlement.SettlementSession
 import com.nanugil.app.ui.settlement.SupabaseSettlementServer
+import com.nanugil.app.ui.settlement.VehicleType
 import com.nanugil.app.ui.settlement.myCarType
 import com.nanugil.app.ui.settlement.vehicleTypeFromFuelTypes
 import kotlinx.coroutines.Dispatchers
@@ -42,26 +43,32 @@ class NanugilApplication : Application() {
     /** 길안내 경로별 통행료 기록. 내비 화면이 채우고 정산이 내 차 통행료로 쓴다. */
     val tollRecorder: TollRecorder by lazy { TollRecorder(this) }
 
+    /** 지금 들어가 있는 서버 그룹 ID. 내비 화면이 넣고, 정산이 이 그룹의 운행을 읽는다. 없으면 null. */
+    @Volatile var serverGroupId: String? = null
+
     /** 이번 운행 정산 값. #13의 08·09 화면과 값 수정 화면([SettlementActivity])이 함께 본다. */
     val settlement: SettlementSession by lazy {
         val opinet = OpinetClient(BuildConfig.OPINET_API_KEY)
         SettlementSession(
             recorder = tripRecorder,
             requests = SettlementRequestStore(this),
-            readMyCarType = {
-                val reported = withContext(Dispatchers.IO) {
-                    runCatching { vehicleTypeFromFuelTypes(fuelReader.readFuelTypes()) }
-                        .onFailure { Log.w("NanugilApplication", "연료 종류 읽기 실패", it) }
-                        .getOrNull()
-                }
-                myCarType(reported, tripRecorder.fuel, tripRecorder.battery)
-            },
+            readMyCarType = ::readMyCarType,
             loadNearby = { product, at -> opinet.findStationsAround(at, product = product) },
             loadAverage = opinet::averagePrices,
             // Supabase 키가 없으면(local.properties) 서버 없이 예시 값으로 정산한다
-            server = SupabaseSettlementServer().takeIf { BuildConfig.SUPABASE_URL.isNotBlank() },
+            server = SupabaseSettlementServer { serverGroupId }.takeIf { BuildConfig.SUPABASE_URL.isNotBlank() },
             toll = tollRecorder,
         )
+    }
+
+    /** 이 차의 차종 (연료 종류 + 운행 기록). 정산과 운행 참가(서버 fuel_type)가 같이 쓴다. 모르면 null. */
+    suspend fun readMyCarType(): VehicleType? {
+        val reported = withContext(Dispatchers.IO) {
+            runCatching { vehicleTypeFromFuelTypes(fuelReader.readFuelTypes()) }
+                .onFailure { Log.w("NanugilApplication", "연료 종류 읽기 실패", it) }
+                .getOrNull()
+        }
+        return myCarType(reported, tripRecorder.fuel, tripRecorder.battery)
     }
 
     override fun onCreate() {

@@ -104,6 +104,7 @@ class NaviDriveActivity : ComponentActivity() {
             onStartTrip = viewModel::startTrip,
             onCodeKey = viewModel::typeCode,
             onCodeDelete = viewModel::deleteCode,
+            onJoinNameChange = viewModel::setJoinName,
             onJoin = viewModel::joinGroup,
             onCarNameChange = viewModel::setCarName,
             onTogglePassenger = viewModel::togglePassenger,

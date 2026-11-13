@@ -1,6 +1,7 @@
 package com.nanugil.app.ui.navi
 
 import com.nanugil.app.R
+import com.nanugil.app.core.geo.Wgs84Point
 import com.nanugil.app.share.SettlementCalculator
 import com.nanugil.app.share.VehicleTrip
 
@@ -53,6 +54,8 @@ data class GroupMember(
     val host: Boolean = false,
     /** 타는 차 ("A차") */
     val car: String? = null,
+    /** 서버 멤버 ID (group_members.id). 목업이면 null. */
+    val id: String? = null,
 ) {
     val initial: String get() = name.take(1)
     val roleLabel: String get() = if (driver) "운전" else "동승"
@@ -65,12 +68,18 @@ data class GroupInfo(
     val logo: GroupLogo,
     val members: List<GroupMember>,
     val cars: Int,
+    /** 서버 그룹 ID. 목업이면 null. */
+    val id: String? = null,
+    /** 목적지 좌표 (서버 그룹). 목업이면 null → 데모 목적지 */
+    val destination: Wgs84Point? = null,
+    /** 04에서 참여 전에 보이는 인원. 참여 전에는 멤버 목록을 읽을 수 없어서 따로 둔다. */
+    val memberCount: Int = members.size,
 ) {
     val host: GroupMember? get() = members.firstOrNull { it.host }
 }
 
-/** 홈 "내 그룹" 목록 한 줄 */
-data class GroupSummary(val name: String, val memberCount: Int, val logo: GroupLogo, val driving: Boolean)
+/** 홈 "내 그룹" 목록 한 줄. [id]는 서버 그룹 ID (목업이면 null). */
+data class GroupSummary(val name: String, val memberCount: Int, val logo: GroupLogo, val driving: Boolean, val id: String? = null)
 
 /** 홈 "최근 정산" 목록 한 줄 */
 data class RecentSettlement(val name: String, val date: String, val perPersonWon: Int, val status: String, val done: Boolean)
@@ -92,6 +101,8 @@ data class JoinState(
     val carName: String = "B차",
     val fuelType: String = "휘발유",
     val passengers: List<PassengerChoice> = emptyList(),
+    /** 그룹에 들어갈 때 쓸 내 이름 */
+    val myName: String = "이서준",
 ) {
     val selectedCount: Int get() = passengers.count { it.selected }
 }
@@ -143,6 +154,8 @@ data class GroupUiState(
     val createForm: CreateGroupForm = CreateGroupForm(),
     val join: JoinState = JoinState(),
     val settlement: SettlementUi = MockGroups.settlement(PriceBasis.AVERAGE),
+    /** 서버 요청 중이거나 실패했을 때 아래에 띄우는 안내. 없으면 null. */
+    val note: String? = null,
 )
 
 /**
