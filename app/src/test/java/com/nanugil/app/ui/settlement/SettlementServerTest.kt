@@ -100,4 +100,18 @@ class SettlementServerTest {
         assertNull(gas.toCostInput(PriceChoice.NEARBY_AVERAGE).priceBasis)
         assertEquals(1_804, gas.toCostInput(PriceChoice.PICKED).appliedPrice)
     }
+
+    @Test
+    fun toll_estimateAndDriverFix_goToSeparateColumns() {
+        val car = CarInput(VehicleType.GASOLINE, "김민수", fuelPrice = "1804", startFuelL = "50", endFuelL = "20", tollWon = "9000")
+        car.toCostInput(PriceChoice.PICKED, estimatedToll = 9_000).let {
+            assertEquals(9_000, it.tollEstimated)
+            assertNull(it.tollAdjusted) // 고치지 않음
+        }
+        car.copy(tollWon = "7500").toCostInput(PriceChoice.PICKED, estimatedToll = 9_000).let {
+            assertEquals(9_000, it.tollEstimated)
+            assertEquals(7_500, it.tollAdjusted)
+        }
+        assertNull(car.toCostInput(PriceChoice.PICKED).tollAdjusted) // 내비 안내 없이 직접 넣은 값
+    }
 }

@@ -104,6 +104,7 @@ data class CarCost(
     val fuelWon: Long,
     val tollWon: Long,
     val energyLabel: String = "주유",
+    val tollLabel: String = "통행료",
     /** 서버 운행에서 이 차 운전자가 아직 비용을 저장하지 않음(08에 "기다리는 중") */
     val waiting: Boolean = false,
 ) {

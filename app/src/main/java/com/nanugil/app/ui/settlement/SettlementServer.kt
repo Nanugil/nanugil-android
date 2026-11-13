@@ -18,8 +18,8 @@ interface SettlementServer {
     /** 내가 속한 그룹의 진행 중 운행. 없으면 null(데모 값으로 정산한다). */
     suspend fun loadTrip(): ServerTrip?
 
-    /** 도착 처리 후 내 차 비용을 저장한다. 다시 부르면 덮어쓴다. */
-    suspend fun saveMyCost(tripId: String, car: CarInput, choice: PriceChoice)
+    /** 도착 처리 후 내 차 비용을 저장한다. 다시 부르면 덮어쓴다. [estimatedToll]은 내비 예상 통행료(없으면 null). */
+    suspend fun saveMyCost(tripId: String, car: CarInput, choice: PriceChoice, estimatedToll: Long?)
 }
 
 /** [SettlementServer]의 Supabase 구현. 그룹·운행 만들기·참가는 그룹 화면 담당이고, 여기서는 읽기와 내 차 비용 저장만 한다. */
@@ -37,14 +37,14 @@ class SupabaseSettlementServer : SettlementServer {
         return ServerTrip(trip.id, carsFromTrip(tripMembers, names, myMemberId), iDrive)
     }
 
-    override suspend fun saveMyCost(tripId: String, car: CarInput, choice: PriceChoice) {
+    override suspend fun saveMyCost(tripId: String, car: CarInput, choice: PriceChoice, estimatedToll: Long?) {
         try {
             GroupTripApi.markArrived(tripId)
         } catch (e: ServerException) {
             // 누가 운행을 먼저 끝냈으면(T4) 도착 처리는 안 되지만, 끝난 운행에도 비용은 저장된다(T8)
             if (e.code != "TRIP_NOT_ACTIVE") throw e
         }
-        GroupTripApi.saveTripCost(tripId, car.toCostInput(choice))
+        GroupTripApi.saveTripCost(tripId, car.toCostInput(choice, estimatedToll))
     }
 }
 
@@ -87,9 +87,10 @@ internal fun vehicleTypeOf(fuelType: String?): VehicleType = when (fuelType) {
 
 /**
  * 내 차 입력값 → T8 저장값. 차종이 안 쓰는 값은 0.
+ * 통행료는 내비 예상액([estimatedToll])을 toll_estimated에, 운전자가 다르게 고쳤으면 그 값을 toll_adjusted에 둔다.
  * @throws IllegalArgumentException 값이 비었거나 숫자가 아닐 때(화면에 이미 같은 안내가 떠 있다).
  */
-internal fun CarInput.toCostInput(choice: PriceChoice): TripCostInput {
+internal fun CarInput.toCostInput(choice: PriceChoice, estimatedToll: Long? = null): TripCostInput {
     val trip = toTrips(listOf(this)).single()
     return TripCostInput(
         startFuelMl = trip.startFuelMl, refueledMl = trip.refueledMl, endFuelMl = trip.endFuelMl,
@@ -99,6 +100,7 @@ internal fun CarInput.toCostInput(choice: PriceChoice): TripCostInput {
         appliedPrice = trip.fuelPriceWonPerLiter.toInt(),
         startBatteryWh = trip.startBatteryWh, chargedWh = trip.chargedWh, endBatteryWh = trip.endBatteryWh,
         appliedPricePerKwh = trip.electricityWonPerMwh / 1000.0,
-        tollEstimated = trip.tollWon.toInt(),
+        tollEstimated = (estimatedToll ?: trip.tollWon).toInt(),
+        tollAdjusted = trip.tollWon.takeIf { estimatedToll != null && it != estimatedToll }?.toInt(),
     )
 }

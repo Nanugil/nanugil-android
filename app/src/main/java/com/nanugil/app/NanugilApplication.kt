@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.Context
 import android.util.Log
 import com.nanugil.app.data.vehicle.VehicleFuelReader
+import com.nanugil.app.data.fare.TollRecorder
 import com.nanugil.app.data.fuel.OpinetClient
 import com.nanugil.app.data.pay.SettlementRequestStore
 import com.nanugil.app.data.vehicle.TripEnergyRecorder
@@ -38,6 +39,9 @@ class NanugilApplication : Application() {
     /** 운행 중 연료·배터리 기록. 앱이 켜지면 바로 기록을 시작한다. */
     val tripRecorder: TripEnergyRecorder by lazy { TripEnergyRecorder(this, vehicle, fuelReader).also { it.start() } }
 
+    /** 길안내 경로별 통행료 기록. 내비 화면이 채우고 정산이 내 차 통행료로 쓴다. */
+    val tollRecorder: TollRecorder by lazy { TollRecorder(this) }
+
     /** 이번 운행 정산 값. #13의 08·09 화면과 값 수정 화면([SettlementActivity])이 함께 본다. */
     val settlement: SettlementSession by lazy {
         val opinet = OpinetClient(BuildConfig.OPINET_API_KEY)
@@ -56,6 +60,7 @@ class NanugilApplication : Application() {
             loadAverage = opinet::averagePrices,
             // Supabase 키가 없으면(local.properties) 서버 없이 예시 값으로 정산한다
             server = SupabaseSettlementServer().takeIf { BuildConfig.SUPABASE_URL.isNotBlank() },
+            toll = tollRecorder,
         )
     }
 

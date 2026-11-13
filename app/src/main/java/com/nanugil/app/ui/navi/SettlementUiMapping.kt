@@ -32,7 +32,13 @@ internal fun SettlementState.toUi(payLink: String?): SettlementUi {
             VehicleType.HYBRID -> "주유·충전"
             else -> "주유"
         }
-        CarCost("${'A' + i}차", fuelWon = (cost - toll).coerceAtLeast(0), tollWon = toll, energyLabel = energy, waiting = waitingAt(i))
+        // 내 차 통행료가 내비 예상액 그대로면 그렇다고 알린다(값 수정에서 고칠 수 있다)
+        val tollLabel = when {
+            i != 0 || estimatedTollWon != toll -> "통행료"
+            tollDiscountPercent > 0 -> "통행료(내비 예상·전기차 ${tollDiscountPercent}% 할인)"
+            else -> "통행료(내비 예상)"
+        }
+        CarCost("${'A' + i}차", fuelWon = (cost - toll).coerceAtLeast(0), tollWon = toll, energyLabel = energy, tollLabel = tollLabel, waiting = waitingAt(i))
     }
     val share = result?.perPersonShareWon ?: 0
     val lines = buildList {
