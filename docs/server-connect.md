@@ -15,7 +15,7 @@ npm run check:server
 ## 1. Supabase 대시보드 설정 (5분)
 
 1. **Authentication → Sign In / Providers → Email → Confirm email 끄기**
-   켜 두면 가입 직후 로그인되지 않고, 확인 메일 발송 한도(시간당 몇 통)에 바로 걸립니다. 공모전 시연용 설정이며, 실서비스 전에는 SMTP를 연결하고 다시 켭니다.
+   켜 두면 가입 직후 로그인되지 않고 확인 메일 발송 한도(시간당 몇 통)에 바로 걸립니다. 공모전 시연용 설정입니다. 실서비스 전에는 SMTP를 연결한 뒤 다시 켭니다.
 2. **SQL Editor → 새 쿼리 → `supabase/migrations/20261113000000_passenger_web.sql` 전체 붙여 넣고 실행**
    `ALTER TABLE` 2개와 `CREATE FUNCTION` 7개가 오류 없이 끝나야 합니다. 같은 파일을 두 번 실행하면 "already exists" 오류가 나므로 한 번만 실행합니다.
 
@@ -49,7 +49,7 @@ npm run seed -- --settle
 
 ## 5. 차량 앱 연결 (다음 단계)
 
-차량 앱은 아직 일부 화면이 목업 저장소(`RouteFollowingGroupRepository`, `FakeGroupLocationRepository`)를 씁니다. 서버로 바꾸는 작업은 이슈 #18에 있습니다. 동승자 웹과 맞물리려면 차량 앱이 다음 RPC를 불러야 합니다(`docs/group-trip-api.md` 5장).
+차량 앱은 아직 일부 화면이 목업 저장소(`RouteFollowingGroupRepository`, `FakeGroupLocationRepository`)를 씁니다. 서버로 바꾸는 작업은 이슈 #18에서 다룹니다. 동승자 웹과 맞물리려면 차량 앱이 다음 RPC를 호출해야 합니다(`docs/group-trip-api.md` 5장).
 
 | 차량 앱 동작 | RPC |
 | --- | --- |
