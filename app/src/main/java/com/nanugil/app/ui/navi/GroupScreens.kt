@@ -284,7 +284,8 @@ internal fun HomeScreen(
                                 Label(r.name, 24.sp, p.textPrimary, FontWeight.Bold)
                                 Label(r.date, 19.sp, p.textSecondary)
                             }
-                            Label(won(r.perPersonWon.toLong()), 25.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(end = 14.dp))
+                            // 비용이 다 모이지 않았으면 0원 정산으로 보이지 않게 "—" (08과 같은 표시)
+                            Label(if (r.done) won(r.perPersonWon.toLong()) else "—", 25.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(end = 14.dp))
                             Tag(p, r.status, accent = !r.done)
                         }
                     }
