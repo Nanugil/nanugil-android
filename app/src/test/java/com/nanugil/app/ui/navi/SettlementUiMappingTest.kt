@@ -75,4 +75,37 @@ class SettlementUiMappingTest {
         assertEquals(2, paymentPages(7))
         assertEquals(3, paymentPages(9))
     }
+
+    @Test
+    fun serverTrip_otherCarNotSavedYet_showsWaitingInsteadOfZero() {
+        // 서버 운행에서 B차(이서준)가 아직 비용을 저장하지 않았다
+        val ui = SettlementState(
+            cars = listOf(cars[0], CarInput(VehicleType.DIESEL, "이서준", "박지우", memberId = "b")),
+            tripId = "t",
+        ).toUi(payLink = null)
+
+        assertEquals("B차(이서준) 비용 저장을 기다리는 중", ui.waiting)
+        assertEquals(listOf(false, true), ui.cars.map { it.waiting })
+        assertEquals(10_000L, ui.cars[0].totalWon) // 값이 있는 A차는 그대로 보인다
+        assertEquals(10_000L, ui.totalWon) // 지금까지 모인 비용
+        assertNull(ui.problem) // "2번 차 출발 연료 값을 입력하세요"를 띄우지 않는다
+    }
+
+    @Test
+    fun myOwnCarEmpty_isStillAProblemToFix() {
+        // 내 차(A차) 값이 비었으면 기다릴 일이 아니라 직접 넣어야 한다
+        val ui = SettlementState(cars = listOf(CarInput(VehicleType.DIESEL, "김민수"), cars[1]), tripId = "t").toUi(payLink = null)
+
+        assertNull(ui.waiting)
+        assertEquals("1번 차 출발 연료 값을 입력하세요.", ui.problem)
+    }
+
+    @Test
+    fun passengerDevice_waitsForMyRideDriverToo() {
+        // 동승자 기기에서 A차는 남의 차라, 비었으면 직접 넣을 게 아니라 그 운전자가 저장하길 기다린다
+        val ui = SettlementState(cars = listOf(CarInput(VehicleType.DIESEL, "김민수"), cars[1]), tripId = "t", iDrive = false).toUi(payLink = null)
+
+        assertEquals("A차(김민수) 비용 저장을 기다리는 중", ui.waiting)
+        assertNull(ui.problem)
+    }
 }

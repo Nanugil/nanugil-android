@@ -35,6 +35,7 @@ enum class PriceChoice { NEARBY_AVERAGE, NEARBY_LOWEST, PICKED }
  * @property request 보낸 정산 요청(09 화면). 보내기 전이면 null.
  * @property tripId 서버의 진행 중 운행. 없으면 데모 값으로 정산한다.
  * @property serverNote 서버 연결 상태 안내 (예: 데모 값 사용, 비용 저장 실패). 문제없으면 null.
+ * @property iDrive 이 기기 사용자가 A차(맨 앞) 운전자인지. 서버 운행에서 동승자면 false라 내 차 기록으로 채우거나 저장하지 않는다.
  * @property estimatedTollWon 내 차 통행료의 내비 예상액(경로 변경·할인 반영). 안내 없이 달렸으면 null.
  * @property tollDiscountPercent [estimatedTollWon]에 뺀 전기차 통행료 감면율(%)
  */
@@ -48,6 +49,7 @@ data class SettlementState(
     val request: SettlementRequest? = null,
     val tripId: String? = null,
     val serverNote: String? = null,
+    val iDrive: Boolean = true,
     val estimatedTollWon: Long? = null,
     val tollDiscountPercent: Int = 0,
 ) {
@@ -86,17 +88,20 @@ class SettlementSession(
         if (loaded) return@withLock
         loaded = true
         loadTrip()
-        _state.update { s -> s.copy(cars = s.cars.mapFirst { it.withRecorded(recorder.fuel, recorder.battery) }) }
-        readMyCarType()?.let { type ->
-            _state.update { s -> s.copy(cars = s.cars.mapFirst { if (it.type != type) it.withType(type, s.prices) else it }) }
-        }
-        // 내 차 통행료: 내비 예상액(경로 변경 반영). 전기차는 하이패스 친환경차 감면을 뺀다.
-        toll?.ledger?.totalWon?.takeIf { it > 0 }?.let { raw ->
-            val ev = _state.value.cars.firstOrNull()?.type == VehicleType.ELECTRIC
-            val discount = if (ev) evTollDiscountPercent(LocalDate.now().year) else 0
-            val est = tollWon(raw, discount)
-            _state.update { s ->
-                s.copy(estimatedTollWon = est, tollDiscountPercent = discount, cars = s.cars.mapFirst { it.copy(tollWon = est.toString()) })
+        // 동승자면 A차는 남의 차라 이 기기의 운행 기록·차종으로 채우지 않는다
+        if (_state.value.iDrive) {
+            _state.update { s -> s.copy(cars = s.cars.mapFirst { it.withRecorded(recorder.fuel, recorder.battery) }) }
+            readMyCarType()?.let { type ->
+                _state.update { s -> s.copy(cars = s.cars.mapFirst { if (it.type != type) it.withType(type, s.prices) else it }) }
+            }
+            // 내 차 통행료: 내비 예상액(경로 변경 반영). 전기차는 하이패스 친환경차 감면을 뺀다.
+            toll?.ledger?.totalWon?.takeIf { it > 0 }?.let { raw ->
+                val ev = _state.value.cars.firstOrNull()?.type == VehicleType.ELECTRIC
+                val discount = if (ev) evTollDiscountPercent(LocalDate.now().year) else 0
+                val est = tollWon(raw, discount)
+                _state.update { s ->
+                    s.copy(estimatedTollWon = est, tollDiscountPercent = discount, cars = s.cars.mapFirst { it.copy(tollWon = est.toString()) })
+                }
             }
         }
         loadPrices(here)
@@ -110,7 +115,7 @@ class SettlementSession(
             if (trip == null || trip.cars.isEmpty()) {
                 _state.update { it.copy(serverNote = "진행 중인 운행이 없어 예시 값으로 정산합니다") }
             } else {
-                _state.update { it.copy(cars = trip.cars, tripId = trip.tripId, serverNote = null) }
+                _state.update { it.copy(cars = trip.cars, tripId = trip.tripId, iDrive = trip.iDrive, serverNote = null) }
             }
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
@@ -136,7 +141,7 @@ class SettlementSession(
             return@withLock
         }
         if (trip?.tripId != tripId) return@withLock
-        _state.update { it.copy(cars = withSavedCosts(it.cars, trip.cars)) }
+        _state.update { it.copy(cars = withSavedCosts(it.cars, trip.cars, it.iDrive)) }
     }
 
     /**
@@ -147,6 +152,7 @@ class SettlementSession(
         val s = _state.value
         val tripId = s.tripId ?: return
         val server = server ?: return
+        if (!s.iDrive) return // 동승자는 저장할 내 차가 없다(서버가 NOT_DRIVER로 거부)
         val car = s.cars.firstOrNull() ?: return
         try {
             server.saveMyCost(tripId, car, s.choice, s.estimatedTollWon)
@@ -261,14 +267,21 @@ class SettlementSession(
  * 다시 읽은 운행([fresh], 내 차가 맨 앞)을 지금 값에 합친다. 내 차와 값이 있는 차는 그대로 두고(사용자가 고친 값 포함),
  * 아직 비용이 없던 다른 차만 서버 값으로 바꾼다. 새로 생긴 차는 뒤에 붙인다.
  */
-internal fun withSavedCosts(local: List<CarInput>, fresh: List<CarInput>): List<CarInput> {
-    val others = fresh.drop(1)
-    val byDriver = others.associateBy { it.driver }
+internal fun withSavedCosts(local: List<CarInput>, fresh: List<CarInput>, iDrive: Boolean = true): List<CarInput> {
+    // 멤버 ID로 맞춘다(같은 이름의 운전자가 있을 수 있다). ID가 없으면 이름으로.
+    fun CarInput.key() = memberId.ifBlank { driver }
+    // 운전자 기기는 A차를 이 기기 값으로 두고, 동승자 기기는 A차도 서버 값으로 채운다
+    val mine = if (iDrive) 1 else 0
+    val others = fresh.drop(mine)
+    val byKey = others.associateBy { it.key() }
     val merged = local.mapIndexed { i, c ->
-        if (i > 0 && c.startFuelL.isBlank() && c.startBatteryKwh.isBlank()) byDriver[c.driver] ?: c else c
+        if (i >= mine && c.costMissing) byKey[c.key()] ?: c else c
     }
-    return merged + others.filter { f -> merged.none { it.driver == f.driver } }
+    return merged + others.filter { f -> merged.none { it.key() == f.key() } }
 }
+
+/** 서버 운행에서 이 차 운전자가 아직 비용을 저장(T8)하지 않았는지. 출발 연료·배터리가 둘 다 비어 있다. */
+internal val CarInput.costMissing: Boolean get() = startFuelL.isBlank() && startBatteryKwh.isBlank()
 
 /**
  * 서버가 붙기 전 데모 그룹(#13 MockGroups와 같은 사람들). A차가 이 기기가 달린 내 차라 운행 기록으로 다시 채워진다.

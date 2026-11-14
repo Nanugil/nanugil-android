@@ -99,7 +99,15 @@ data class JoinState(
 enum class PriceBasis(val label: String) { AVERAGE("근처 평균"), LOWEST("근처 최저가") }
 
 /** 08 도착: 차별 비용 한 줄. [energyLabel]은 연료비 이름(주유·충전·주유·충전). */
-data class CarCost(val label: String, val fuelWon: Long, val tollWon: Long, val energyLabel: String = "주유", val tollLabel: String = "통행료") {
+data class CarCost(
+    val label: String,
+    val fuelWon: Long,
+    val tollWon: Long,
+    val energyLabel: String = "주유",
+    val tollLabel: String = "통행료",
+    /** 서버 운행에서 이 차 운전자가 아직 비용을 저장하지 않음(08에 "기다리는 중") */
+    val waiting: Boolean = false,
+) {
     val totalWon: Long get() = fuelWon + tollWon
 }
 
@@ -128,6 +136,8 @@ data class SettlementUi(
     val payLink: String? = null,
     /** 서버 연결 상태 안내 (예시 값 사용, 비용 저장 실패). 문제없으면 null. */
     val serverNote: String? = null,
+    /** 다른 차가 비용을 저장하기 전이라 정산을 미룰 때 안내 (예: "B차(이서준) 비용 저장을 기다리는 중"). 모두 모였으면 null. */
+    val waiting: String? = null,
 ) {
     val paidCount: Int get() = payments.count { it.paid }
 }

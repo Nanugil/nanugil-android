@@ -67,6 +67,22 @@ class SettlementServerTest {
     }
 
     @Test
+    fun refresh_matchesCarsByMemberId_evenWithSameDriverName() {
+        // 운전자 둘이 이름이 같다(김민수). 이름으로 맞추면 b의 비용이 c 자리에 들어간다
+        val sameName = mapOf("a" to "나", "b" to "김민수", "c" to "김민수")
+        val local = carsFromTrip(listOf(driver("a", "EV"), driver("b", "DIESEL"), driver("c", "GASOLINE")), sameName, "a")
+        val fresh = carsFromTrip(
+            listOf(driver("a", "EV"), driver("b", "DIESEL"), driver("c", "GASOLINE", "startFuel" to 30_000, "endFuel" to 20_000)),
+            sameName, "a",
+        )
+        val merged = withSavedCosts(local, fresh)
+
+        assertEquals(listOf("a", "b", "c"), merged.map { it.memberId })
+        assertEquals("", merged[1].startFuelL) // b는 아직 저장 전
+        assertEquals("30", merged[2].startFuelL) // c의 비용은 c 자리에
+    }
+
+    @Test
     fun myCar_becomesCostInput() {
         val ev = CarInput(VehicleType.ELECTRIC, "김민수", electricityPrice = "348.4", startBatteryKwh = "77.4", chargedKwh = "15", endBatteryKwh = "72", tollWon = "10000")
         val cost = ev.toCostInput(PriceChoice.NEARBY_LOWEST)
@@ -97,5 +113,18 @@ class SettlementServerTest {
             assertEquals(7_500, it.tollAdjusted)
         }
         assertNull(car.toCostInput(PriceChoice.PICKED).tollAdjusted) // 내비 안내 없이 직접 넣은 값
+    }
+
+    @Test
+    fun passengerDevice_putsMyRideFirst_andRefreshFillsIt() {
+        // p2는 b차 동승자: 서버 순서와 상관없이 b차가 A차
+        val members = listOf(driver("a", "EV"), rider("p1", "a"), driver("b", "DIESEL"), rider("p2", "b"))
+        val local = carsFromTrip(members, names, myMemberId = "p2")
+        assertEquals(listOf("이서준", "김민수"), local.map { it.driver })
+
+        // b가 나중에 저장하면 동승자 기기의 A차도 채워진다
+        val fresh = carsFromTrip(listOf(driver("a", "EV"), driver("b", "DIESEL", "startFuel" to 40_000, "endFuel" to 35_000)), names, "p2")
+        assertEquals("", withSavedCosts(local, fresh)[0].startFuelL) // 운전자 기기면 A차는 이 기기 값
+        assertEquals("40", withSavedCosts(local, fresh, iDrive = false)[0].startFuelL)
     }
 }

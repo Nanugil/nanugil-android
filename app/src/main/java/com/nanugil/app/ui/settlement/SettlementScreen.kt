@@ -136,6 +136,8 @@ data class CarInput(
     val chargedKwh: String = "0",
     val endBatteryKwh: String = "",
     val tollWon: String = "0",
+    /** 서버 운행의 운전자 멤버 ID. 다시 읽은 운행과 차를 맞출 때 쓴다(이름은 겹칠 수 있다). 서버 운행이 아니면 빈칸. */
+    val memberId: String = "",
 ) {
     /** 차종을 바꾸고, 유가는 오피넷 평균가([prices])가 있으면 그 값, 없으면 예시값으로 바꾼다. */
     fun withType(newType: VehicleType, prices: Map<FuelProduct, Int> = emptyMap()) =

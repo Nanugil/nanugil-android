@@ -603,17 +603,23 @@ internal fun ArrivalScreen(p: NaviPalette, s: SettlementUi, actions: GroupAction
         Panel(p, Modifier.width(HalfLeft), CardShape) {
             Column(Modifier.padding(InnerPad)) {
                 Caption(p, "1인")
-                BigAmount(p, s.perPersonWon)
-                Label("총 ${won(s.totalWon)} | ${s.people}명", 22.sp, p.textSecondary)
+                if (s.waiting == null) {
+                    BigAmount(p, s.perPersonWon)
+                    Label("총 ${won(s.totalWon)} | ${s.people}명", 22.sp, p.textSecondary)
+                } else {
+                    // 다른 차 비용이 모이기 전에는 1인 금액을 내지 않는다(0원으로 보이지 않게)
+                    Label("계산 중", 56.sp, p.textSecondary, FontWeight.ExtraBold, Modifier.padding(top = 2.dp))
+                    Label("지금까지 ${won(s.totalWon)} | ${s.people}명", 22.sp, p.textSecondary)
+                }
                 s.cars.forEachIndexed { i, c ->
                     Divider(p, Modifier.padding(top = if (i == 0) 20.dp else 0.dp))
                     Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Avatar(p, c.label.take(1), accent = i == 0)
                         Column(Modifier.weight(1f).padding(start = 16.dp)) {
                             Label(c.label, 24.sp, p.textPrimary, FontWeight.Bold)
-                            Label("${c.energyLabel} ${num(c.fuelWon)} | ${c.tollLabel} ${num(c.tollWon)}", 19.sp, p.textSecondary)
+                            Label(if (c.waiting) "비용 저장 기다리는 중" else "${c.energyLabel} ${num(c.fuelWon)} | ${c.tollLabel} ${num(c.tollWon)}", 19.sp, p.textSecondary)
                         }
-                        Label(won(c.totalWon), 26.sp, p.textPrimary, FontWeight.Bold)
+                        Label(if (c.waiting) "—" else won(c.totalWon), 26.sp, p.textPrimary, FontWeight.Bold)
                     }
                 }
                 Caption(p, "유가 기준", Modifier.padding(top = 18.dp))
@@ -636,13 +642,16 @@ internal fun ArrivalScreen(p: NaviPalette, s: SettlementUi, actions: GroupAction
                 // 유가를 가져온 주유소(최저가·직접 고름) 또는 근처를 못 불러온 이유
                 s.basisDetail?.let { Label(it, 19.sp, p.textSecondary, modifier = Modifier.padding(top = 10.dp)) }
                 s.problem?.let { Label(it, 19.sp, BrandAmber, FontWeight.Bold, Modifier.padding(top = 10.dp)) }
+                s.waiting?.let { Label(it, 19.sp, BrandAmber, FontWeight.Bold, Modifier.padding(top = 10.dp)) }
                 s.serverNote?.let { Label(it, 19.sp, p.textSecondary, modifier = Modifier.padding(top = 6.dp)) }
             }
         }
         Panel(p, Modifier.align(Alignment.TopEnd).width(HalfRight), CardShape) {
             Column(Modifier.padding(InnerPad)) {
                 Caption(p, "주고받을 돈")
-                s.lines.forEachIndexed { i, line ->
+                if (s.waiting != null) {
+                    Label("모든 차의 비용이 모이면 계산합니다", 22.sp, p.textSecondary, modifier = Modifier.padding(vertical = 14.dp))
+                } else s.lines.forEachIndexed { i, line ->
                     if (i > 0) Divider(p)
                     Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Avatar(p, line.initial, accent = line.highlight)
@@ -657,13 +666,13 @@ internal fun ArrivalScreen(p: NaviPalette, s: SettlementUi, actions: GroupAction
                     }
                 }
                 Divider(p)
-                Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (s.waiting == null) Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Label("합계", 22.sp, p.textSecondary, modifier = Modifier.weight(1f))
                     Label("${won(s.sumCheckWon)} 일치", 22.sp, p.textSecondary)
                 }
                 Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     SecondaryButton(p, "값 수정", actions.onEditToll, Modifier.weight(1f))
-                    PrimaryButton("정산 요청", true, actions.onRequestSettlement, Modifier.weight(1f))
+                    PrimaryButton("정산 요청", s.waiting == null, actions.onRequestSettlement, Modifier.weight(1f))
                 }
             }
         }
