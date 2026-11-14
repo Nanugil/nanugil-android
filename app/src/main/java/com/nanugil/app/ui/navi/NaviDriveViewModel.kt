@@ -556,6 +556,8 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
                             if (e.code != "NOT_OWNER") throw e // 방장이 아니면 끝낼 수 없다 (방장 기기가 끝낸다)
                         }
                     }
+                    // 홈은 끝내기 전에 목록을 읽었다. 끝난 뒤 다시 읽어야 "운행 중"이 사라진다.
+                    refreshMyGroups()
                 }
                 useServerGroup(null)
                 groupUi.update { it.copy(group = null, tripStarted = false) }
