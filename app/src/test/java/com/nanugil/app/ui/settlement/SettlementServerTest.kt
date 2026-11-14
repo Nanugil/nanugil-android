@@ -129,4 +129,18 @@ class SettlementServerTest {
         assertEquals("", withSavedCosts(local, fresh)[0].startFuelL) // 운전자 기기면 A차는 이 기기 값
         assertEquals("40", withSavedCosts(local, fresh, iDrive = false)[0].startFuelL)
     }
+
+    @Test
+    fun priceBasis_keepsOtherDriversSavedPrice() {
+        // #29: 이 기기에서 고른 근처 최저가가 B차가 저장한 1,700원/L를 덮으면 기기마다 금액이 달라진다
+        val saved = carsFromTrip(listOf(driver("a", "GASOLINE"), driver("b", "GASOLINE", "startFuel" to 40_000, "endFuel" to 30_000, "price" to 1_700)), names, "a")
+        val waiting = saved + carsFromTrip(listOf(driver("c", "GASOLINE")), names, "c")
+        val server = SettlementState(cars = waiting, tripId = "t")
+        assertEquals(listOf(true, false, true), waiting.indices.map(server::repriceable)) // 내 차, 저장한 B차, 아직 저장 전
+        // 동승자 기기의 A차는 남의 차: 저장 전에는 임시 유가, 저장하면 그 운전자 값
+        val passenger = server.copy(iDrive = false)
+        assertEquals(true, passenger.repriceable(0))
+        assertEquals(false, passenger.copy(cars = saved.reversed()).repriceable(0))
+        assertEquals(true, SettlementState(cars = saved).repriceable(1)) // 서버 없이(데모)는 모두 이 기기 값
+    }
 }

@@ -193,7 +193,7 @@ class SettlementSession(
             s.copy(
                 prices = prices,
                 priceSource = source,
-                cars = s.cars.map { c -> if (c.fuelPrice == c.type.defaultFuelPrice) c.copy(fuelPrice = c.type.priceText(prices)) else c },
+                cars = s.cars.mapIndexed { i, c -> if (s.repriceable(i) && c.fuelPrice == c.type.defaultFuelPrice) c.copy(fuelPrice = c.type.priceText(prices)) else c },
             )
         }
     }
@@ -266,7 +266,9 @@ class SettlementSession(
 
     private fun SettlementState.withPrices(prices: Map<FuelProduct, Int>) = copy(
         prices = prices,
-        cars = cars.map { c -> c.type.opinetProduct?.let(prices::get)?.let { c.copy(fuelPrice = it.toString()) } ?: c },
+        cars = cars.mapIndexed { i, c ->
+            if (!repriceable(i)) c else c.type.opinetProduct?.let(prices::get)?.let { c.copy(fuelPrice = it.toString()) } ?: c
+        },
     )
 
     private fun List<CarInput>.mapFirst(f: (CarInput) -> CarInput) = mapIndexed { i, c -> if (i == 0) f(c) else c }
@@ -293,6 +295,13 @@ internal fun withSavedCosts(local: List<CarInput>, fresh: List<CarInput>, iDrive
     }
     return merged + others.filter { f -> merged.none { it.key() == f.key() } }
 }
+
+/**
+ * 이 기기에서 고른 유가 기준(근처 평균·최저가·직접 고름)을 [index] 차에 넣어도 되는지.
+ * 다른 운전자가 저장한 유가는 그 사람 값 그대로 둔다. 기기마다 고른 유가로 바꾸면 같은 운행인데 기기마다 정산 금액이 달라진다(#29).
+ */
+internal fun SettlementState.repriceable(index: Int): Boolean =
+    tripId == null || (index == 0 && iDrive) || cars[index].costMissing
 
 /** 서버 운행에서 이 차 운전자가 아직 비용을 저장(T8)하지 않았는지. 출발 연료·배터리가 둘 다 비어 있다. */
 internal val CarInput.costMissing: Boolean get() = startFuelL.isBlank() && startBatteryKwh.isBlank()
