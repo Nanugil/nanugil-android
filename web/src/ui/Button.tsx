@@ -44,15 +44,15 @@ export const ButtonLink = styled(Link, noVariant)<Variant>`${base}`;
 export const ButtonA = styled("a", noVariant)<Variant>`${base}`;
 
 const CtaWrap = styled(Link)`
-  display: flex; align-items: center; gap: ${t.space.sm}; min-height: 60px; padding: 6px;
-  border-radius: ${t.radius.card}; background: ${t.color.cardStrong}; border: 1px solid ${t.color.rule};
+  display: flex; align-items: center; gap: ${t.space.sm}; min-height: 52px; padding: 5px;
+  border-radius: 18px; background: ${t.color.cardStrong}; border: 1px solid ${t.color.rule};
   color: ${t.color.ink2}; font-weight: 600; text-decoration: none;
   transition: transform ${t.dur.micro} ${t.ease.out};
   &:active { transform: scale(0.98); }
   &:focus-visible { outline: 2px solid ${t.color.focus}; outline-offset: 2px; }
-  > span:first-of-type { display: grid; place-items: center; flex: none; width: 72px; height: 48px;
+  > span:first-of-type { display: grid; place-items: center; flex: none; width: 60px; height: 42px;
     border-radius: ${t.radius.control}; background: ${t.color.cta}; color: ${t.color.ctaInk}; }
-  > span:last-of-type { flex: 1; text-align: center; padding-right: 72px; }
+  > span:last-of-type { flex: 1; text-align: center; padding-right: 60px; font-size: ${t.text.sm}; }
 `;
 
 /** 검은 화살표 칸이 들어간 큰 동작 (레퍼런스의 "Slide to Unlock" 모양). 화면의 핵심 동작 하나에만 쓴다. */
