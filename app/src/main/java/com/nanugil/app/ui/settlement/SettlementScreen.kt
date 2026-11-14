@@ -138,6 +138,8 @@ data class CarInput(
     val tollWon: String = "0",
     /** 서버 운행의 운전자 멤버 ID. 다시 읽은 운행과 차를 맞출 때 쓴다(이름은 겹칠 수 있다). 서버 운행이 아니면 빈칸. */
     val memberId: String = "",
+    /** 서버 trip_members.vehicle_label (방장=A차, 참여자=B차…). 모든 기기에서 같은 이름이 보이게 순서 대신 이 값을 쓴다. 없으면 빈칸. */
+    val label: String = "",
 ) {
     /** 차종을 바꾸고, 유가는 오피넷 평균가([prices])가 있으면 그 값, 없으면 예시값으로 바꾼다. */
     fun withType(newType: VehicleType, prices: Map<FuelProduct, Int> = emptyMap()) =
@@ -263,3 +265,6 @@ internal fun settleOrMessage(cars: List<CarInput>): Pair<Settlement?, String?> =
 
 /** 차 이름. Figma 08처럼 A차, B차 … 로 부른다. 1번 차(A차)가 이 기기가 달린 내 차다. */
 internal fun carName(index: Int): String = "${'A' + index}차"
+
+/** 서버 차 이름이 있으면 그 이름, 없으면 순서대로 A차, B차 … */
+internal fun CarInput.name(index: Int): String = label.ifBlank { carName(index) }

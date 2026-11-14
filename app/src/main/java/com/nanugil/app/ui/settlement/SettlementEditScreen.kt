@@ -215,8 +215,8 @@ private fun CarCard(
         Column(Modifier.padding(InnerPad), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             // 머리: 차 이름 · 차종 고르기 · 삭제
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Avatar(p, "${'A' + index}", accent = index == 0)
-                Label(carName(index), 28.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(start = 16.dp))
+                Avatar(p, car.name(index).take(1), accent = index == 0)
+                Label(car.name(index), 28.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(start = 16.dp))
                 if (index == 0) Box(Modifier.padding(start = 12.dp)) { Tag(p, "내 차", accent = true) }
                 Spacer(Modifier.weight(1f))
                 Segmented(p, VehicleType.entries, car.type, { it.label }, { if (it != car.type) onChange(car.withType(it, prices)) })

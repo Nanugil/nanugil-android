@@ -19,7 +19,9 @@ class SettlementRequestTest {
     @Test
     fun request_keepsTransfersAndTracksChecks() {
         val request = SettlementRequest.of(settlement, myId = "지수")
-        assertEquals(settlement.transfers.size, request.transfers.size)
+        // 지수가 받거나 보내는 송금만 든다
+        assertEquals(settlement.transfers.filter { it.fromId == "지수" || it.toId == "지수" }, request.transfers.map { Transfer(it.fromId, it.toId, it.amountWon) })
+        assertTrue(request.transfers.isNotEmpty())
         assertFalse(request.isComplete)
 
         val allDone = request.transfers.indices.fold(request) { r, i -> r.toggled(i) }
