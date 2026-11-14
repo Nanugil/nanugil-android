@@ -14,12 +14,12 @@ const base = (p: Variant) => css`
   width: 100%;
   min-height: ${t.controlH};
   padding: 0 ${t.space.lg};
-  border-radius: 14px;
+  border-radius: ${t.radius.control};
   border: 0;
   background: ${p.variant === "ghost" ? t.color.fill : t.color.cta};
   color: ${p.variant === "ghost" ? t.color.ink : t.color.ctaInk};
   font-weight: 600;
-  font-size: ${t.text.md};
+  font-size: 16px;
   text-decoration: none;
   white-space: nowrap;
   cursor: pointer;

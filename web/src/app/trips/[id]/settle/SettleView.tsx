@@ -21,7 +21,7 @@ import { t } from "@/ui/theme";
 type State = { kind: "error" } | { kind: "ok"; trip: Trip; members: Member[]; me: string };
 
 const Amount = styled.div`display: flex; align-items: flex-end; gap: 6px;
-  > span { font-size: 18px; font-weight: 600; line-height: 1; }`;
+  > span[aria-hidden] { font-size: 18px; font-weight: 600; line-height: 1; }`;
 const Err = styled.p`font-size: 13px; color: ${t.color.error};`;
 const Done = styled.p`display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; color: ${t.color.success};`;
 const Tick = styled.svg`width: 20px; height: 20px; flex: none;`;
@@ -54,22 +54,29 @@ function LedgerRow({ from, to, transfer }: { from: string; to: string; transfer:
   );
 }
 
-function AmountSection({ amountWon, sub, done, total }: { amountWon: number; sub: string; done: number; total: number }) {
+function AmountSection({ label, amountWon, perPersonWon, done, total }: { label: string; amountWon: number; perPersonWon: number; done: number; total: number }) {
   const shown = useCountUpValue(amountWon);
   return (
-    <Section aria-label={`1인 부담액 ${formatWon(amountWon)}`}>
-      <SectionHead><h2>1인 부담액</h2><span>{sub}</span></SectionHead>
-      <Amount aria-hidden="true"><DotNumber text={new Intl.NumberFormat("ko-KR").format(shown)} height={44} /><span>원</span></Amount>
-      <Segments done={done} total={total} label={`송금 ${total}건 중 ${done}건 완료`} />
-      <Meta><Hint>그룹 송금 진행</Hint><Hint className="num">{done}/{total}건 완료</Hint></Meta>
+    <Section aria-labelledby="hero-title">
+      <SectionHead><h2 id="hero-title">{label}</h2><span>1인 {formatWon(perPersonWon)}</span></SectionHead>
+      <Amount>
+        <span className="visually-hidden">{formatWon(amountWon)}</span>
+        <DotNumber text={new Intl.NumberFormat("ko-KR").format(shown)} height={44} /><span aria-hidden="true">원</span>
+      </Amount>
+      <Segments done={done} total={total} label={`그룹 송금 ${total}건 중 ${done}건 완료`} />
+      <Meta><Hint>그룹 송금</Hint><Hint className="num">{done}/{total} 완료</Hint></Meta>
     </Section>
   );
 }
 
-async function shareLink() {
+/** 공유 시트나 클립보드로 링크를 넘긴다. 사용자가 취소했거나 실패하면 false */
+async function shareLink(): Promise<boolean> {
   const url = window.location.href;
-  if (navigator.share) { await navigator.share({ title: "나누길 정산", url }).catch(() => {}); return; }
-  await navigator.clipboard?.writeText(url);
+  try {
+    if (navigator.share) { await navigator.share({ title: "나누길 정산", url }); return true; }
+    await navigator.clipboard.writeText(url);
+    return true;
+  } catch { return false; }
 }
 
 export function SettleView({ state }: { state: State }) {
@@ -77,6 +84,8 @@ export function SettleView({ state }: { state: State }) {
   const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [announce, setAnnounce] = useState("");
+  const inFlight = useRef(new Set<number>());
 
   useEffect(() => {
     if (state.kind !== "ok") return;
@@ -100,7 +109,7 @@ export function SettleView({ state }: { state: State }) {
 
   const names = new Map(state.members.map((m) => [m.id, m.displayName]));
   const payLinks = new Map(state.members.map((m) => [m.id, m.payLink]));
-  const nameOf = (id: string) => names.get(id) ?? "알 수 없음";
+  const nameOf = (id: string) => names.get(id) ?? "이름 없음";
   const groupHref = `/groups/${state.trip.groupId}`;
 
   if (!settlement) {
@@ -115,35 +124,43 @@ export function SettleView({ state }: { state: State }) {
 
   const view = viewFor(settlement, state.me);
   const doneCount = settlement.transfers.filter((x) => statusOf(x) === "received").length;
+  const sendTotal = view.toSend.reduce((s, x) => s + x.transfer.amountWon, 0);
+  const receiveTotal = view.toReceive.reduce((s, x) => s + x.transfer.amountWon, 0);
 
   async function mark(index: number, side: "sent" | "received") {
-    if (state.kind !== "ok" || !settlement) return;
+    if (state.kind !== "ok" || !settlement || inFlight.current.has(index)) return;
+    inFlight.current.add(index);
     setBusy(index); setError(null);
     const sb = createBrowserSupabase();
     try {
       setSettlement(side === "sent" ? await markSent(sb, state.trip.id, index, settlement.requestedAt)
         : await markReceived(sb, state.trip.id, index, settlement.requestedAt));
+      setAnnounce(side === "sent" ? "송금 완료로 표시했습니다." : "수령을 확인했습니다.");
     } catch (e) {
       const code = e instanceof ServerError ? e.code : "UNKNOWN";
       setError(messageFor(code));
       if (code === "SETTLEMENT_CHANGED") setSettlement((await getTrip(sb, state.trip.id).catch(() => null))?.settlement ?? settlement);
-    } finally { setBusy(null); }
+    } finally { inFlight.current.delete(index); setBusy(null); }
   }
 
   const share = (
-    <IconButton type="button" aria-label={copied ? "링크 복사됨" : "링크 공유"} onClick={async () => { await shareLink(); setCopied(true); }}>
+    <IconButton type="button" aria-label={copied ? "링크 공유됨" : "링크 공유"} onClick={async () => { if (await shareLink()) { setCopied(true); setTimeout(() => setCopied(false), 3000); } }}>
       <Icon name={copied ? "check" : "ios_share"} />
     </IconButton>
   );
 
   return (
-    <Screen>
+    <Screen nav={false}>
       <PageHeader title="정산" back={groupHref} action={share} />
-      <AmountSection amountWon={view.perPersonWon} sub={state.trip.destinationName} done={doneCount} total={settlement.transfers.length} />
+      <AmountSection
+        label={view.toSend.length > 0 ? "보낼 금액" : view.toReceive.length > 0 ? "받을 금액" : "1인 부담액"}
+        amountWon={view.toSend.length > 0 ? sendTotal : view.toReceive.length > 0 ? receiveTotal : view.perPersonWon}
+        perPersonWon={view.perPersonWon} done={doneCount} total={settlement.transfers.length} />
+      <p role="status" className="visually-hidden">{announce}</p>
 
       {view.toSend.length > 0 && (
         <Section aria-labelledby="send-title">
-          <SectionHead><h2 id="send-title">보낼 금액</h2></SectionHead>
+          <SectionHead><h2 id="send-title">받는 사람</h2></SectionHead>
           {view.toSend.map(({ index, transfer }) => {
             const st = statusOf(transfer);
             const link = payLinks.get(transfer.to) ?? null;
@@ -151,11 +168,11 @@ export function SettleView({ state }: { state: State }) {
               <div key={index} style={{ display: "grid", gap: 12 }}>
                 <List><Item>
                   <Avatar aria-hidden="true">{nameOf(transfer.to).slice(0, 1)}</Avatar>
-                  <ItemText><strong>{nameOf(transfer.to)}</strong><span>받는 사람</span></ItemText>
+                  <ItemText><strong>{nameOf(transfer.to)}</strong><span>운전자</span></ItemText>
                   <Value>{formatWon(transfer.amountWon)}</Value>
                 </Item></List>
                 {st !== "pending" ? (
-                  <Done role="status"><CheckMark on />{st === "received" ? "운전자가 수령을 확인했습니다" : "송금 완료로 표시했습니다"}</Done>
+                  <Done><CheckMark on />{st === "received" ? "운전자가 수령을 확인했습니다." : "송금 완료로 표시했습니다. 운전자의 확인을 기다리고 있습니다."}</Done>
                 ) : (
                   <>
                     <Actions>
@@ -166,7 +183,7 @@ export function SettleView({ state }: { state: State }) {
                         {busy === index ? "처리 중" : "송금 완료 표시"}
                       </Button>
                     </Actions>
-                    {!isKakaoPayLink(link) && <Hint>운전자가 송금 링크를 등록하지 않았습니다. 직접 송금한 뒤 완료로 표시해 주세요.</Hint>}
+                    {!isKakaoPayLink(link) && <Hint>운전자가 송금 링크를 등록하지 않았습니다. 직접 송금한 뒤 “송금 완료 표시”를 눌러 주세요.</Hint>}
                   </>
                 )}
               </div>
@@ -177,19 +194,19 @@ export function SettleView({ state }: { state: State }) {
       )}
 
       {view.toSend.length === 0 && view.toReceive.length === 0 && (
-        <Section><Lead>보낼 금액이 없습니다.</Lead><Hint>이번 운행에서 송금할 내역이 없습니다.</Hint></Section>
+        <Section><Lead>정산할 금액이 없습니다.</Lead><Hint>이번 운행에서 보내거나 받을 금액이 없습니다.</Hint></Section>
       )}
 
       {view.toReceive.length > 0 && (
         <Section aria-labelledby="receive-title">
-          <SectionHead><h2 id="receive-title">받을 금액</h2><span>{formatWon(view.toReceive.reduce((s, x) => s + x.transfer.amountWon, 0))}</span></SectionHead>
+          <SectionHead><h2 id="receive-title">보낼 사람</h2><span className="num">{view.toReceive.length}명</span></SectionHead>
           <List>
             {view.toReceive.map(({ index, transfer }) => (
               <Item key={index}>
                 <Avatar aria-hidden="true">{nameOf(transfer.from).slice(0, 1)}</Avatar>
-                <ItemText><strong>{nameOf(transfer.from)}</strong><span>{formatWon(transfer.amountWon)}{statusOf(transfer) === "sent" ? ", 송금함" : ""}</span></ItemText>
+                <ItemText><strong>{nameOf(transfer.from)}</strong><span>{formatWon(transfer.amountWon)}</span></ItemText>
                 {statusOf(transfer) === "received" ? <StatusChip status="received" /> : (
-                  <Button type="button" variant={statusOf(transfer) === "sent" ? "primary" : "ghost"} style={{ width: "auto", minHeight: 44, padding: "0 16px" }}
+                  <Button type="button" variant="ghost" style={{ width: "auto", minHeight: 44, padding: "0 14px", fontSize: 14 }}
                     onClick={() => mark(index, "received")} disabled={busy === index} aria-busy={busy === index}>수령 확인</Button>
                 )}
               </Item>

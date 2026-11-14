@@ -5,7 +5,7 @@ import { Icon } from "./Icon";
 import { styleOnly } from "./styleProps";
 import { t } from "./theme";
 
-const Wrap = styled.div`display: grid; gap: 6px; padding-bottom: 6px;`;
+const Wrap = styled.div`display: grid; gap: 8px;`;
 const Label = styled.label`font-size: 13px; color: ${t.color.ink2}; font-weight: 500;`;
 const Box = styled.div`position: relative; display: grid;
   > .material-symbols-rounded { position: absolute; left: ${t.space.md}; top: 50%; transform: translateY(-50%); color: ${t.color.muted}; pointer-events: none; }`;
@@ -18,18 +18,16 @@ const Input = styled("input", styleOnly("withIcon", "withEye"))<{ withIcon: bool
   min-height: ${t.controlH};
   padding: 0 ${(p) => (p.withEye ? "52px" : t.space.md)} 0 ${(p) => (p.withIcon ? "48px" : t.space.md)};
   border-radius: 12px;
-  border: 1px solid var(--color-input-line);
+  border: 0;
   background: ${t.color.input};
-  transition: border-color ${t.dur.micro} ${t.ease.out};
-  @media (hover: hover) { &:hover:not(:disabled) { border-color: ${t.color.muted}; } }
+  transition: background-color ${t.dur.micro} ${t.ease.out};
   font-size: ${t.text.md};
   &::placeholder { color: ${t.color.muted}; }
-  &:focus-visible { outline: 2px solid ${t.color.ink}; outline-offset: -2px; border-color: transparent; }
-  &[aria-invalid="true"] { outline: 2px solid ${t.color.error}; outline-offset: -2px; border-color: transparent; }
+  &:focus { outline: none; background: ${t.color.card}; box-shadow: inset 0 0 0 1.5px ${t.color.accent}; }
+  &[aria-invalid="true"] { background: ${t.color.card}; box-shadow: inset 0 0 0 1.5px ${t.color.error}; }
   &:disabled { opacity: 0.55; cursor: not-allowed; }
 `;
 const Help = styled("p", styleOnly("error"))<{ error?: boolean }>`
-  min-height: 1lh;
   font-size: ${t.text.xs};
   color: ${(p) => (p.error ? t.color.error : t.color.muted)};
 `;
@@ -46,16 +44,16 @@ export function Field({ label, help, error, icon, type, ...input }: Props) {
     <Wrap>
       <Label htmlFor={id}>{label}</Label>
       <Box>
-        <Input id={id} type={password && shown ? "text" : type} withIcon={!!icon} withEye={password}
-          aria-invalid={error ? true : undefined} aria-describedby={helpId} {...input} />
+        <Input {...input} id={id} type={password && shown ? "text" : type} withIcon={!!icon} withEye={password}
+          aria-invalid={error ? true : undefined} aria-describedby={error || help ? helpId : undefined} />
         {icon && <Icon name={icon} />}
         {password && (
-          <Eye type="button" onClick={() => setShown((v) => !v)} aria-label={shown ? "비밀번호 숨기기" : "비밀번호 보기"} aria-pressed={shown}>
+          <Eye type="button" onClick={() => setShown((v) => !v)} aria-label={shown ? "비밀번호 숨기기" : "비밀번호 보기"}>
             <Icon name={shown ? "visibility_off" : "visibility"} />
           </Eye>
         )}
       </Box>
-      <Help id={helpId} error={!!error} role={error ? "alert" : undefined}>{error ?? help ?? ""}</Help>
+      {(error || help) && <Help id={helpId} error={!!error} role={error ? "alert" : undefined}>{error ?? help}</Help>}
     </Wrap>
   );
 }

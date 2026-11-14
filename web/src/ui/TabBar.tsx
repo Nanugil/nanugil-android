@@ -7,7 +7,7 @@ import { t } from "./theme";
 
 const TABS = [
   { key: "home", href: "/", icon: "home", label: "홈" },
-  { key: "join", href: "/join", icon: "qr_code_scanner", label: "초대 코드" },
+  { key: "join", href: "/join", icon: "add_circle", label: "초대 코드" },
   { key: "me", href: "/me", icon: "person", label: "내 정보" },
 ] as const;
 
@@ -31,7 +31,7 @@ const custom = { shouldForwardProp: (prop: string) => prop !== "active" };
 const Tab = styled(Link, custom)<{ active: boolean }>`
   display: grid; place-items: center; height: 56px; text-decoration: none;
   color: ${(p) => (p.active ? t.color.ink : t.color.muted)};
-  .material-symbols-rounded { font-size: 26px; font-variation-settings: "FILL" ${(p) => (p.active ? 1 : 0)}, "wght" ${(p) => (p.active ? 500 : 300)}, "GRAD" 0, "opsz" 24; }
+  .material-symbols-rounded { font-size: 26px; font-variation-settings: "FILL" ${(p) => (p.active ? 1 : 0)}, "wght" 400, "GRAD" 0, "opsz" 24; }
   &:focus-visible { outline: 2px solid ${t.color.focus}; outline-offset: -6px; border-radius: 12px; }
   &:active { opacity: 0.6; }
 `;

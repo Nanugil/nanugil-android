@@ -3,7 +3,7 @@
   "short_name": "나누길",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#F1F5F9",
+  "background_color": "#FFFFFF",
   "theme_color": "#002C5F",
   "lang": "ko",
   "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]

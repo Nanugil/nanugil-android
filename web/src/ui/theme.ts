@@ -4,7 +4,7 @@ const v = (name: string) => `var(--${name})`;
 export const t = {
   color: {
     paper: v("color-paper"), card: v("color-card"), cardStrong: v("color-card-strong"),
-    ink: v("color-ink"), ink2: v("color-ink-2"), muted: v("color-muted"), rule: v("color-rule"),
+    ink: v("color-ink"), ink2: v("color-ink-2"), muted: v("color-muted"), faint: v("color-faint"), rule: v("color-rule"),
     accent: v("color-accent"), accentInk: v("color-accent-ink"), focus: v("color-focus"),
     success: v("color-success"), cta: v("color-cta"), fill: v("color-fill"), ctaInk: v("color-cta-ink"), track: v("color-track"), error: v("color-error"), warn: v("color-warn"), input: v("color-input"),
   },

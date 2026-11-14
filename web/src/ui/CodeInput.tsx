@@ -13,7 +13,7 @@ const Box = styled("span", styleOnly("filled", "current"))<{ filled: boolean; cu
   display: grid; place-items: center; height: 56px;
   border-radius: 12px;
   background: ${t.color.fill};
-  border: 1.5px solid ${(p) => (p.current ? t.color.ink : "transparent")};
+  border: 1.5px solid ${(p) => (p.current ? t.color.accent : "transparent")};
   font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums;
   transition: border-color ${t.dur.micro} ${t.ease.out};
 `;
@@ -32,20 +32,23 @@ type Props = {
   onComplete?: (code: string) => void;
   disabled?: boolean;
   invalid?: boolean;
+  readOnly?: boolean;
+  errorId?: string;
 };
 
 /** v5 화면 04의 6칸 초대 코드 입력 */
-export const CodeInput = forwardRef<HTMLDivElement, Props>(function CodeInput({ value, onChange, onComplete, disabled, invalid }, ref) {
+export const CodeInput = forwardRef<HTMLDivElement, Props>(function CodeInput({ value, onChange, onComplete, disabled, invalid, readOnly, errorId }, ref) {
   const id = useId();
   return (
     <Wrap ref={ref}>
       <Label htmlFor={id} className="visually-hidden">초대 코드 6자리</Label>
       <div style={{ position: "relative" }}>
         <Real
-          id={id} value={value} disabled={disabled} maxLength={6}
+          id={id} value={value} disabled={disabled} readOnly={readOnly} maxLength={6} aria-describedby={errorId}
           autoComplete="one-time-code" autoCapitalize="characters" autoCorrect="off" spellCheck={false}
           inputMode="text" aria-invalid={invalid || undefined}
           onChange={(e) => {
+            if (readOnly) return;
             const next = e.target.value.replace(/[^0-9a-z]/gi, "").toUpperCase().slice(0, 6);
             onChange(next);
             if (next.length === 6) onComplete?.(next);

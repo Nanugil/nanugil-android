@@ -66,14 +66,11 @@ export function useCountUpValue(to: number): number {
   return value;
 }
 
-/** 체크 표시(svg path)를 그린다. active가 false에서 true로 바뀔 때만. */
+/** 체크 표시(svg path)를 그린다. 체크가 나타날 때(마운트)와 active가 true로 바뀔 때. */
 export function useDrawCheck(ref: RefObject<SVGPathElement | null>, active: boolean) {
-  const was = useRef(active);
   useGSAP(() => {
     const path = ref.current;
-    const first = was.current;
-    was.current = active;
-    if (!path || !active || first || reduced()) return;
+    if (!path || !active || reduced()) return;
     const len = path.getTotalLength();
     gsap.fromTo(path, { strokeDasharray: len, strokeDashoffset: len }, { strokeDashoffset: 0, duration: 0.45, ease: "power2.out" });
   }, { dependencies: [active] });

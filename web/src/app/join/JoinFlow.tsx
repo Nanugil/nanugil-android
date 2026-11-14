@@ -10,23 +10,23 @@ import type { InviteResult } from "@/lib/types";
 import { Button } from "@/ui/Button";
 import { CodeInput } from "@/ui/CodeInput";
 import { Field } from "@/ui/Field";
-import { Avatar, Hint, Item, ItemText, List, PageHeader, Section, SectionHead, Tag } from "@/ui/kit";
+import { Avatar, Hint, Item, ItemText, List, PageHeader, Section, Tag } from "@/ui/kit";
 import { Icon } from "@/ui/Icon";
 import { useShake } from "@/ui/motion";
-import { styleOnly } from "@/ui/styleProps";
 import { t } from "@/ui/theme";
 
 const ErrorText = styled.p`color: ${t.color.error}; font-size: ${t.text.sm}; min-height: 1lh;`;
-const Pick = styled("button", styleOnly("selected"))<{ selected: boolean }>`
-  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 10px 0;
-  background: transparent; border: 0; text-align: left; cursor: pointer; color: ${t.color.ink};
-  font-size: 15px; font-weight: ${(p) => (p.selected ? 600 : 400)};
+// 이름 고르기는 실제 라디오(화살표 키로 이동, 탭 한 번에 들어감). 라벨 전체가 누를 수 있는 줄이다.
+const Option = styled.label`display: flex; align-items: center; gap: 12px; min-height: 64px; cursor: pointer; font-size: 15px;
+  input { position: absolute; opacity: 0; pointer-events: none; }
   > span:nth-of-type(2) { flex: 1; }
-  > .material-symbols-rounded:last-child { color: ${(p) => (p.selected ? t.color.ink : t.color.muted)};
-    font-variation-settings: "FILL" ${(p) => (p.selected ? 1 : 0)}, "wght" 300, "GRAD" 0, "opsz" 24; }
-  &:focus-visible { outline: 2px solid ${t.color.focus}; outline-offset: 2px; border-radius: 8px; }
+  .mark { color: ${t.color.faint}; font-size: 22px; }
+  input:checked ~ .mark { color: ${t.color.accent}; font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 24; }
+  input:checked ~ span:nth-of-type(2) { font-weight: 600; }
+  &:has(input:focus-visible) { outline: 2px solid ${t.color.focus}; outline-offset: 2px; border-radius: 8px; }
 `;
-const PickItem = styled.li`& + & { border-top: 1px solid ${t.color.rule}; }`;
+const Fieldset = styled.fieldset`border: 0; margin: 0; padding: 0; min-width: 0; display: grid;
+  legend { font-size: 15px; font-weight: 600; padding: 0; margin-bottom: 4px; }`;
 
 type Step =
   | { kind: "code" }
@@ -46,6 +46,8 @@ export function JoinFlow({ initialCode }: { initialCode: string }) {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const shakeRef = useRef<HTMLDivElement>(null);
+  const pickTitle = useRef<HTMLLegendElement>(null);
+  useEffect(() => { if (step.kind === "pick") pickTitle.current?.focus(); }, [step.kind]);
   useShake(shakeRef, shake);
 
   const fail = useCallback((e: unknown) => {
@@ -84,7 +86,7 @@ export function JoinFlow({ initialCode }: { initialCode: string }) {
 
   async function finish() {
     if (step.kind !== "pick" || !picked) return;
-    if (picked === "new" && (name.trim().length < 1 || name.trim().length > 20)) { setError("이름은 1~20자로 입력해 주세요"); return; }
+    if (picked === "new" && (name.trim().length < 1 || name.trim().length > 20)) { setError("이름은 1~20자로 입력해 주세요."); return; }
     setBusy(true); setError(null);
     try {
       const r = picked === "new" ? await joinGroup(sb, step.code, name.trim()) : await claimMember(sb, step.code, picked);
@@ -110,27 +112,27 @@ export function JoinFlow({ initialCode }: { initialCode: string }) {
             <Tag className="num">{step.group.memberCount}명</Tag>
           </Item></List>
         </Section>
-        <Section aria-labelledby="pick-title">
-          <SectionHead><h2 id="pick-title">이름 선택</h2></SectionHead>
-          {step.names.length > 0 && <Hint>운전자가 등록한 이름 중 본인 이름을 선택해 주세요.</Hint>}
-          <ul role="radiogroup" aria-labelledby="pick-title" style={{ listStyle: "none", margin: 0, padding: 0 }}>
+        <Section>
+          <Fieldset>
+            <legend ref={pickTitle} tabIndex={-1}>이름 선택</legend>
+            {step.names.length > 0 && <Hint>운전자가 등록한 이름 중 본인 이름을 선택해 주세요.</Hint>}
             {step.names.map((m) => (
-              <PickItem key={m.id}>
-                <Pick type="button" role="radio" aria-checked={picked === m.id} selected={picked === m.id} onClick={() => setPicked(m.id)}>
-                  <Avatar aria-hidden="true">{m.displayName.slice(0, 1)}</Avatar><span>{m.displayName}</span>
-                  <Icon name={picked === m.id ? "radio_button_checked" : "radio_button_unchecked"} />
-                </Pick>
-              </PickItem>
+              <Option key={m.id}>
+                <Avatar aria-hidden="true">{m.displayName.slice(0, 1)}</Avatar>
+                <span>{m.displayName}</span>
+                <input type="radio" name="pick" value={m.id} checked={picked === m.id} onChange={() => setPicked(m.id)} />
+                <Icon name={picked === m.id ? "radio_button_checked" : "radio_button_unchecked"} className="mark" />
+              </Option>
             ))}
-            <PickItem>
-              <Pick type="button" role="radio" aria-checked={picked === "new"} selected={picked === "new"} onClick={() => setPicked("new")}>
-                <Avatar aria-hidden="true"><Icon name="add" /></Avatar><span>목록에 없음, 새로 참여</span>
-                <Icon name={picked === "new" ? "radio_button_checked" : "radio_button_unchecked"} />
-              </Pick>
-            </PickItem>
-          </ul>
+            <Option>
+              <Avatar aria-hidden="true"><Icon name="add" /></Avatar>
+              <span>새 이름으로 참여</span>
+              <input type="radio" name="pick" value="new" checked={picked === "new"} onChange={() => setPicked("new")} />
+              <Icon name={picked === "new" ? "radio_button_checked" : "radio_button_unchecked"} className="mark" />
+            </Option>
+          </Fieldset>
           {picked === "new" && (
-            <Field label="표시 이름" value={name} onChange={(e) => setName(e.target.value)} maxLength={20} autoComplete="nickname" help="그룹 멤버에게 표시되는 이름입니다." />
+            <Field label="이름" value={name} onChange={(e) => setName(e.target.value)} maxLength={20} autoComplete="nickname" help="그룹 멤버에게 표시되는 이름입니다." />
           )}
           {error && <ErrorText role="alert">{error}</ErrorText>}
         </Section>
@@ -143,11 +145,10 @@ export function JoinFlow({ initialCode }: { initialCode: string }) {
     <>
       <PageHeader title="초대 코드 입력" back="/" />
       <Section aria-labelledby="join-title">
-        <SectionHead><h2 id="join-title">초대 코드 6자리</h2></SectionHead>
-        <Hint>운전자 화면에 표시된 코드를 입력해 주세요.</Hint>
+        <Hint id="join-title">운전자 화면에 표시된 6자리 코드를 입력해 주세요.</Hint>
         <CodeInput ref={shakeRef} value={code} onChange={(v) => { setCode(v); setError(null); }}
-          onComplete={(v) => void lookUp(v)} disabled={locked || step.kind === "loading"} invalid={!!error} />
-        <ErrorText role={error ? "alert" : undefined}>{error ?? ""}</ErrorText>
+          onComplete={(v) => void lookUp(v)} disabled={locked} readOnly={step.kind === "loading"} invalid={!!error} errorId={error ? "code-error" : undefined} />
+        <ErrorText id="code-error" role={error ? "alert" : undefined}>{error ?? ""}</ErrorText>
       </Section>
       <Button type="button" onClick={() => void lookUp(code)} disabled={locked || code.length !== 6 || step.kind === "loading"}
         aria-busy={step.kind === "loading"}>

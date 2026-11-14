@@ -11,8 +11,7 @@ const Main = styled("main", styleOnly("wide", "nav"))<{ wide: boolean; nav: bool
   padding: calc(8px + env(safe-area-inset-top)) ${t.gutter}
     ${(p) => (p.nav ? `calc(${t.space.lg} + 76px + env(safe-area-inset-bottom))` : t.space.x2l)};
   display: grid; gap: 0; align-content: start;
-  > * + * { margin-top: 0; }
-  > button, > a { margin-block: 12px; }
+  > button, > a { margin-top: 8px; }
 `;
 
 /** 모든 화면의 틀: 한 줄 본문과 아래 탭바(로그인 전 화면은 nav={false}). 머리는 각 화면이 그린다. */
