@@ -78,6 +78,7 @@ data class GroupActions(
     val onStartTrip: () -> Unit = {},
     val onCodeKey: (Char) -> Unit = {},
     val onCodeDelete: () -> Unit = {},
+    val onJoinNameChange: (String) -> Unit = {},
     val onJoin: () -> Unit = {},
     val onCarNameChange: (String) -> Unit = {},
     val onTogglePassenger: (String) -> Unit = {},
@@ -439,12 +440,14 @@ internal fun JoinCodeScreen(p: NaviPalette, join: JoinState, actions: GroupActio
                             Label(found.name, 30.sp, p.textPrimary, FontWeight.Bold)
                         }
                     }
-                    InfoRow(p, "멤버", "${found.members.size}명", Modifier.padding(top = 18.dp))
+                    InfoRow(p, "멤버", "${found.memberCount}명", Modifier.padding(top = 18.dp))
                     Divider(p)
                     InfoRow(p, "방장", found.host?.name ?: "-")
                     Divider(p)
                     InfoRow(p, "목적지", found.destinationName)
-                    PrimaryButton("참여하기", true, actions.onJoin, Modifier.padding(top = 18.dp).fillMaxWidth())
+                    Caption(p, "내 이름", Modifier.padding(top = 14.dp))
+                    InputField(p, join.myName, actions.onJoinNameChange)
+                    PrimaryButton("참여하기", join.myName.isNotBlank(), actions.onJoin, Modifier.padding(top = 18.dp).fillMaxWidth())
                 }
             }
         }

@@ -3,6 +3,7 @@ package com.nanugil.app.ui.navi
 import ai.pleos.playground.vehicle.Vehicle
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nanugil.app.BuildConfig
@@ -20,12 +21,21 @@ import com.nanugil.app.data.navi.NaviController
 import com.nanugil.app.data.navi.NaviPlace
 import com.nanugil.app.data.navi.NaviState
 import com.nanugil.app.data.route.NaverDirectionsClient
+import com.nanugil.app.data.server.Group
+import com.nanugil.app.data.server.GroupTripApi
 import com.nanugil.app.data.server.MyCarSnapshot
+import com.nanugil.app.data.server.Place
+import com.nanugil.app.data.server.ServerException
 import com.nanugil.app.data.server.ServerGroupCars
+import com.nanugil.app.data.server.Supabase
+import com.nanugil.app.data.server.Trip
+import com.nanugil.app.data.server.TripMember
 import com.nanugil.app.data.voice.VoiceSearch
 import com.nanugil.app.data.vehicle.VehicleGearWatcher
 import com.nanugil.app.data.vehicle.VehicleStatusSource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -242,7 +252,9 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     // ---- 와이어프레임 v5 화면 흐름 ----
 
     private fun go(screen: AppScreen) {
-        groupUi.value = groupUi.value.copy(screen = screen)
+        groupUi.value = groupUi.value.copy(screen = screen, note = null)
+        // 홈에 올 때마다 내 그룹(인원·운행 중)을 서버에서 다시 읽는다
+        if (screen == AppScreen.HOME) refreshMyGroups()
         // 08을 처음 열 때 운행 기록·차종·내 위치 근처 유가로 정산 값을 채운다(운행마다 한 번).
         if (screen == AppScreen.ARRIVAL) viewModelScope.launch {
             // 내비가 아직 위치를 안 줬으면 잠깐 기다린다. 그래도 없으면 세션이 데모 출발지로 찾는다.
@@ -282,7 +294,8 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         }
         go(
             when (groupUi.value.screen) {
-                AppScreen.JOIN_SETUP -> AppScreen.JOIN_CODE
+                // 홈 그룹 목록에서 바로 05로 왔으면(코드 입력 없이) 홈으로
+                AppScreen.JOIN_SETUP -> if (groupUi.value.join.code.isEmpty()) AppScreen.HOME else AppScreen.JOIN_CODE
                 else -> AppScreen.HOME
             },
         )
@@ -296,11 +309,23 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         groupUi.value = groupUi.value.copy(screen = AppScreen.JOIN_CODE, join = JoinState())
     }
 
-    /** 홈 "내 그룹"에서 고르면 그 그룹 대기실 (목업: MT 그룹) */
+    /** 홈 "내 그룹"에서 고르면: 방장은 03 대기실, 멤버는 05 운행 참가 (목업 그룹이면 MT 그룹 대기실) */
     fun openGroup(summary: GroupSummary) {
-        val group = groupUi.value.group?.takeIf { it.name == summary.name }
-            ?: MockGroups.mtGroup.copy(name = summary.name, logo = summary.logo)
-        groupUi.value = groupUi.value.copy(group = group, screen = AppScreen.LOBBY)
+        val id = summary.id
+        if (id == null) {
+            val group = groupUi.value.group?.takeIf { it.name == summary.name }
+                ?: MockGroups.mtGroup.copy(name = summary.name, logo = summary.logo)
+            groupUi.value = groupUi.value.copy(group = group, screen = AppScreen.LOBBY)
+            return
+        }
+        serverAction {
+            val l = loadGroup(id)
+            if (l.info.host?.id == l.myMemberId) {
+                groupUi.update { it.copy(group = l.info, screen = AppScreen.LOBBY) }
+            } else {
+                showJoinSetup(l, JoinState())
+            }
+        }
     }
 
     fun updateCreateForm(form: CreateGroupForm) {
@@ -310,6 +335,19 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     /** [만들고 코드 받기]: 나를 방장(운전)으로 넣고 초대 코드를 만든다 */
     fun createGroup() {
         val form = groupUi.value.createForm
+        if (serverOn) {
+            val n = navi.state.value
+            val at = n.destinationPosition
+            // 내비에 목적지를 골라 뒀으면 그곳, 아니면 데모 목적지
+            val dest = if (at != null) Place(n.destinationName ?: MockGroups.DESTINATION, at.latitude, at.longitude)
+            else Place(MockGroups.DESTINATION, MockGroupDriveData.DESTINATION.latitude, MockGroupDriveData.DESTINATION.longitude)
+            serverAction {
+                val g = GroupTripApi.createGroup(form.name.trim(), dest, form.myName.ifBlank { "나" }.trim(), logoUrl = form.logo.name)
+                groupUi.update { it.copy(group = loadGroup(g.id, g).info, screen = AppScreen.LOBBY) }
+                refreshMyGroups()
+            }
+            return
+        }
         val me = GroupMember(form.myName.ifBlank { "나" }, driver = true, host = true, car = "A차")
         val group = GroupInfo(
             name = form.name.trim(),
@@ -324,19 +362,60 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
 
     fun newInviteCode() {
         val g = groupUi.value.group ?: return
-        groupUi.value = groupUi.value.copy(group = g.copy(code = MockGroups.newCode()))
+        val id = g.id ?: run {
+            groupUi.value = groupUi.value.copy(group = g.copy(code = MockGroups.newCode()))
+            return
+        }
+        serverAction {
+            val code = GroupTripApi.resetInviteCode(id).code
+            groupUi.update { s -> s.copy(group = s.group?.copy(code = code)) }
+        }
     }
 
-    /** [동승자 추가] (목업: 다음 사람이 들어온다) */
+    /**
+     * [동승자 추가]: 다음 사람이 들어온다.
+     * ponytail: 이름 입력칸이 아직 없어 서버 그룹에도 시연용 이름(MockGroups.extraPassengers)을 차례로 넣는다. 03에 입력칸이 생기면 그 이름으로.
+     */
     fun addPassenger() {
         val g = groupUi.value.group ?: return
         val next = MockGroups.extraPassengers.firstOrNull { c -> g.members.none { it.name == c.name } } ?: return
-        groupUi.value = groupUi.value.copy(group = g.copy(members = g.members + next))
+        val id = g.id ?: run {
+            groupUi.value = groupUi.value.copy(group = g.copy(members = g.members + next))
+            return
+        }
+        serverAction {
+            GroupTripApi.addPassenger(id, next.name)
+            groupUi.update { it.copy(group = loadGroup(id).info) }
+        }
     }
 
-    /** [운행 시작]: 그룹 목적지로 내장 내비 안내를 시작하고 주행 화면으로 */
+    /**
+     * [운행 시작] (방장): 서버 운행을 시작(이미 있으면 그 운행)하고 내 차를 등록한다.
+     * 03에서 추가한 앱 없는 동승자 중 아직 아무 차에도 안 탄 사람은 내 차에 태운다.
+     * 그다음 그룹 목적지로 내장 내비 안내를 시작하고 주행 화면으로.
+     */
     fun startTrip() {
-        groupUi.value = groupUi.value.copy(tripStarted = true, screen = AppScreen.DRIVE)
+        val id = groupUi.value.group?.id ?: run {
+            groupUi.value = groupUi.value.copy(tripStarted = true, screen = AppScreen.DRIVE)
+            startRoute()
+            return
+        }
+        serverAction {
+            val trip = GroupTripApi.activeTrip(id) ?: GroupTripApi.startTrip(id)
+            GroupTripApi.joinTrip(trip.id, HOST_CAR_LABEL, fuelTypeOf(nanugil.readMyCarType()))
+            val l = loadGroup(id)
+            val mine = passengerChoices(l.info, l.riders, l.myMemberId)
+                .filter { it.takenBy == null && (it.selected || !it.member.driver) }
+                .mapNotNull { it.member.id }
+            GroupTripApi.setTripPassengers(trip.id, mine)
+            enterTrip(loadGroup(id).info)
+        }
+    }
+
+    /** 서버 운행에 들어갔다: 일행 차를 서버에서 받고, 그룹 목적지로 안내를 시작한다. */
+    private fun enterTrip(info: GroupInfo) {
+        groupUi.update { it.copy(group = info, tripStarted = true, screen = AppScreen.DRIVE) }
+        useServerGroup(info.id)
         startRoute()
     }
 
@@ -344,24 +423,68 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         val j = groupUi.value.join
         if (j.code.length >= MockGroups.CODE_LENGTH) return
         val code = j.code + ch
-        // TODO(서버): 코드로 그룹을 찾는다. 지금은 6자리가 되면 시연용 MT 그룹을 찾은 것으로 한다.
-        val found = if (code.length == MockGroups.CODE_LENGTH) MockGroups.mtGroup.copy(members = MockGroups.mtGroup.members.take(3)) else null
-        groupUi.value = groupUi.value.copy(join = j.copy(code = code, found = found))
+        groupUi.value = groupUi.value.copy(join = j.copy(code = code, found = null), note = null)
+        if (code.length < MockGroups.CODE_LENGTH) return
+        if (!serverOn) {
+            // 서버 없이: 6자리가 되면 시연용 MT 그룹을 찾은 것으로 한다
+            val found = MockGroups.mtGroup.copy(members = MockGroups.mtGroup.members.take(3))
+            groupUi.update { it.copy(join = it.join.copy(found = found)) }
+            return
+        }
+        // 참여 전에는 이름·인원만 볼 수 있다 (I3). 방장·목적지는 참여하면 보인다.
+        serverAction {
+            val p = GroupTripApi.previewInvite(code)
+            val found = GroupInfo(
+                name = p.groupName, destinationName = "참여하면 보여요", code = code, logo = GroupLogo.CAR,
+                members = emptyList(), cars = 0, id = p.groupId, memberCount = p.memberCount,
+            )
+            groupUi.update { s -> if (s.join.code == code) s.copy(join = s.join.copy(found = found)) else s }
+        }
     }
 
     fun deleteCode() {
         val j = groupUi.value.join
-        groupUi.value = groupUi.value.copy(join = j.copy(code = j.code.dropLast(1), found = null))
+        groupUi.value = groupUi.value.copy(join = j.copy(code = j.code.dropLast(1), found = null), note = null)
     }
 
-    /** [참여하기] → 05 운행 참가 */
+    fun setJoinName(name: String) {
+        groupUi.update { it.copy(join = it.join.copy(myName = name)) }
+    }
+
+    /** [참여하기] → 05 운행 참가. 서버면 그룹에 들어가고(이미 멤버면 그대로) 멤버·운행을 읽는다. */
     fun joinGroup() {
         val j = groupUi.value.join
-        if (j.found == null) return
-        groupUi.value = groupUi.value.copy(
-            screen = AppScreen.JOIN_SETUP,
-            join = j.copy(passengers = MockGroups.joinPassengers),
-        )
+        val found = j.found ?: return
+        val id = found.id ?: run {
+            groupUi.value = groupUi.value.copy(screen = AppScreen.JOIN_SETUP, join = j.copy(passengers = MockGroups.joinPassengers))
+            return
+        }
+        serverAction {
+            try {
+                GroupTripApi.joinGroup(j.code, j.myName.ifBlank { "나" }.trim())
+            } catch (e: ServerException) {
+                if (e.code != "ALREADY_MEMBER") throw e
+            }
+            showJoinSetup(loadGroup(id), j)
+            refreshMyGroups()
+        }
+    }
+
+    /** 05 운행 참가를 서버 그룹 값으로 채운다. 아직 운행 전이면 출발을 누를 때 다시 확인한다. */
+    private suspend fun showJoinSetup(l: LoadedGroup, j: JoinState) {
+        val fuel = nanugil.readMyCarType()?.label ?: j.fuelType
+        groupUi.update {
+            it.copy(
+                screen = AppScreen.JOIN_SETUP,
+                join = j.copy(
+                    found = l.info,
+                    passengers = passengerChoices(l.info, l.riders, l.myMemberId),
+                    fuelType = fuel,
+                    carName = freeCarName(j.carName, l.riders.filter { r -> r.isDriver && r.memberId != l.myMemberId }.mapNotNull { r -> r.vehicleLabel }),
+                ),
+                note = if (l.trip == null) "방장이 운행을 시작하면 출발할 수 있어요" else null,
+            )
+        }
     }
 
     fun setCarName(name: String) {
@@ -383,8 +506,17 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     /** [동승자 n명과 출발]: 찾은 그룹으로 운행을 시작한다 */
     fun departJoin() {
         val j = groupUi.value.join
-        groupUi.value = groupUi.value.copy(group = j.found, tripStarted = true, screen = AppScreen.DRIVE)
-        startRoute()
+        val id = j.found?.id ?: run {
+            groupUi.value = groupUi.value.copy(group = j.found, tripStarted = true, screen = AppScreen.DRIVE)
+            startRoute()
+            return
+        }
+        serverAction {
+            val trip = GroupTripApi.activeTrip(id) ?: throw ServerException("TRIP_NOT_ACTIVE")
+            GroupTripApi.joinTrip(trip.id, j.carName.ifBlank { "B차" }.trim(), fuelTypeOf(nanugil.readMyCarType()))
+            GroupTripApi.setTripPassengers(trip.id, j.passengers.filter { it.selected }.mapNotNull { it.member.id })
+            enterTrip(loadGroup(id).info)
+        }
     }
 
     fun setPriceBasis(basis: PriceBasis) =
@@ -404,18 +536,98 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     /** 서버 그룹에 들어가면 그 ID를, 나가면 null(목업으로 돌아감)을 넣는다. 일행 차를 서버에서 받기 시작한다. */
     fun useServerGroup(groupId: String?) {
         serverGroupId.value = groupId
+        nanugil.serverGroupId = groupId // 정산이 이 그룹의 운행을 읽는다
     }
 
-    /** 09 [홈으로]. 모두 받았으면 이번 정산을 끝내고 다음 운행을 준비한다. */
+    /**
+     * 09 [홈으로]. 모두 받았으면 이번 정산을 끝내고 다음 운행을 준비한다.
+     * 서버 그룹이면 방장이 운행을 끝내고(T4), 일행 차는 목업으로 돌아간다.
+     */
     fun goHome() {
-        if (settlement.state.value.request?.isComplete == true) settlement.finish()
+        if (settlement.state.value.request?.isComplete == true) {
+            settlement.finish()
+            val g = groupUi.value.group
+            if (g?.id != null) {
+                serverAction {
+                    GroupTripApi.activeTrip(g.id)?.let { trip ->
+                        try {
+                            GroupTripApi.endTrip(trip.id)
+                        } catch (e: ServerException) {
+                            if (e.code != "NOT_OWNER") throw e // 방장이 아니면 끝낼 수 없다 (방장 기기가 끝낸다)
+                        }
+                    }
+                }
+                useServerGroup(null)
+                groupUi.update { it.copy(group = null, tripStarted = false) }
+            }
+        }
         go(AppScreen.HOME)
     }
 
     fun startRoute() {
-        // TODO(서버): 그룹 목적지를 서버에서 받는다. 지금은 데모용 고정 목적지.
-        val name = groupUi.value.group?.destinationName ?: MockGroups.DESTINATION
-        navi.startRoute(NaviPlace(name = name, position = MockGroupDriveData.DESTINATION))
+        val g = groupUi.value.group
+        navi.startRoute(
+            NaviPlace(
+                name = g?.destinationName ?: MockGroups.DESTINATION,
+                position = g?.destination ?: MockGroupDriveData.DESTINATION,
+            ),
+        )
+    }
+
+    // ---- 서버 그룹 (#18 3번) ----
+
+    private val serverOn = BuildConfig.SUPABASE_URL.isNotBlank()
+    private val nanugil get() = getApplication<NanugilApplication>()
+
+    // serverOn을 정한 뒤에 부른다 (프로퍼티는 적힌 순서대로 초기화된다)
+    init { refreshMyGroups() }
+
+    private data class LoadedGroup(val info: GroupInfo, val trip: Trip?, val riders: List<TripMember>, val myMemberId: String?)
+
+    /** 그룹·멤버·진행 중 운행을 한 번에 읽는다. [group]을 이미 갖고 있으면 다시 읽지 않는다. */
+    private suspend fun loadGroup(groupId: String, group: Group? = null): LoadedGroup {
+        val me = Supabase.ensureSignedIn()
+        val g = group ?: GroupTripApi.myGroups().first { it.group.id == groupId }.group
+        val members = GroupTripApi.members(groupId)
+        val trip = GroupTripApi.activeTrip(groupId)
+        val riders = trip?.let { GroupTripApi.tripMembers(it.id) }.orEmpty()
+        return LoadedGroup(groupInfoOf(g, members, riders), trip, riders, members.firstOrNull { it.userId == me }?.id)
+    }
+
+    /** 홈 "내 그룹"을 서버 값으로. 실패하면 지금 목록을 그대로 둔다. */
+    private fun refreshMyGroups() {
+        if (!serverOn) return
+        viewModelScope.launch {
+            try {
+                val list = GroupTripApi.myGroups().map { mg ->
+                    GroupSummary(
+                        name = mg.group.name,
+                        memberCount = GroupTripApi.members(mg.group.id).size,
+                        logo = logoOf(mg.group.logoUrl),
+                        driving = mg.activeTrip != null,
+                        id = mg.group.id,
+                    )
+                }
+                groupUi.update { it.copy(myGroups = list) }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                Log.w(TAG, "내 그룹 읽기 실패", e)
+            }
+        }
+    }
+
+    /** 서버 요청을 보낸다. 실패하면 화면 아래에 안내를 띄우고 지금 화면에 머문다. */
+    private fun serverAction(block: suspend () -> Unit) {
+        groupUi.update { it.copy(note = null) }
+        viewModelScope.launch {
+            try {
+                block()
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                Log.w(TAG, "그룹 서버 요청 실패", e)
+                groupUi.update { it.copy(note = groupErrorText(e)) }
+            }
+        }
     }
 
     fun stopRoute() = navi.cancelRoute()
@@ -574,6 +786,9 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
 
 
     private companion object {
+        const val TAG = "NaviDriveViewModel"
+        /** 방장 차 이름 (03에는 차 이름 칸이 없다). 05에서 들어오는 차는 기본 "B차". */
+        const val HOST_CAR_LABEL = "A차"
         const val GROUP_ID = "demo"
         /** 08을 열 때 내비 현재 위치를 기다리는 최대 시간 */
         const val POSITION_WAIT_MS = 5_000L

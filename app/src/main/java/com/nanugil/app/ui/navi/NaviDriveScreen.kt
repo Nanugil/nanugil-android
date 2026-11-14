@@ -263,6 +263,13 @@ fun NaviDriveScreen(
             AppScreen.SETTLE_SENT -> SettleSentScreen(p, group.settlement, groupActions)
         }
 
+        // 그룹 서버 요청이 실패했거나 기다릴 일이 있으면 아래 가운데에 한 줄로 알린다 (#18 3번)
+        if (!inputBlocked) group.note?.let { note ->
+            Panel(p, Modifier.align(Alignment.BottomCenter).padding(bottom = 48.dp), CardShape) {
+                Label(note, 23.sp, BrandAmber, FontWeight.Bold, Modifier.padding(horizontal = 28.dp, vertical = 18.dp))
+            }
+        }
+
         // 지도 버튼(확대·축소·내 위치)은 운행 전 화면에서도 쓴다. 오른쪽 아래는 어느 화면에서든 비어 있다.
         MapControls(
             p = p,

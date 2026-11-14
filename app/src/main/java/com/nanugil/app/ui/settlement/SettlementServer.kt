@@ -22,13 +22,17 @@ interface SettlementServer {
     suspend fun saveMyCost(tripId: String, car: CarInput, choice: PriceChoice, estimatedToll: Long?)
 }
 
-/** [SettlementServer]의 Supabase 구현. 그룹·운행 만들기·참가는 그룹 화면 담당이고, 여기서는 읽기와 내 차 비용 저장만 한다. */
-class SupabaseSettlementServer : SettlementServer {
+/**
+ * [SettlementServer]의 Supabase 구현. 그룹·운행 만들기·참가는 그룹 화면 담당이고, 여기서는 읽기와 내 차 비용 저장만 한다.
+ * @param groupId 그룹 화면에서 들어간 그룹. null이면 진행 중 운행이 있는 첫 그룹을 쓴다.
+ */
+class SupabaseSettlementServer(private val groupId: () -> String? = { null }) : SettlementServer {
 
     override suspend fun loadTrip(): ServerTrip? {
         val me = Supabase.ensureSignedIn()
-        // shortcut: 진행 중 운행이 여러 그룹에 있으면 첫 번째를 쓴다. 그룹 화면이 서버에 붙으면 고른 그룹의 운행을 넘겨받는다.
-        val trip = GroupTripApi.myGroups().firstNotNullOfOrNull { it.activeTrip } ?: return null
+        val chosen = groupId()
+        val trip = GroupTripApi.myGroups().filter { chosen == null || it.group.id == chosen }
+            .firstNotNullOfOrNull { it.activeTrip } ?: return null
         val members = GroupTripApi.members(trip.groupId)
         val names = members.associate { it.id to it.displayName }
         val myMemberId = members.firstOrNull { it.userId == me }?.id
