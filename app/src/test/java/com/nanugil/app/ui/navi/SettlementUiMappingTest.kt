@@ -46,18 +46,37 @@ class SettlementUiMappingTest {
     }
 
     @Test
-    fun sent_listsTransfersToMeByNameAndOthersWithArrow() {
+    fun sent_listsOnlyMyTransfers_withDirection() {
         val state = SettlementState(cars = cars)
-        val request = SettlementRequest.of(state.settled.first!!, myId = "김민수").toggled(0)
+        val request = SettlementRequest.of(state.settled.first!!, myId = "김민수")
         val ui = state.copy(request = request).toUi(payLink = "https://qr.kakaopay.com/x")
 
-        assertEquals(request.transfers.size, ui.payments.size)
-        assertEquals(1, ui.paidCount)
-        ui.payments.zip(request.transfers).forEach { (pay, t) ->
-            assertEquals(if (t.toId == "김민수") t.fromId else "${t.fromId} → ${t.toId}", pay.name)
-            assertEquals(t.amountWon, pay.amountWon)
-        }
+        // 김민수는 정예린에게 받고, 더 쓴 이서준에게 보낸다
+        assertEquals(listOf("정예린" to true, "이서준" to false), ui.payments.map { it.name to it.incoming })
+        ui.payments.zip(request.transfers).forEach { (pay, t) -> assertEquals(t.amountWon, pay.amountWon) }
+        assertEquals(listOf("이서준"), ui.sends.map { it.name })
         assertEquals("김민수", ui.myName)
+        assertEquals(0, ui.paidCount)
+        assertEquals(1, state.copy(request = request.toggled(0)).toUi(payLink = null).paidCount)
+    }
+
+    @Test
+    fun sent_passengerSeesWhoToPay_notReceivedChecks() {
+        // #30: 동승자 기기의 A차는 남의 차. 요청한 사람은 받을 사람이 아니라 낼 사람이다.
+        val state = SettlementState(cars = cars, myName = "정예린")
+        val request = SettlementRequest.of(state.settled.first!!, state.me)
+        val ui = state.copy(request = request).toUi(payLink = null)
+
+        assertEquals("정예린", ui.myName)
+        assertEquals(false, ui.receives)
+        assertEquals(listOf("김민수"), ui.sends.map { it.name })
+    }
+
+    @Test
+    fun carNames_comeFromServerLabel() {
+        val ui = SettlementState(cars = listOf(cars[1].copy(label = "B차"), cars[0].copy(label = "A차"))).toUi(payLink = null)
+        assertEquals(listOf("B차", "A차"), ui.cars.map { it.label })
+        assertEquals("B차 운전", ui.lines[0].detail)
     }
 
     @Test

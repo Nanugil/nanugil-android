@@ -624,6 +624,12 @@ internal fun ArrivalScreen(p: NaviPalette, s: SettlementUi, actions: GroupAction
     Box(Modifier.fillMaxSize().padding(start = OuterPad, end = OuterPad, top = CardTop)) {
         Panel(p, Modifier.width(HalfLeft), CardShape) {
             Column(Modifier.padding(InnerPad)) {
+                // 서버 운행이 없으면 예시 값 대신 안내만 (#30)
+                if (s.cars.isEmpty()) {
+                    Title(p, "정산할 운행이 없어요")
+                    s.serverNote?.let { Label(it, 22.sp, p.textSecondary, modifier = Modifier.padding(top = 8.dp)) }
+                    return@Column
+                }
                 Caption(p, "1인")
                 if (s.waiting == null) {
                     BigAmount(p, s.perPersonWon)
@@ -668,7 +674,7 @@ internal fun ArrivalScreen(p: NaviPalette, s: SettlementUi, actions: GroupAction
                 s.serverNote?.let { Label(it, 19.sp, p.textSecondary, modifier = Modifier.padding(top = 6.dp)) }
             }
         }
-        Panel(p, Modifier.align(Alignment.TopEnd).width(HalfRight), CardShape) {
+        if (s.cars.isNotEmpty()) Panel(p, Modifier.align(Alignment.TopEnd).width(HalfRight), CardShape) {
             Column(Modifier.padding(InnerPad)) {
                 Caption(p, "주고받을 돈")
                 if (s.waiting != null) {
@@ -714,11 +720,17 @@ internal fun SettleSentScreen(p: NaviPalette, s: SettlementUi, actions: GroupAct
                     contentAlignment = Alignment.Center,
                 ) { Icon(R.drawable.ic_check, Color.White, 46.dp) }
                 Title(p, "정산 요청 보냄", Modifier.padding(top = 22.dp))
-                Label("${s.myName}에게 카카오페이로 | 1인 ${won(s.perPersonWon)}", 22.sp, p.textSecondary, modifier = Modifier.padding(top = 4.dp))
+                // 운전자는 동승자에게 받으면서 다른 운전자에게 보낼 수도 있다
+                val payTo = s.sends.joinToString(", ") { it.name }
+                if (s.receives) Label("${s.myName}에게 카카오페이로 | 1인 ${won(s.perPersonWon)}", 22.sp, p.textSecondary, modifier = Modifier.padding(top = 4.dp))
+                if (s.sends.isNotEmpty()) Label("${payTo}에게 카카오페이로 송금 | ${won(s.sends.sumOf { it.amountWon })}", 22.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(top = 4.dp))
                 s.serverNote?.let { Label(it, 19.sp, BrandAmber, FontWeight.Bold, Modifier.padding(top = 4.dp)) }
                 // 운전자 송금 링크 QR. 동승자가 폰 카메라로 찍으면 카카오페이 송금이 열린다(금액은 직접 입력).
+                // 내는 사람 기기에는 받을 사람의 링크가 없어 QR을 띄우지 않는다(받을 사람 기기의 QR을 찍는다).
                 val link = s.payLink
-                if (link != null) {
+                if (!s.receives) {
+                    Label("${payTo} 기기의 QR을 찍어 송금하세요", 19.sp, p.textSecondary, modifier = Modifier.padding(top = 16.dp))
+                } else if (link != null) {
                     val qr = remember(link) { qrBitmap(link) }
                     Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.Bottom) {
                         Image(qr, "${s.myName} 카카오페이 송금 QR", Modifier.size(200.dp).clip(RoundedCornerShape(12.dp)))
@@ -732,7 +744,8 @@ internal fun SettleSentScreen(p: NaviPalette, s: SettlementUi, actions: GroupAct
         }
         Panel(p, Modifier.align(Alignment.TopEnd).width(HalfRight), CardShape) {
             Column(Modifier.padding(InnerPad)) {
-                Caption(p, "받은 사람 ${s.paidCount}/${s.payments.size} · 받으면 눌러서 체크")
+                val incoming = s.payments.count { it.incoming }
+                Caption(p, if (incoming > 0) "받은 사람 ${s.paidCount}/$incoming · 받거나 보내면 눌러서 체크" else "보낼 돈 · 보내면 눌러서 체크")
                 // 한 화면에 4명씩. 넘치면 아래 [이전]·[다음]으로 넘겨 모든 사람을 확인한다.
                 val pages = paymentPages(s.payments.size)
                 var page by remember(pages) { mutableIntStateOf(0) }
@@ -744,9 +757,9 @@ internal fun SettleSentScreen(p: NaviPalette, s: SettlementUi, actions: GroupAct
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Avatar(p, pay.initial, accent = false)
-                        Label(pay.name, 24.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(start = 16.dp).weight(1f))
+                        Label(if (pay.incoming) pay.name else "→ ${pay.name}", 24.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(start = 16.dp).weight(1f))
                         Label(won(pay.amountWon), 22.sp, p.textSecondary, modifier = Modifier.padding(end = 12.dp))
-                        Tag(p, if (pay.paid) "송금 완료" else "확인 전", accent = pay.paid)
+                        Tag(p, if (pay.paid) "송금 완료" else if (pay.incoming) "확인 전" else "보내기 전", accent = pay.paid)
                     }
                 }
                 if (pages > 1) {

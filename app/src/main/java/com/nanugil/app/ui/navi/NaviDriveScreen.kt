@@ -305,7 +305,7 @@ fun NaviDriveScreen(
         }
         val chip = when {
             screen == AppScreen.DRIVE && navi.guiding -> TopChip.END_TRIP
-            screen == AppScreen.LOBBY || screen == AppScreen.ARRIVAL -> TopChip.HOST
+            (screen == AppScreen.LOBBY || screen == AppScreen.ARRIVAL) && g?.iHost != false -> TopChip.HOST
             // 안내 중이거나 기어가 P가 아니면(D·R·N) 주행 중
             navi.guiding || (!canType && !gearUnknown) -> TopChip.DRIVING
             else -> TopChip.STOPPED
