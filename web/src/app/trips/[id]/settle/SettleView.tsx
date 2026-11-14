@@ -11,8 +11,8 @@ import type { Member, Settlement, Transfer, Trip } from "@/lib/types";
 import { Button, ButtonA, ButtonLink } from "@/ui/Button";
 import { DotNumber } from "@/ui/DotNumber";
 import { Icon } from "@/ui/Icon";
-import { Big, Body, Flash, IconBox, Initial, Label, Left, Line, PageHeader, RoundButton, Row, Rows, SectionHead, Stack, Tile, Where } from "@/ui/kit";
-import { useCountUpValue, useDrawCheck, useFlashOnChange, useRiseIn } from "@/ui/motion";
+import { Avatar, Flash, Hint, IconButton, Item, ItemText, Lead, List, PageHeader, Section, SectionHead, Value } from "@/ui/kit";
+import { useCountUpValue, useDrawCheck, useFlashOnChange } from "@/ui/motion";
 import { Screen } from "@/ui/Screen";
 import { Segments } from "@/ui/Segments";
 import { StatusChip } from "@/ui/StatusChip";
@@ -20,14 +20,13 @@ import { t } from "@/ui/theme";
 
 type State = { kind: "error" } | { kind: "ok"; trip: Trip; members: Member[]; me: string };
 
-const Amount = styled.div`display: flex; align-items: flex-end; gap: 3px; flex: none;
-  span { font-size: ${t.text.sm}; font-weight: 700; line-height: 1; }`;
-const Gauge = styled.div`display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px;
-  > div div span { height: 12px; border-radius: 4px; }`;
-const Err = styled.p`font-size: ${t.text.sm}; color: ${t.color.error};`;
-const Done = styled.p`display: flex; align-items: center; gap: ${t.space.xs}; font-size: ${t.text.sm}; font-weight: 600; color: ${t.color.success};`;
-const Tick = styled.svg`width: 22px; height: 22px; flex: none;`;
-const Actions = styled.div`display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: ${t.space.xs};`;
+const Amount = styled.div`display: flex; align-items: flex-end; gap: 6px;
+  > span { font-size: 18px; font-weight: 600; line-height: 1; }`;
+const Err = styled.p`font-size: 13px; color: ${t.color.error};`;
+const Done = styled.p`display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; color: ${t.color.success};`;
+const Tick = styled.svg`width: 20px; height: 20px; flex: none;`;
+const Actions = styled.div`display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;`;
+const Meta = styled.div`display: flex; justify-content: space-between; gap: 12px;`;
 
 function CheckMark({ on }: { on: boolean }) {
   const path = useRef<SVGPathElement>(null);
@@ -46,30 +45,24 @@ function LedgerRow({ from, to, transfer }: { from: string; to: string; transfer:
   const flash = useRef<HTMLSpanElement>(null);
   useFlashOnChange(flash, status);
   return (
-    <Row>
+    <Item>
       <Flash ref={flash} />
-      <Initial aria-hidden="true">{from.slice(0, 1)}</Initial>
-      <Stack style={{ flex: 1 }}><b>{from}</b><Label>{to}에게 {formatWon(transfer.amountWon)}</Label></Stack>
+      <Avatar aria-hidden="true">{from.slice(0, 1)}</Avatar>
+      <ItemText><strong>{from}</strong><span>{to}에게 {formatWon(transfer.amountWon)}</span></ItemText>
       <StatusChip status={status} />
-    </Row>
+    </Item>
   );
 }
 
-function AmountTile({ amountWon, sub, done, total }: { amountWon: number; sub: string; done: number; total: number }) {
-  const ref = useRef<HTMLElement>(null);
-  useRiseIn(ref);
+function AmountSection({ amountWon, sub, done, total }: { amountWon: number; sub: string; done: number; total: number }) {
   const shown = useCountUpValue(amountWon);
   return (
-    <Tile ref={ref} pad="md" aria-label={`1인 부담액 ${formatWon(amountWon)}`}>
-      <Line>
-        <Stack><Label>1인 부담액</Label><Where><Icon name="location_on" />{sub}</Where></Stack>
-        <Amount aria-hidden="true"><DotNumber text={new Intl.NumberFormat("ko-KR").format(shown)} height={36} /><span>원</span></Amount>
-      </Line>
-      <Gauge>
-        <div><Segments done={done} total={total} label={`송금 ${total}건 중 ${done}건 완료`} /></div>
-        <Label className="num">{done}/{total} 완료</Label>
-      </Gauge>
-    </Tile>
+    <Section aria-label={`1인 부담액 ${formatWon(amountWon)}`}>
+      <SectionHead><h2>1인 부담액</h2><span>{sub}</span></SectionHead>
+      <Amount aria-hidden="true"><DotNumber text={new Intl.NumberFormat("ko-KR").format(shown)} height={44} /><span>원</span></Amount>
+      <Segments done={done} total={total} label={`송금 ${total}건 중 ${done}건 완료`} />
+      <Meta><Hint>그룹 송금 진행</Hint><Hint className="num">{done}/{total}건 완료</Hint></Meta>
+    </Section>
   );
 }
 
@@ -99,8 +92,7 @@ export function SettleView({ state }: { state: State }) {
     return (
       <Screen>
         <PageHeader title="정산" back="/" />
-        <Tile role="alert"><Line><Left><IconBox><Icon name="error" /></IconBox>
-          <Stack><b>정산을 열 수 없어요</b><Label>이 그룹의 멤버가 아니거나 연결이 끊겼어요.</Label></Stack></Left></Line></Tile>
+        <Section role="alert"><Lead>정산 정보를 열 수 없습니다.</Lead><Hint>이 그룹의 멤버가 아니거나 네트워크 연결이 끊겼습니다.</Hint></Section>
         <ButtonLink href="/">홈으로</ButtonLink>
       </Screen>
     );
@@ -115,8 +107,7 @@ export function SettleView({ state }: { state: State }) {
     return (
       <Screen>
         <PageHeader title="정산" back={groupHref} />
-        <Tile><Line><Left><IconBox><Icon name="hourglass_top" /></IconBox>
-          <Stack><b>아직 정산 요청 전이에요</b><Label>도착한 뒤 운전자가 요청을 보내면 여기에 금액이 나와요.</Label></Stack></Left></Line></Tile>
+        <Section><Lead>아직 정산 요청이 없습니다.</Lead><Hint>도착 후 운전자가 정산을 요청하면 금액이 표시됩니다.</Hint></Section>
         <ButtonLink href={groupHref} variant="ghost">그룹으로</ButtonLink>
       </Screen>
     );
@@ -140,81 +131,80 @@ export function SettleView({ state }: { state: State }) {
   }
 
   const share = (
-    <RoundButton type="button" aria-label={copied ? "링크를 담았어요" : "카톡으로 공유"} onClick={async () => { await shareLink(); setCopied(true); }}>
+    <IconButton type="button" aria-label={copied ? "링크 복사됨" : "링크 공유"} onClick={async () => { await shareLink(); setCopied(true); }}>
       <Icon name={copied ? "check" : "ios_share"} />
-    </RoundButton>
+    </IconButton>
   );
 
   return (
     <Screen>
       <PageHeader title="정산" back={groupHref} action={share} />
-      <Body>
-        <AmountTile amountWon={view.perPersonWon} sub={state.trip.destinationName} done={doneCount} total={settlement.transfers.length} />
+      <AmountSection amountWon={view.perPersonWon} sub={state.trip.destinationName} done={doneCount} total={settlement.transfers.length} />
 
-        {view.toSend.map(({ index, transfer }) => {
-          const st = statusOf(transfer);
-          const link = payLinks.get(transfer.to) ?? null;
-          return (
-            <Tile key={index} aria-label={`${nameOf(transfer.to)}에게 보내기`}>
-              <Line>
-                <Left><Initial aria-hidden="true">{nameOf(transfer.to).slice(0, 1)}</Initial>
-                  <Stack><Label>보낼 사람</Label><b>{nameOf(transfer.to)}</b></Stack></Left>
-                <Big className="num">{formatWon(transfer.amountWon)}</Big>
-              </Line>
-              {st !== "pending" ? (
-                <Done role="status"><CheckMark on />{st === "received" ? "운전자가 받았다고 확인했어요" : "보냈다고 알렸어요"}</Done>
-              ) : (
-                <>
-                  <Actions>
-                    {isKakaoPayLink(link)
-                      ? <ButtonA href={link!} target="_blank" rel="noopener noreferrer"><Icon name="payments" />카카오페이</ButtonA>
-                      : <Button type="button" disabled><Icon name="payments" />카카오페이</Button>}
-                    <Button type="button" variant="ghost" onClick={() => mark(index, "sent")} disabled={busy === index} aria-busy={busy === index}>
-                      <Icon name="check" />보냈어요
-                    </Button>
-                  </Actions>
-                  {!isKakaoPayLink(link) && <Label>운전자가 아직 송금 링크를 등록하지 않았어요. 직접 보낸 뒤 보냈어요를 눌러 주세요.</Label>}
-                </>
-              )}
-            </Tile>
-          );
-        })}
-
-        {view.toSend.length === 0 && view.toReceive.length === 0 && (
-          <Tile><Line><Left><IconBox tone="success"><Icon name="check" /></IconBox>
-            <Stack><b>보낼 돈이 없어요</b><Label>이번 운행에서 내가 보낼 송금은 없어요.</Label></Stack></Left></Line></Tile>
-        )}
-        {error && <Err role="alert">{error}</Err>}
-      </Body>
-
-      {view.toReceive.length > 0 && (
-        <Body>
-          <SectionHead>받을 돈<span className="num">{formatWon(view.toReceive.reduce((s, x) => s + x.transfer.amountWon, 0))}</span></SectionHead>
-          <Tile>
-            <Rows>
-              {view.toReceive.map(({ index, transfer }) => (
-                <Row key={index}>
-                  <Initial aria-hidden="true">{nameOf(transfer.from).slice(0, 1)}</Initial>
-                  <Stack style={{ flex: 1 }}><b>{nameOf(transfer.from)}</b><Label className="num">{formatWon(transfer.amountWon)}</Label></Stack>
-                  {statusOf(transfer) === "received" ? <StatusChip status="received" /> : (
-                    <Button type="button" variant={statusOf(transfer) === "sent" ? "primary" : "ghost"} style={{ width: "auto", minHeight: 44, padding: "0 14px" }}
-                      onClick={() => mark(index, "received")} disabled={busy === index} aria-busy={busy === index}>받았어요</Button>
-                  )}
-                </Row>
-              ))}
-            </Rows>
-          </Tile>
-        </Body>
+      {view.toSend.length > 0 && (
+        <Section aria-labelledby="send-title">
+          <SectionHead><h2 id="send-title">보낼 금액</h2></SectionHead>
+          {view.toSend.map(({ index, transfer }) => {
+            const st = statusOf(transfer);
+            const link = payLinks.get(transfer.to) ?? null;
+            return (
+              <div key={index} style={{ display: "grid", gap: 12 }}>
+                <List><Item>
+                  <Avatar aria-hidden="true">{nameOf(transfer.to).slice(0, 1)}</Avatar>
+                  <ItemText><strong>{nameOf(transfer.to)}</strong><span>받는 사람</span></ItemText>
+                  <Value>{formatWon(transfer.amountWon)}</Value>
+                </Item></List>
+                {st !== "pending" ? (
+                  <Done role="status"><CheckMark on />{st === "received" ? "운전자가 수령을 확인했습니다" : "송금 완료로 표시했습니다"}</Done>
+                ) : (
+                  <>
+                    <Actions>
+                      {isKakaoPayLink(link)
+                        ? <ButtonA href={link!} target="_blank" rel="noopener noreferrer">카카오페이 송금</ButtonA>
+                        : <Button type="button" disabled>카카오페이 송금</Button>}
+                      <Button type="button" variant="ghost" onClick={() => mark(index, "sent")} disabled={busy === index} aria-busy={busy === index}>
+                        {busy === index ? "처리 중" : "송금 완료 표시"}
+                      </Button>
+                    </Actions>
+                    {!isKakaoPayLink(link) && <Hint>운전자가 송금 링크를 등록하지 않았습니다. 직접 송금한 뒤 완료로 표시해 주세요.</Hint>}
+                  </>
+                )}
+              </div>
+            );
+          })}
+          {error && <Err role="alert">{error}</Err>}
+        </Section>
       )}
 
-      <Body>
-        <SectionHead>{view.allDone ? "정산이 모두 끝났어요" : "그룹 송금 현황"}<span className="num">{doneCount}/{settlement.transfers.length}</span></SectionHead>
-        <Tile>
-          <Rows>
-            {settlement.transfers.map((tr, i) => <LedgerRow key={i} from={nameOf(tr.from)} to={nameOf(tr.to)} transfer={tr} />)}
-          </Rows>
-        </Tile>
-      </Body>
+      {view.toSend.length === 0 && view.toReceive.length === 0 && (
+        <Section><Lead>보낼 금액이 없습니다.</Lead><Hint>이번 운행에서 송금할 내역이 없습니다.</Hint></Section>
+      )}
+
+      {view.toReceive.length > 0 && (
+        <Section aria-labelledby="receive-title">
+          <SectionHead><h2 id="receive-title">받을 금액</h2><span>{formatWon(view.toReceive.reduce((s, x) => s + x.transfer.amountWon, 0))}</span></SectionHead>
+          <List>
+            {view.toReceive.map(({ index, transfer }) => (
+              <Item key={index}>
+                <Avatar aria-hidden="true">{nameOf(transfer.from).slice(0, 1)}</Avatar>
+                <ItemText><strong>{nameOf(transfer.from)}</strong><span>{formatWon(transfer.amountWon)}{statusOf(transfer) === "sent" ? ", 송금함" : ""}</span></ItemText>
+                {statusOf(transfer) === "received" ? <StatusChip status="received" /> : (
+                  <Button type="button" variant={statusOf(transfer) === "sent" ? "primary" : "ghost"} style={{ width: "auto", minHeight: 44, padding: "0 16px" }}
+                    onClick={() => mark(index, "received")} disabled={busy === index} aria-busy={busy === index}>수령 확인</Button>
+                )}
+              </Item>
+            ))}
+          </List>
+          {view.toSend.length === 0 && error && <Err role="alert">{error}</Err>}
+        </Section>
+      )}
+
+      <Section aria-labelledby="ledger-title">
+        <SectionHead><h2 id="ledger-title">{view.allDone ? "정산 완료" : "송금 현황"}</h2><span>{doneCount}/{settlement.transfers.length}</span></SectionHead>
+        <List>
+          {settlement.transfers.map((tr, i) => <LedgerRow key={i} from={nameOf(tr.from)} to={nameOf(tr.to)} transfer={tr} />)}
+        </List>
+      </Section>
     </Screen>
   );
 }

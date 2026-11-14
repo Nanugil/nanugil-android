@@ -89,19 +89,32 @@ export async function markReceived(sb: SupabaseClient, tripId: string, index: nu
   return check(await sb.rpc("mark_transfer_received", { p_trip_id: tripId, p_index: index, p_requested_at: requestedAt })) as Settlement;
 }
 
+// 같은 그룹 채널 구독은 한 번에 하나씩 진행한다. 화면이 빠르게 다시 그려지면(StrictMode, 화면 이동)
+// 두 구독이 동시에 "채널 없음"을 보고 같은 토픽을 만들려다 이미 subscribe된 채널에 콜백을 붙이게 된다.
+const subscribeQueue = new Map<string, Promise<unknown>>();
+
 /**
  * 그룹 채널(group:{그룹 ID}, private)에서 운행 변경을 받는다. 돌려준 함수를 부르면 구독을 끊는다.
  * 비공개 채널이라 구독 전에 setAuth로 로그인 토큰을 실어야 한다. 빠지면 조용히 아무것도 오지 않는다.
  */
 export async function subscribeGroup(sb: SupabaseClient, groupId: string, onTripChange: (trip: Trip) => void): Promise<() => void> {
-  // supabase-js는 같은 토픽의 채널이 목록에 남아 있으면(앞 화면이 아직 나가는 중) 그 채널을 돌려준다.
-  // 그러면 새 콜백이 중복으로 버려지고 채널이 곧 닫혀 실시간이 끊긴다. 남은 채널을 먼저 지운다.
-  await Promise.all(sb.getChannels().filter((c) => c.topic === `realtime:group:${groupId}`).map((c) => sb.removeChannel(c)));
-  await sb.realtime.setAuth();
-  const channel = sb
-    .channel(`group:${groupId}`, { config: { private: true } })
-    .on("postgres_changes", { event: "*", schema: "public", table: "trips", filter: `group_id=eq.${groupId}` },
-      (payload) => { if (payload.new && "id" in payload.new) onTripChange(toTrip(payload.new as Row)); })
-    .subscribe();
-  return () => { void sb.removeChannel(channel); };
+  const topic = `realtime:group:${groupId}`;
+  const prev = subscribeQueue.get(topic) ?? Promise.resolve();
+  let release = () => {};
+  const mine = new Promise<void>((r) => { release = r; });
+  subscribeQueue.set(topic, prev.then(() => mine));
+  await prev;
+  try {
+    await sb.realtime.setAuth();
+    // 앞 화면이 남긴 같은 토픽 채널을 지운다. 남아 있으면 supabase-js가 그 채널을 돌려줘 새 콜백이 버려진다.
+    await Promise.all(sb.getChannels().filter((c) => c.topic === topic).map((c) => sb.removeChannel(c)));
+    const channel = sb
+      .channel(`group:${groupId}`, { config: { private: true } })
+      .on("postgres_changes", { event: "*", schema: "public", table: "trips", filter: `group_id=eq.${groupId}` },
+        (payload) => { if (payload.new && "id" in payload.new) onTripChange(toTrip(payload.new as Row)); })
+      .subscribe();
+    return () => { void sb.removeChannel(channel); };
+  } finally {
+    release();
+  }
 }

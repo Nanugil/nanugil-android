@@ -7,7 +7,7 @@ import { t } from "./theme";
 
 const TABS = [
   { key: "home", href: "/", icon: "home", label: "홈" },
-  { key: "join", href: "/join", icon: "qr_code_scanner", label: "코드 참여" },
+  { key: "join", href: "/join", icon: "qr_code_scanner", label: "초대 코드" },
   { key: "me", href: "/me", icon: "person", label: "내 정보" },
 ] as const;
 
@@ -21,31 +21,22 @@ export function activeTab(pathname: string): (typeof TABS)[number]["key"] {
 
 const Bar = styled.nav`
   position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-sticky);
-  padding: ${t.space.xs} ${t.gutter} calc(${t.space.xs} + env(safe-area-inset-bottom));
-  background: ${t.color.paper};
+  padding-bottom: env(safe-area-inset-bottom);
+  background: color-mix(in oklab, #FFFFFF 94%, transparent);
   border-top: 1px solid ${t.color.rule};
 `;
-const List = styled.ul`
-  list-style: none; margin: 0 auto; padding: ${t.space.x2s}; max-width: ${t.container};
-  display: flex; gap: ${t.space.x2s};
-  border-radius: ${t.radius.pill}; background: ${t.color.card}; border: 1px solid ${t.color.rule};
-`;
-const custom = { shouldForwardProp: (prop: string) => prop !== "active" };
+const List = styled.ul`list-style: none; margin: 0 auto; padding: 0; max-width: ${t.container}; display: flex;`;
 const Item = styled.li`flex: 1 1 0; min-width: 0;`;
+const custom = { shouldForwardProp: (prop: string) => prop !== "active" };
 const Tab = styled(Link, custom)<{ active: boolean }>`
-  display: flex; align-items: center; justify-content: center; gap: ${t.space.xs};
-  min-height: 48px; border-radius: ${t.radius.pill}; text-decoration: none; white-space: nowrap;
+  display: grid; place-items: center; height: 56px; text-decoration: none;
   color: ${(p) => (p.active ? t.color.ink : t.color.muted)};
-  background: ${(p) => (p.active ? t.color.cardStrong : "transparent")};
-  border: 1px solid ${(p) => (p.active ? t.color.rule : "transparent")};
-  transition: background-color ${t.dur.short} ${t.ease.out}, color ${t.dur.short} ${t.ease.out};
-  .material-symbols-rounded { font-size: 26px; color: ${(p) => (p.active ? t.color.accent : "inherit")};
-    font-variation-settings: "FILL" ${(p) => (p.active ? 1 : 0)}; }
-  &:focus-visible { outline: 2px solid ${t.color.focus}; outline-offset: 2px; }
-  &:active { opacity: 0.7; }
+  .material-symbols-rounded { font-size: 26px; font-variation-settings: "FILL" ${(p) => (p.active ? 1 : 0)}, "wght" ${(p) => (p.active ? 500 : 300)}, "GRAD" 0, "opsz" 24; }
+  &:focus-visible { outline: 2px solid ${t.color.focus}; outline-offset: -6px; border-radius: 12px; }
+  &:active { opacity: 0.6; }
 `;
 
-/** 아래 탭바. 아이콘만 보이고(선택된 탭은 채운 파란 아이콘 + 알약 배경), 이름은 aria-label로 읽힌다. */
+/** 아래 탭바. 아이콘만 보이고(선택된 탭은 채운 진한 아이콘), 이름은 aria-label로 읽힌다. */
 export function TabBar() {
   const active = activeTab(usePathname() ?? "/");
   const prefix = (usePathname() ?? "").startsWith("/preview") ? "/preview" : "";

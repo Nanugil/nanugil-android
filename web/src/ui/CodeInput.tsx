@@ -10,13 +10,12 @@ const Boxes = styled.div`
   pointer-events: none;
 `;
 const Box = styled("span", styleOnly("filled", "current"))<{ filled: boolean; current: boolean }>`
-  display: grid; place-items: center; aspect-ratio: 4 / 5;
+  display: grid; place-items: center; height: 56px;
   border-radius: 12px;
-  background: ${(p) => (p.filled ? t.color.card : t.color.cardStrong)};
-  border: 1px solid ${(p) => (p.current ? t.color.accent : t.color.rule)};
-  font-size: ${t.text.x2}; font-weight: 700; font-variant-numeric: tabular-nums;
-  transition: transform ${t.dur.micro} ${t.ease.out};
-  transform: scale(${(p) => (p.filled ? 1 : 0.97)});
+  background: ${t.color.fill};
+  border: 1.5px solid ${(p) => (p.current ? t.color.ink : "transparent")};
+  font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums;
+  transition: border-color ${t.dur.micro} ${t.ease.out};
 `;
 // 진짜 입력칸은 하나다. 칸 6개 위에 투명하게 겹쳐 붙여 넣기·지우기·자동 대문자를 그대로 쓴다.
 const Real = styled.input`

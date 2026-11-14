@@ -5,8 +5,8 @@ import { Icon } from "./Icon";
 import { styleOnly } from "./styleProps";
 import { t } from "./theme";
 
-const Wrap = styled.div`display: grid; gap: ${t.space.x2s};`;
-const Label = styled.label`font-size: ${t.text.sm}; color: ${t.color.ink2}; font-weight: 500;`;
+const Wrap = styled.div`display: grid; gap: 6px; padding-bottom: 6px;`;
+const Label = styled.label`font-size: 13px; color: ${t.color.ink2}; font-weight: 500;`;
 const Box = styled.div`position: relative; display: grid;
   > .material-symbols-rounded { position: absolute; left: ${t.space.md}; top: 50%; transform: translateY(-50%); color: ${t.color.muted}; pointer-events: none; }`;
 const Eye = styled.button`position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
@@ -17,13 +17,15 @@ const Eye = styled.button`position: absolute; right: 4px; top: 50%; transform: t
 const Input = styled("input", styleOnly("withIcon", "withEye"))<{ withIcon: boolean; withEye: boolean }>`
   min-height: ${t.controlH};
   padding: 0 ${(p) => (p.withEye ? "52px" : t.space.md)} 0 ${(p) => (p.withIcon ? "48px" : t.space.md)};
-  border-radius: ${t.radius.control};
-  border: 1px solid ${t.color.rule};
+  border-radius: 12px;
+  border: 1px solid var(--color-input-line);
   background: ${t.color.input};
+  transition: border-color ${t.dur.micro} ${t.ease.out};
+  @media (hover: hover) { &:hover:not(:disabled) { border-color: ${t.color.muted}; } }
   font-size: ${t.text.md};
   &::placeholder { color: ${t.color.muted}; }
-  &:focus-visible { outline: 2px solid ${t.color.focus}; outline-offset: -1px; }
-  &[aria-invalid="true"] { outline: 2px solid ${t.color.error}; outline-offset: -1px; }
+  &:focus-visible { outline: 2px solid ${t.color.ink}; outline-offset: -2px; border-color: transparent; }
+  &[aria-invalid="true"] { outline: 2px solid ${t.color.error}; outline-offset: -2px; border-color: transparent; }
   &:disabled { opacity: 0.55; cursor: not-allowed; }
 `;
 const Help = styled("p", styleOnly("error"))<{ error?: boolean }>`

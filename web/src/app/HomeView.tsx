@@ -1,12 +1,15 @@
 "use client";
 import styled from "@emotion/styled";
+import { usePathname, useRouter } from "next/navigation";
 import { formatWon } from "@/lib/format";
-import { ButtonLink, CtaLink } from "@/ui/Button";
+import { ButtonLink } from "@/ui/Button";
 import { DotNumber } from "@/ui/DotNumber";
 import { Icon } from "@/ui/Icon";
+import { Hint, Item, ItemLink, ItemText, Lead, List, Section, SectionHead, Stats, Tag, Title } from "@/ui/kit";
 import { Screen } from "@/ui/Screen";
 import { Segments } from "@/ui/Segments";
-import { Big, Body, Chip, IconBox, Label, Left, Line, RowLink, Rows, Row, SectionHead, Stack, Tile, Where } from "@/ui/kit";
+import { SlideToAction } from "@/ui/SlideToAction";
+import { useCountUpValue } from "@/ui/motion";
 import { t } from "@/ui/theme";
 
 export type HomeGroup = {
@@ -15,116 +18,86 @@ export type HomeGroup = {
   progress: { done: number; total: number } | null;
 };
 
-const Hello = styled.header`display: flex; align-items: center; gap: ${t.space.sm};`;
-const Avatar = styled.span`display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 12px;
-  background: ${t.color.cta}; color: ${t.color.ctaInk}; font-weight: 700;`;
-const HelloText = styled.div`display: grid; line-height: 1.2;`;
-const Small = styled.span`font-size: ${t.text.xs}; color: ${t.color.muted};`;
-const Name = styled.h1`font-size: ${t.text.lg};`;
+const Top = styled.header`display: grid; gap: 4px; padding-top: 8px;`;
+const Amount = styled.div`display: flex; align-items: flex-end; gap: 6px; color: ${t.color.ink};
+  > span { font-size: 18px; font-weight: 600; line-height: 1; }`;
+const Progress = styled.div`display: grid; gap: 8px;`;
+const Row = styled.div`display: flex; justify-content: space-between; align-items: baseline; gap: 12px;`;
 
-const Bento = styled.div`display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
-  @media (min-width: 48rem) { grid-template-columns: repeat(4, minmax(0, 1fr)); }`;
-const Amount = styled.div`display: flex; align-items: flex-end; gap: 3px; flex: none; color: ${t.color.ink};
-  span { font-size: ${t.text.sm}; font-weight: 700; line-height: 1; }`;
-const Gauge = styled.div`display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px;
-  > div div span { height: 14px; border-radius: 4px; }`;
-const Empty = styled.div`display: grid; gap: ${t.space.xs}; justify-items: start;`;
-
-function Greeting({ name }: { name: string }) {
+/** 홈. groups가 null이면 불러오기 실패, 빈 배열이면 참여한 그룹이 없다. */
+function OwedAmount({ amountWon }: { amountWon: number }) {
+  const shown = useCountUpValue(amountWon);
   return (
-    <Hello>
-      <Avatar aria-hidden="true">{name ? name.slice(0, 1) : <Icon name="person" />}</Avatar>
-      <HelloText><Small>안녕하세요,</Small><Name>{name || "나누길"}</Name></HelloText>
-    </Hello>
+    <Amount aria-label={formatWon(amountWon)}>
+      <DotNumber text={new Intl.NumberFormat("ko-KR").format(shown)} height={44} /><span aria-hidden="true">원</span>
+    </Amount>
   );
 }
 
-/** 홈. groups가 null이면 불러오기 실패, 빈 배열이면 아직 참여한 그룹이 없다. */
 export function HomeView({ name, groups }: { name: string; groups: HomeGroup[] | null }) {
+  const router = useRouter();
+  // 개발 전용 미리보기에서는 미리보기 정산 화면으로 보낸다
+  const preview = (usePathname() ?? "").startsWith("/preview");
+  const settleHref = (tripId: string) => (preview ? "/preview/settle" : `/trips/${tripId}/settle`);
+  const header = <Top><Hint>나누길</Hint><Title>{name ? `${name}님` : "안녕하세요"}</Title></Top>;
+
   if (groups === null || groups.length === 0) {
     const failed = groups === null;
     return (
       <Screen>
-        <Greeting name={name} />
-        <Tile role={failed ? "alert" : undefined}>
-          <Empty>
-            <IconBox><Icon name={failed ? "wifi_off" : "qr_code_scanner"} /></IconBox>
-            <Stack><b>{failed ? "그룹을 불러오지 못했어요" : "아직 참여한 그룹이 없어요"}</b></Stack>
-            <Label>{failed ? "연결을 확인하고 다시 열어 주세요." : "운전자 화면의 초대 코드나 QR로 들어오면 여기서 정산 요청을 받아요."}</Label>
-          </Empty>
-        </Tile>
-        {failed ? <ButtonLink href="/">다시 불러오기</ButtonLink> : <CtaLink href="/join">초대 코드로 참여</CtaLink>}
+        {header}
+        <Section>
+          <Lead>{failed ? "그룹을 불러오지 못했습니다." : "참여한 그룹이 없습니다."}</Lead>
+          <Hint>{failed ? "네트워크 연결을 확인한 뒤 다시 시도해 주세요." : "운전자 화면의 초대 코드나 QR로 그룹에 참여할 수 있습니다."}</Hint>
+        </Section>
+        {failed ? <ButtonLink href="/">다시 시도</ButtonLink> : <ButtonLink href="/join">초대 코드 입력</ButtonLink>}
       </Screen>
     );
   }
 
   const owed = groups.find((g) => g.owed);
-  const driving = groups.find((g) => g.driving);
   const settling = groups.filter((g) => g.progress && g.progress.done < g.progress.total);
   const prog = (owed ?? settling[0])?.progress ?? null;
 
   return (
     <Screen wide>
-      <Body>
-        <Greeting name={name} />
-        <Bento>
-          <Tile span={2} aria-labelledby="owed">
-            <Line>
-              <Stack><Label id="owed">{owed ? "보낼 돈" : "정산"}</Label><b>{owed ? owed.name : "보낼 돈이 없어요"}</b></Stack>
-              {owed
-                ? <Amount aria-label={formatWon(owed.owed!.amountWon)}>
-                    <DotNumber text={new Intl.NumberFormat("ko-KR").format(owed.owed!.amountWon)} height={30} /><span aria-hidden="true">원</span>
-                  </Amount>
-                : <IconBox><Icon name="check" /></IconBox>}
-            </Line>
-            {prog && (
-              <Gauge>
-                <div><Segments done={prog.done} total={prog.total} label={`그룹 송금 ${prog.total}건 중 ${prog.done}건 완료`} /></div>
-                <Label className="num">{prog.done}/{prog.total} 완료</Label>
-              </Gauge>
-            )}
-          </Tile>
+      {header}
 
-          {driving && (
-            <Tile span={2} aria-label="운행 상태">
-              <Line>
-                <Left>
-                  <IconBox><Icon name="directions_car" /></IconBox>
-                  <Stack><b>{driving.name}</b><Where><Icon name="location_on" />{driving.destination}</Where></Stack>
-                </Left>
-                <Chip tone="accent"><Icon name="navigation" />운행 중</Chip>
-              </Line>
-            </Tile>
-          )}
+      <Section aria-labelledby="owed-title">
+        <SectionHead><h2 id="owed-title">보낼 금액</h2>{owed && <span>{owed.name}</span>}</SectionHead>
+        {owed ? (
+          <OwedAmount amountWon={owed.owed!.amountWon} />
+        ) : <Lead>보낼 금액이 없습니다.</Lead>}
+        {prog && (
+          <Progress>
+            <Segments done={prog.done} total={prog.total} label={`그룹 송금 ${prog.total}건 중 ${prog.done}건 완료`} />
+            <Row><Hint>그룹 송금 진행</Hint><Hint className="num">{prog.done}/{prog.total}건 완료</Hint></Row>
+          </Progress>
+        )}
+        {owed && <SlideToAction label="밀어서 정산하기" onDone={() => router.push(settleHref(owed.owed!.tripId))} />}
+      </Section>
 
-          <Tile aria-label="참여 그룹" wideSpan={2}>
-            <Line><Left><IconBox><Icon name="groups" /></IconBox><Label>참여 그룹</Label></Left><Big className="num">{groups.length}<small>개</small></Big></Line>
-          </Tile>
-          <Tile aria-label="진행 중인 정산" wideSpan={2}>
-            <Line><Left><IconBox><Icon name="receipt_long" /></IconBox><Label>진행 정산</Label></Left><Big className="num">{settling.length}<small>건</small></Big></Line>
-          </Tile>
-        </Bento>
+      <Section aria-label="요약">
+        <Stats>
+          <div><dt>참여 그룹</dt><dd className="num">{groups.length}<small>개</small></dd></div>
+          <div><dt>진행 중인 정산</dt><dd className="num">{settling.length}<small>건</small></dd></div>
+        </Stats>
+      </Section>
 
-        {owed && <CtaLink href={`/trips/${owed.owed!.tripId}/settle`}>정산하러 가기</CtaLink>}
-      </Body>
-
-      <Body>
-        <SectionHead>내 그룹</SectionHead>
-        <Tile>
-          <Rows>
-            {groups.map((g) => (
-              <Row key={g.id}>
-                <RowLink href={`/groups/${g.id}`}>
-                  <Stack style={{ flex: 1 }}><b>{g.name}</b><Where><Icon name="location_on" />{g.destination}</Where></Stack>
-                  {g.owed ? <Chip tone="accent">{formatWon(g.owed.amountWon)}</Chip>
-                    : g.driving ? <Chip tone="plain">운행 중</Chip> : null}
-                  <Icon name="chevron_right" />
-                </RowLink>
-              </Row>
-            ))}
-          </Rows>
-        </Tile>
-      </Body>
+      <Section aria-labelledby="groups-title">
+        <SectionHead><h2 id="groups-title">내 그룹</h2></SectionHead>
+        <List>
+          {groups.map((g) => (
+            <Item key={g.id}>
+              <ItemLink href={`/groups/${g.id}`}>
+                <ItemText><strong>{g.name}</strong><span>{g.driving ? `${g.destination}으로 이동 중` : g.destination}</span></ItemText>
+                {g.owed ? <Tag tone="accent">{formatWon(g.owed.amountWon)}</Tag> : g.driving ? <Tag tone="accent">운행 중</Tag> : null}
+                <Icon name="chevron_right" />
+              </ItemLink>
+            </Item>
+          ))}
+        </List>
+      </Section>
     </Screen>
   );
 }

@@ -6,9 +6,8 @@ import { askNotificationPermission, notifySettlement } from "@/lib/notify";
 import { applyTripChange } from "@/lib/tripChange";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 import type { Group, Member, Trip } from "@/lib/types";
-import { Button, ButtonLink, CtaLink } from "@/ui/Button";
-import { Icon } from "@/ui/Icon";
-import { Body, Chip, IconBox, Initial, Label, Left, Line, PageHeader, Row, Rows, SectionHead, Stack, Tile, Where } from "@/ui/kit";
+import { Button, ButtonLink } from "@/ui/Button";
+import { Avatar, Hint, Item, ItemText, Lead, List, PageHeader, Section, SectionHead, Tag } from "@/ui/kit";
 import { Screen } from "@/ui/Screen";
 
 type State = { kind: "error" } | { kind: "ok"; group: Group; members: Member[]; trips: Trip[]; me: string };
@@ -43,9 +42,7 @@ export function GroupLive({ state }: { state: State }) {
     return (
       <Screen>
         <PageHeader title="그룹" back="/" />
-        <Tile role="alert">
-          <Line><Left><IconBox><Icon name="error" /></IconBox><Stack><b>그룹을 열 수 없어요</b><Label>이 그룹의 멤버가 아니거나 연결이 끊겼어요.</Label></Stack></Left></Line>
-        </Tile>
+        <Section role="alert"><Lead>그룹을 열 수 없습니다.</Lead><Hint>이 그룹의 멤버가 아니거나 네트워크 연결이 끊겼습니다.</Hint></Section>
         <ButtonLink href="/">홈으로</ButtonLink>
       </Screen>
     );
@@ -57,45 +54,36 @@ export function GroupLive({ state }: { state: State }) {
   return (
     <Screen>
       <PageHeader title={state.group.name} back="/" />
-      <Body>
-        <Tile aria-labelledby="trip-status">
-          <Line>
-            <Left>
-              <IconBox tone={active ? "accent" : "plain"}><Icon name={active ? "directions_car" : "local_parking"} /></IconBox>
-              <Stack><b id="trip-status">{active ? "운행 중" : "운행 전이에요"}</b>
-                <Where><Icon name="location_on" />{active?.destinationName ?? state.group.destinationName}</Where></Stack>
-            </Left>
-            {active && <Chip tone="accent"><Icon name="sensors" />실시간</Chip>}
-          </Line>
-          {active && <Label>도착하면 운전자가 정산 요청을 보내요. 이 화면을 열어 두면 바로 알려 드려요.</Label>}
-        </Tile>
-        {settled && <CtaLink href={`/trips/${settled.id}/settle`}>정산 보기</CtaLink>}
-      </Body>
+      <Section aria-labelledby="trip-title">
+        <SectionHead><h2 id="trip-title">운행</h2>{active ? <Tag tone="accent">운행 중</Tag> : <Tag>운행 전</Tag>}</SectionHead>
+        <List>
+          <Item><ItemText><strong>{active?.destinationName ?? state.group.destinationName}</strong>
+            <span>{active ? "도착 후 운전자가 정산을 요청하면 이 화면에 바로 표시됩니다." : "운행이 시작되면 상태가 표시됩니다."}</span></ItemText></Item>
+        </List>
+        {settled && <ButtonLink href={`/trips/${settled.id}/settle`} variant="ghost">정산 내역 보기</ButtonLink>}
+      </Section>
 
-      <Body>
-        <SectionHead>멤버<span className="num">{state.members.length}명</span></SectionHead>
-        <Tile>
-          <Rows>
-            {state.members.map((m) => (
-              <Row key={m.id}>
-                <Initial aria-hidden="true">{m.displayName.slice(0, 1)}</Initial>
-                <Stack style={{ flex: 1 }}><b>{m.displayName}</b></Stack>
-                {m.id === state.me && <Chip tone="plain">나</Chip>}
-                {m.payLink && <Label>송금 링크 있음</Label>}
-              </Row>
-            ))}
-          </Rows>
-        </Tile>
-      </Body>
+      <Section aria-labelledby="members-title">
+        <SectionHead><h2 id="members-title">멤버</h2><span>{state.members.length}명</span></SectionHead>
+        <List>
+          {state.members.map((m) => (
+            <Item key={m.id}>
+              <Avatar aria-hidden="true">{m.displayName.slice(0, 1)}</Avatar>
+              <ItemText><strong>{m.displayName}</strong>{m.payLink && <span>송금 링크 등록됨</span>}</ItemText>
+              {m.id === state.me && <Tag>나</Tag>}
+            </Item>
+          ))}
+        </List>
+      </Section>
 
       {perm === "default" && (
-        <Tile>
-          <Line>
-            <Left><IconBox><Icon name="notifications" /></IconBox><Stack><b>정산 알림 받기</b><Label>홈 화면에 추가하면 더 잘 받아요</Label></Stack></Left>
-            <Button type="button" variant="ghost" style={{ width: "auto", minHeight: 44, padding: "0 14px" }}
-              onClick={async () => setPerm(await askNotificationPermission())}>켜기</Button>
-          </Line>
-        </Tile>
+        <Section>
+          <List>
+            <Item><ItemText><strong>정산 알림</strong><span>정산 요청이 오면 브라우저 알림을 받습니다.</span></ItemText>
+              <Button type="button" variant="ghost" style={{ width: "auto", minHeight: 44, padding: "0 16px" }}
+                onClick={async () => setPerm(await askNotificationPermission())}>켜기</Button></Item>
+          </List>
+        </Section>
       )}
     </Screen>
   );

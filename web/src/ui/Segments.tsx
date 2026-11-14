@@ -3,8 +3,8 @@ import styled from "@emotion/styled";
 import { styleOnly } from "./styleProps";
 import { t } from "./theme";
 
-const Row = styled("div", styleOnly("count"))<{ count: number }>`display: grid; grid-template-columns: repeat(${(p) => p.count}, minmax(0, 1fr)); gap: 4px;`;
-const Bar = styled("span", styleOnly("on"))<{ on: boolean }>`height: 28px; border-radius: 6px;
+const Row = styled("div", styleOnly("count"))<{ count: number }>`display: grid; grid-template-columns: repeat(${(p) => p.count}, minmax(0, 1fr)); gap: 3px;`;
+const Bar = styled("span", styleOnly("on"))<{ on: boolean }>`height: 6px; border-radius: 3px;
   background: ${(p) => (p.on ? t.color.accent : t.color.track)};`;
 
 /** 칸으로 나뉜 게이지 (레퍼런스의 배터리 막대). done/total만큼 칸을 채운다. 칸 수는 최대 10. */

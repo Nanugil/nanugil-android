@@ -88,3 +88,12 @@ export function useFlashOnChange(ref: RefObject<HTMLElement | null>, key: unknow
     gsap.fromTo(ref.current, { opacity: 0.6 }, { opacity: 0, duration: 0.9, ease: "power2.out" });
   }, { dependencies: [key] });
 }
+
+/** 화면이 열릴 때 바로 아래 자식들(머리·구역·버튼)이 차례로 살짝 올라온다. 서버가 그린 내용은 이미 보이는 상태다. */
+export function usePageEnter(ref: RefObject<HTMLElement | null>) {
+  useGSAP(() => {
+    const el = ref.current;
+    if (!el || reduced()) return;
+    gsap.from(el.children, { y: 10, opacity: 0, duration: 0.45, ease: "power2.out", stagger: 0.05, clearProps: "transform,opacity" });
+  }, { scope: ref });
+}

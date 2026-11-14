@@ -10,7 +10,7 @@ import type { InviteResult } from "@/lib/types";
 import { Button } from "@/ui/Button";
 import { CodeInput } from "@/ui/CodeInput";
 import { Field } from "@/ui/Field";
-import { Body, Chip, IconBox, Initial, Label, Left, Line, PageHeader, Rows, SectionHead, Stack, Tile } from "@/ui/kit";
+import { Avatar, Hint, Item, ItemText, List, PageHeader, Section, SectionHead, Tag } from "@/ui/kit";
 import { Icon } from "@/ui/Icon";
 import { useShake } from "@/ui/motion";
 import { styleOnly } from "@/ui/styleProps";
@@ -18,14 +18,15 @@ import { t } from "@/ui/theme";
 
 const ErrorText = styled.p`color: ${t.color.error}; font-size: ${t.text.sm}; min-height: 1lh;`;
 const Pick = styled("button", styleOnly("selected"))<{ selected: boolean }>`
-  display: flex; align-items: center; gap: ${t.space.sm}; width: 100%; min-height: 52px; padding: 0;
-  background: transparent; border: 0; border-bottom: 1px solid ${t.color.rule}; text-align: left; cursor: pointer;
-  font-size: ${t.text.sm}; color: ${t.color.ink}; font-weight: ${(p) => (p.selected ? 600 : 400)};
-  li:last-child & { border-bottom: 0; }
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 10px 0;
+  background: transparent; border: 0; text-align: left; cursor: pointer; color: ${t.color.ink};
+  font-size: 15px; font-weight: ${(p) => (p.selected ? 600 : 400)};
   > span:nth-of-type(2) { flex: 1; }
-  > .material-symbols-rounded:last-child { color: ${(p) => (p.selected ? t.color.accent : t.color.muted)}; }
-  &:focus-visible { outline: 2px solid ${t.color.focus}; outline-offset: -2px; }
+  > .material-symbols-rounded:last-child { color: ${(p) => (p.selected ? t.color.ink : t.color.muted)};
+    font-variation-settings: "FILL" ${(p) => (p.selected ? 1 : 0)}, "wght" 300, "GRAD" 0, "opsz" 24; }
+  &:focus-visible { outline: 2px solid ${t.color.focus}; outline-offset: 2px; border-radius: 8px; }
 `;
+const PickItem = styled.li`& + & { border-top: 1px solid ${t.color.rule}; }`;
 
 type Step =
   | { kind: "code" }
@@ -83,7 +84,7 @@ export function JoinFlow({ initialCode }: { initialCode: string }) {
 
   async function finish() {
     if (step.kind !== "pick" || !picked) return;
-    if (picked === "new" && (name.trim().length < 1 || name.trim().length > 20)) { setError("이름은 1~20자로 적어 주세요"); return; }
+    if (picked === "new" && (name.trim().length < 1 || name.trim().length > 20)) { setError("이름은 1~20자로 입력해 주세요"); return; }
     setBusy(true); setError(null);
     try {
       const r = picked === "new" ? await joinGroup(sb, step.code, name.trim()) : await claimMember(sb, step.code, picked);
@@ -103,55 +104,54 @@ export function JoinFlow({ initialCode }: { initialCode: string }) {
     return (
       <>
         <PageHeader title="그룹 참여" back="/" />
-        <Tile aria-labelledby="join-group">
-          <Line>
-            <Left><IconBox tone="dark"><Icon name="groups" /></IconBox>
-              <Stack><Label>참여할 그룹</Label><b id="join-group">{step.group.groupName}</b></Stack></Left>
-            <Chip tone="plain" className="num">{step.group.memberCount}명</Chip>
-          </Line>
-        </Tile>
-        <Body>
-          {step.names.length > 0 && <SectionHead>내 이름 고르기<span>운전자가 넣어 둔 이름</span></SectionHead>}
-          <Tile>
-            <Rows role="radiogroup" aria-label="내 이름 고르기">
-              {step.names.map((m) => (
-                <li key={m.id}>
-                  <Pick type="button" role="radio" aria-checked={picked === m.id} selected={picked === m.id} onClick={() => setPicked(m.id)}>
-                    <Initial aria-hidden="true">{m.displayName.slice(0, 1)}</Initial><span>{m.displayName}</span>
-                    <Icon name={picked === m.id ? "radio_button_checked" : "radio_button_unchecked"} />
-                  </Pick>
-                </li>
-              ))}
-              <li>
-                <Pick type="button" role="radio" aria-checked={picked === "new"} selected={picked === "new"} onClick={() => setPicked("new")}>
-                  <Initial aria-hidden="true"><Icon name="add" /></Initial><span>목록에 없어요, 새로 참여할게요</span>
-                  <Icon name={picked === "new" ? "radio_button_checked" : "radio_button_unchecked"} />
+        <Section aria-labelledby="join-group">
+          <List><Item>
+            <ItemText><strong id="join-group">{step.group.groupName}</strong><span>참여할 그룹</span></ItemText>
+            <Tag className="num">{step.group.memberCount}명</Tag>
+          </Item></List>
+        </Section>
+        <Section aria-labelledby="pick-title">
+          <SectionHead><h2 id="pick-title">이름 선택</h2></SectionHead>
+          {step.names.length > 0 && <Hint>운전자가 등록한 이름 중 본인 이름을 선택해 주세요.</Hint>}
+          <ul role="radiogroup" aria-labelledby="pick-title" style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            {step.names.map((m) => (
+              <PickItem key={m.id}>
+                <Pick type="button" role="radio" aria-checked={picked === m.id} selected={picked === m.id} onClick={() => setPicked(m.id)}>
+                  <Avatar aria-hidden="true">{m.displayName.slice(0, 1)}</Avatar><span>{m.displayName}</span>
+                  <Icon name={picked === m.id ? "radio_button_checked" : "radio_button_unchecked"} />
                 </Pick>
-              </li>
-            </Rows>
-            {picked === "new" && (
-              <Field label="일행에게 보일 이름" icon="person" value={name} onChange={(e) => setName(e.target.value)} maxLength={20} autoComplete="nickname" />
-            )}
-          </Tile>
-        </Body>
-        {error && <ErrorText role="alert">{error}</ErrorText>}
-        <Button type="button" onClick={finish} disabled={!picked || busy} aria-busy={busy}>{busy ? "참여하는 중" : "참여하기"}</Button>
+              </PickItem>
+            ))}
+            <PickItem>
+              <Pick type="button" role="radio" aria-checked={picked === "new"} selected={picked === "new"} onClick={() => setPicked("new")}>
+                <Avatar aria-hidden="true"><Icon name="add" /></Avatar><span>목록에 없음, 새로 참여</span>
+                <Icon name={picked === "new" ? "radio_button_checked" : "radio_button_unchecked"} />
+              </Pick>
+            </PickItem>
+          </ul>
+          {picked === "new" && (
+            <Field label="표시 이름" value={name} onChange={(e) => setName(e.target.value)} maxLength={20} autoComplete="nickname" help="그룹 멤버에게 표시되는 이름입니다." />
+          )}
+          {error && <ErrorText role="alert">{error}</ErrorText>}
+        </Section>
+        <Button type="button" onClick={finish} disabled={!picked || busy} aria-busy={busy}>{busy ? "참여 중" : "참여하기"}</Button>
       </>
     );
   }
 
   return (
     <>
-      <PageHeader title="코드로 참여" back="/" />
-      <Tile pad="md" aria-labelledby="join-title">
-        <Stack><b id="join-title">초대 코드 6자리</b><Label>운전자 화면에 보이는 코드를 넣거나 QR을 찍어 주세요.</Label></Stack>
+      <PageHeader title="초대 코드 입력" back="/" />
+      <Section aria-labelledby="join-title">
+        <SectionHead><h2 id="join-title">초대 코드 6자리</h2></SectionHead>
+        <Hint>운전자 화면에 표시된 코드를 입력해 주세요.</Hint>
         <CodeInput ref={shakeRef} value={code} onChange={(v) => { setCode(v); setError(null); }}
           onComplete={(v) => void lookUp(v)} disabled={locked || step.kind === "loading"} invalid={!!error} />
         <ErrorText role={error ? "alert" : undefined}>{error ?? ""}</ErrorText>
-      </Tile>
+      </Section>
       <Button type="button" onClick={() => void lookUp(code)} disabled={locked || code.length !== 6 || step.kind === "loading"}
         aria-busy={step.kind === "loading"}>
-        {step.kind === "loading" ? "찾는 중" : "그룹 찾기"}
+        {step.kind === "loading" ? "확인 중" : "확인"}
       </Button>
     </>
   );
