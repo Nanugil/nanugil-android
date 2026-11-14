@@ -97,7 +97,10 @@ const subscribeQueue = new Map<string, Promise<unknown>>();
  * 그룹 채널(group:{그룹 ID}, private)에서 운행 변경을 받는다. 돌려준 함수를 부르면 구독을 끊는다.
  * 비공개 채널이라 구독 전에 setAuth로 로그인 토큰을 실어야 한다. 빠지면 조용히 아무것도 오지 않는다.
  */
-export async function subscribeGroup(sb: SupabaseClient, groupId: string, onTripChange: (trip: Trip) => void): Promise<() => void> {
+export async function subscribeGroup(
+  sb: SupabaseClient, groupId: string, onTripChange: (trip: Trip) => void,
+  onStatus?: (status: "SUBSCRIBED" | "CHANNEL_ERROR" | "TIMED_OUT" | "CLOSED") => void,
+): Promise<() => void> {
   const topic = `realtime:group:${groupId}`;
   const prev = subscribeQueue.get(topic) ?? Promise.resolve();
   let release = () => {};
@@ -112,7 +115,8 @@ export async function subscribeGroup(sb: SupabaseClient, groupId: string, onTrip
       .channel(`group:${groupId}`, { config: { private: true } })
       .on("postgres_changes", { event: "*", schema: "public", table: "trips", filter: `group_id=eq.${groupId}` },
         (payload) => { if (payload.new && "id" in payload.new) onTripChange(toTrip(payload.new as Row)); })
-      .subscribe();
+      // 연결(재연결 포함)될 때마다 알려 준다: 그 사이에 바뀐 값은 화면이 다시 읽어 와야 한다
+      .subscribe((status) => onStatus?.(status as "SUBSCRIBED" | "CHANNEL_ERROR" | "TIMED_OUT" | "CLOSED"));
     return () => { void sb.removeChannel(channel); };
   } finally {
     release();

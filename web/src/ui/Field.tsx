@@ -18,12 +18,12 @@ const Input = styled("input", styleOnly("withIcon", "withEye"))<{ withIcon: bool
   min-height: ${t.controlH};
   padding: 0 ${(p) => (p.withEye ? "52px" : t.space.md)} 0 ${(p) => (p.withIcon ? "48px" : t.space.md)};
   border-radius: 12px;
-  border: 0;
+  border: 1px solid var(--color-input-line);
   background: ${t.color.input};
   transition: background-color ${t.dur.micro} ${t.ease.out};
   font-size: ${t.text.md};
   &::placeholder { color: ${t.color.muted}; }
-  &:focus { outline: none; background: ${t.color.card}; box-shadow: inset 0 0 0 1.5px ${t.color.accent}; }
+  &:focus { outline: none; background: ${t.color.card}; border-color: transparent; box-shadow: inset 0 0 0 1.5px ${t.color.accent}; }
   &[aria-invalid="true"] { background: ${t.color.card}; box-shadow: inset 0 0 0 1.5px ${t.color.error}; }
   &:disabled { opacity: 0.55; cursor: not-allowed; }
 `;

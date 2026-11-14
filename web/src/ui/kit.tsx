@@ -7,8 +7,8 @@ import { Icon } from "./Icon";
 import { styleOnly } from "./styleProps";
 import { t } from "./theme";
 
-/** 화면의 한 구역. 구분선 없이 여백(24px)으로만 나눈다. */
-export const Section = styled.section`display: grid; gap: 16px; padding-block: 24px;`;
+/** 화면의 한 구역. 구분선 없이 여백(구역 사이 32px)으로만 나눈다. */
+export const Section = styled.section`display: grid; gap: 16px; padding-block: 16px;`;
 export const SectionHead = styled.div`display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
   h2 { font-size: 15px; font-weight: 600; color: ${t.color.ink}; }
   span { font-size: 13px; color: ${t.color.muted}; font-variant-numeric: tabular-nums; }`;
@@ -53,7 +53,7 @@ const Head = styled.header`display: grid; grid-template-columns: 44px minmax(0, 
   min-height: 56px; margin-inline: -14px;
   h1 { font-size: 17px; font-weight: 600; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }`;
 
-const BackLink = styled(Link)`display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; color: ${t.color.ink};
+const BackLink = styled(Link)`display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; color: ${t.color.ink}; text-decoration: none;
   .material-symbols-rounded { font-size: 22px; }
   @media (hover: hover) { &:hover { background: ${t.color.fill}; } }
   &:focus-visible { outline: 2px solid ${t.color.focus}; outline-offset: 2px; }`;

@@ -93,6 +93,8 @@ export function SettleView({ state }: { state: State }) {
     let alive = true;
     subscribeGroup(createBrowserSupabase(), state.trip.groupId, (trip) => {
       if (trip.id === state.trip.id) setSettlement(trip.settlement);
+    }, (status) => {
+      if (status === "SUBSCRIBED") getTrip(createBrowserSupabase(), state.trip.id).then((tr) => setSettlement(tr.settlement)).catch(() => {});
     }).then((u) => { if (alive) off = u; else u(); });
     return () => { alive = false; off(); };
   }, [state]);
@@ -124,7 +126,9 @@ export function SettleView({ state }: { state: State }) {
 
   const view = viewFor(settlement, state.me);
   const doneCount = settlement.transfers.filter((x) => statusOf(x) === "received").length;
-  const sendTotal = view.toSend.reduce((s, x) => s + x.transfer.amountWon, 0);
+  const pendingSend = view.toSend.filter((x) => statusOf(x.transfer) === "pending");
+  const sendTotal = pendingSend.reduce((s, x) => s + x.transfer.amountWon, 0);
+  const sentTotal = view.toSend.reduce((s, x) => s + x.transfer.amountWon, 0);
   const receiveTotal = view.toReceive.reduce((s, x) => s + x.transfer.amountWon, 0);
 
   async function mark(index: number, side: "sent" | "received") {
@@ -153,8 +157,8 @@ export function SettleView({ state }: { state: State }) {
     <Screen nav={false}>
       <PageHeader title="정산" back={groupHref} action={share} />
       <AmountSection
-        label={view.toSend.length > 0 ? "보낼 금액" : view.toReceive.length > 0 ? "받을 금액" : "1인 부담액"}
-        amountWon={view.toSend.length > 0 ? sendTotal : view.toReceive.length > 0 ? receiveTotal : view.perPersonWon}
+        label={pendingSend.length > 0 ? "보낼 금액" : view.toSend.length > 0 ? "보낸 금액" : view.toReceive.length > 0 ? "받을 금액" : "1인 부담액"}
+        amountWon={pendingSend.length > 0 ? sendTotal : view.toSend.length > 0 ? sentTotal : view.toReceive.length > 0 ? receiveTotal : view.perPersonWon}
         perPersonWon={view.perPersonWon} done={doneCount} total={settlement.transfers.length} />
       <p role="status" className="visually-hidden">{announce}</p>
 

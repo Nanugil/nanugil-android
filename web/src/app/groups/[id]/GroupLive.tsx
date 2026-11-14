@@ -1,7 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { subscribeGroup } from "@/lib/api";
+import { groupTrips, subscribeGroup } from "@/lib/api";
 import { askNotificationPermission, notifySettlement } from "@/lib/notify";
 import { applyTripChange } from "@/lib/tripChange";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
@@ -39,6 +39,9 @@ export function GroupLive({ state }: { state: State }) {
         notifySettlement(state.group.name, owedWon);
         if (document.visibilityState === "visible") router.push(`/trips/${trip.id}/settle`);
       }
+    }, (status) => {
+      // 연결될 때마다 운행 목록을 다시 읽어 그 사이 놓친 변경을 반영한다
+      if (status === "SUBSCRIBED") groupTrips(sb, state.group.id).then((list) => { tripsRef.current = list; setTrips(list); }).catch(() => {});
     }).then((u) => { if (alive) off = u; else u(); });
     return () => { alive = false; off(); };
   }, [state, router]);

@@ -1,5 +1,6 @@
 "use client";
 import styled from "@emotion/styled";
+import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { formatWon } from "@/lib/format";
 import { ButtonLink } from "@/ui/Button";
@@ -40,6 +41,12 @@ export function HomeView({ name, groups }: { name: string; groups: HomeGroup[] |
   // 개발 전용 미리보기에서는 미리보기 정산 화면으로 보낸다
   const preview = (usePathname() ?? "").startsWith("/preview");
   const settleHref = (tripId: string) => (preview ? "/preview/settle" : `/trips/${tripId}/settle`);
+  // 앱으로 돌아오면(다른 탭·앱에서 복귀) 보낼 금액과 진행률을 서버에서 다시 읽는다
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible" && !preview) router.refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [router, preview]);
   const header = <Top><Title>{name ? `${name}님` : "홈"}</Title></Top>;
 
   if (groups === null || groups.length === 0) {
@@ -49,7 +56,7 @@ export function HomeView({ name, groups }: { name: string; groups: HomeGroup[] |
         {header}
         <Section>
           <Lead>{failed ? "그룹을 불러오지 못했습니다." : "참여한 그룹이 없습니다."}</Lead>
-          <Hint>{failed ? "네트워크 연결을 확인한 뒤 다시 시도해 주세요." : "운전자에게 받은 초대 코드로 참여하세요."}</Hint>
+          <Hint>{failed ? "네트워크 연결을 확인한 뒤 다시 시도해 주세요." : "운전자에게 받은 초대 코드로 참여할 수 있습니다."}</Hint>
           {failed ? <ButtonLink href="/">다시 시도</ButtonLink> : <ButtonLink href="/join">초대 코드 입력</ButtonLink>}
         </Section>
       </Screen>

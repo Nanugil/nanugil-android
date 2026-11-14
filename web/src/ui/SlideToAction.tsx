@@ -1,6 +1,6 @@
 "use client";
 // 밀어서 실행: 손잡이를 오른쪽 끝까지 밀면 onDone. 덜 밀면 제자리로 돌아간다.
-// 손잡이는 버튼이라 탭·Enter·Space로도 실행되고, 움직임 줄이기 설정이면 바로 실행한다.
+// 손가락 탭은 손잡이를 살짝 밀어 보여 주기만 하고(밀어야 실행), 키보드 Enter·Space와 움직임 줄이기 설정은 바로 실행한다.
 import styled from "@emotion/styled";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
@@ -38,6 +38,8 @@ export function SlideToAction({ label, actionLabel, onDone }: { label: string; a
   const done = useRef(false);
   const dragged = useRef(false);
   const draggable = useRef<Draggable | null>(null);
+  const timeline = useRef<gsap.core.Timeline | null>(null);
+  const mounted = useRef(true);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone; // 드래그 콜백이 늘 최신 onDone을 부르게
 
@@ -58,7 +60,7 @@ export function SlideToAction({ label, actionLabel, onDone }: { label: string; a
     draggable.current?.disable();
     gsap.killTweensOf([handle.current, fill.current, text.current]);
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { onDoneRef.current(); return; }
-    gsap.timeline({ onComplete: () => onDoneRef.current() })
+    timeline.current = gsap.timeline({ onComplete: () => { if (mounted.current) onDoneRef.current(); } })
       .fromTo(handle.current, { x: from }, { x: max(), duration: 0.28, ease: "power2.out" })
       .to(fill.current, { scaleX: 1, duration: 0.28, ease: "power2.out" }, 0)
       .to(text.current, { opacity: 0, duration: 0.2 }, 0);
@@ -80,6 +82,21 @@ export function SlideToAction({ label, actionLabel, onDone }: { label: string; a
     return () => { d.kill(); draggable.current = null; };
   }, { scope: track });
 
+  // 화면을 떠나면 진행 중인 실행 애니메이션을 멈춰 onDone이 불리지 않게
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; timeline.current?.kill(); };
+  }, []);
+
+  /** 탭했을 때: 손잡이를 오른쪽으로 살짝 밀었다 돌려놓아 "밀어서 실행"을 알려 준다 */
+  const nudge = () => {
+    if (done.current) return;
+    gsap.killTweensOf(handle.current);
+    gsap.timeline()
+      .to(handle.current, { x: 28, duration: 0.18, ease: "power2.out", onUpdate: () => sync(Number(gsap.getProperty(handle.current, "x"))) })
+      .to(handle.current, { x: 0, duration: 0.4, ease: "back.out(2)", onUpdate: () => sync(Number(gsap.getProperty(handle.current, "x"))) });
+  };
+
   // 뒤로 가기로 다시 보이면(브라우저 캐시) 처음 상태로
   useEffect(() => {
     const onShow = (e: PageTransitionEvent) => { if (e.persisted) reset(); };
@@ -92,7 +109,12 @@ export function SlideToAction({ label, actionLabel, onDone }: { label: string; a
       <Fill ref={fill} />
       <Text ref={text} aria-hidden="true">{label}</Text>
       <Handle ref={handle} type="button" aria-label={actionLabel}
-        onClick={() => { if (dragged.current) return; finish(); }}>
+        onClick={(e) => {
+          if (dragged.current) return;
+          // detail === 0: 키보드(Enter·Space)나 보조기술로 누름 → 바로 실행. 포인터 탭은 안내만
+          const keyboard = e.detail === 0;
+          if (keyboard || window.matchMedia("(prefers-reduced-motion: reduce)").matches) finish(); else nudge();
+        }}>
         <Icon name="arrow_forward" />
       </Handle>
     </Track>

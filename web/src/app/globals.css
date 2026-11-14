@@ -36,8 +36,8 @@
   --color-accent: var(--brand-primary); --color-accent-ink: #FFFFFF;
   --color-focus: var(--brand-primary);
   --color-success: #0B7A44; --color-error: #C7373C; --color-warn: var(--brand-amber);
-  --color-input: #F2F4F6;
-  --color-input-line: transparent;
+  --color-input: #F9FAFB;
+  --color-input-line: #E5E8EB;
   --font-body: "Pretendard Variable", Pretendard, ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-body);
   --font-icon: "Material Symbols Rounded";
@@ -65,6 +65,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* 브라우저 자동완성의 하늘색·노란색 배경을 입력칸 색으로 덮는다 */
 input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus {
   -webkit-box-shadow: 0 0 0 100px var(--color-input) inset; -webkit-text-fill-color: var(--color-ink); caret-color: var(--color-ink);
+}
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 100px var(--color-card) inset, inset 0 0 0 1.5px var(--color-accent);
   transition: background-color 9999s;
 }
 @media (min-width: 48rem) { :root { --container-wide: 40rem; } }

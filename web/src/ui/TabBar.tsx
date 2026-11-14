@@ -7,7 +7,7 @@ import { t } from "./theme";
 
 const TABS = [
   { key: "home", href: "/", icon: "home", label: "홈" },
-  { key: "join", href: "/join", icon: "add_circle", label: "초대 코드" },
+  { key: "join", href: "/join", icon: "pin", label: "초대 코드" },
   { key: "me", href: "/me", icon: "person", label: "내 정보" },
 ] as const;
 

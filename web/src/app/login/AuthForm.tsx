@@ -81,7 +81,7 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
       <Brand><Mark src="/icon.svg" alt="" width={28} height={28} />나누길</Brand>
       <Intro>
         <Title>{signup ? <>이메일로<br />회원가입</> : <>함께 탄 길,<br />정산은 나누길</>}</Title>
-        <Text>{signup ? "가입하면 그룹의 정산 요청을 받을 수 있습니다." : "로그인하고 그룹의 정산 요청을 확인하세요."}</Text>
+        <Text>{signup ? "가입하면 그룹의 정산 요청을 받을 수 있습니다." : "그룹의 정산 요청을 확인하려면 로그인해 주세요."}</Text>
       </Intro>
       <Form onSubmit={onSubmit}>
         <Field label="이메일" name="email" type="email" autoComplete="email" inputMode="email" required />
