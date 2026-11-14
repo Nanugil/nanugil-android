@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:live": "vitest run --config vitest.live.config.ts",
     "e2e": "playwright test",
-    "seed": "tsx --env-file=.env.local scripts/seed-demo.ts"
+    "seed": "tsx --env-file=.env.local scripts/seed-demo.ts",
+    "check:server": "tsx --env-file=.env.local scripts/check-server.ts"
   },
   "dependencies": {
     "@emotion/cache": "^11.14.0",
