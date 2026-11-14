@@ -17,7 +17,8 @@ data class RequestedTransfer(
 /**
  * '정산 요청'을 누른 순간의 정산 결과. 이후 값을 고쳐도 바뀌지 않도록 송금 목록을 따로 들고 있다.
  *
- * @property myId 이 차 운전자. 이 사람의 송금 링크 QR을 보여 준다.
+ * @property myId 이 기기 사용자. [transfers]는 이 사람이 받거나 보내는 송금만 든다.
+ *   받을 돈이 있으면 송금 링크 QR과 받은 사람 체크를, 보낼 돈이 있으면 송금 안내를 보여 준다(운전자는 둘 다일 수 있다).
  * @property perPersonWon 요청할 때의 1인 부담액. 요청 뒤에 값을 고쳐도 09 화면은 이 금액을 보여 준다.
  */
 data class SettlementRequest(
@@ -39,8 +40,11 @@ data class SettlementRequest(
         .toString()
 
     companion object {
-        fun of(settlement: Settlement, myId: String) =
-            SettlementRequest(myId, settlement.transfers.map { RequestedTransfer(it.fromId, it.toId, it.amountWon) }, settlement.perPersonShareWon)
+        fun of(settlement: Settlement, myId: String) = SettlementRequest(
+            myId,
+            settlement.transfers.filter { it.fromId == myId || it.toId == myId }.map { RequestedTransfer(it.fromId, it.toId, it.amountWon) },
+            settlement.perPersonShareWon,
+        )
 
         fun fromJson(json: String): SettlementRequest {
             val o = JSONObject(json)

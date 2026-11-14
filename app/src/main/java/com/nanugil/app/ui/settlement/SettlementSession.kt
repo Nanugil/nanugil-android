@@ -33,11 +33,12 @@ enum class PriceChoice { NEARBY_AVERAGE, NEARBY_LOWEST, PICKED }
  *
  * @property chosen 유종별로 유가를 가져온 주유소. 근처 평균이면 비어 있다.
  * @property request 보낸 정산 요청(09 화면). 보내기 전이면 null.
- * @property tripId 서버의 진행 중 운행. 없으면 데모 값으로 정산한다.
+ * @property tripId 서버의 진행 중 운행. 서버가 없으면(키 없음) 데모 값으로 정산한다.
  * @property serverNote 서버 연결 상태 안내 (예: 데모 값 사용, 비용 저장 실패). 문제없으면 null.
  * @property iDrive 이 기기 사용자가 A차(맨 앞) 운전자인지. 서버 운행에서 동승자면 false라 내 차 기록으로 채우거나 저장하지 않는다.
  * @property estimatedTollWon 내 차 통행료의 내비 예상액(경로 변경·할인 반영). 안내 없이 달렸으면 null.
  * @property tollDiscountPercent [estimatedTollWon]에 뺀 전기차 통행료 감면율(%)
+ * @property myName 이 기기 사용자 이름(서버 운행). 동승자면 [myDriver]와 다르다. 서버가 없으면 빈칸.
  */
 data class SettlementState(
     val cars: List<CarInput>,
@@ -52,9 +53,13 @@ data class SettlementState(
     val iDrive: Boolean = true,
     val estimatedTollWon: Long? = null,
     val tollDiscountPercent: Int = 0,
+    val myName: String = "",
 ) {
     /** 이 차(A차) 운전자. 이 사람에게 송금한다. */
     val myDriver: String get() = cars.firstOrNull()?.driver?.trim().orEmpty()
+
+    /** 이 기기 사용자. 09에서 받을 돈인지 낼 돈인지를 이 사람 기준으로 보여 준다. */
+    val me: String get() = myName.trim().ifBlank { myDriver }
 
     /** 입력값으로 바로 정산한다. 값이 틀리면 결과 대신 고칠 내용. */
     val settled: Pair<Settlement?, String?> by lazy { settleOrMessage(cars) }
@@ -74,7 +79,7 @@ class SettlementSession(
     private val server: SettlementServer? = null,
     private val toll: TollRecorder? = null,
 ) {
-    private val _state = MutableStateFlow(SettlementState(cars = initialCars(), request = requests.load()))
+    private val _state = MutableStateFlow(SettlementState(cars = startCars(), request = requests.load()))
     val state: StateFlow<SettlementState> = _state.asStateFlow()
 
     private val loadLock = Mutex()
@@ -82,7 +87,7 @@ class SettlementSession(
 
     /**
      * 정산 화면이 처음 열릴 때 한 번: 운행 기록으로 내 차 칸을 채우고, 차종을 읽고, [here] 근처 유가를 불러온다.
-     * 다음 운행은 [finish] 뒤에 다시 채운다.
+     * 다음 운행은 [finish]나 [startTrip] 뒤에 다시 채운다.
      */
     suspend fun load(here: Wgs84Point?) = loadLock.withLock {
         if (loaded) return@withLock
@@ -107,20 +112,20 @@ class SettlementSession(
         loadPrices(here)
     }
 
-    // 서버에 진행 중 운행이 있으면 그 참가자·차량별 비용으로 바꾼다. 없거나 연결이 안 되면 데모 값 그대로.
+    // 서버에 진행 중 운행이 있으면 그 참가자·차량별 비용으로 바꾼다. 없거나 연결이 안 되면 빈 화면에 안내만 띄운다.
     private suspend fun loadTrip() {
         val server = server ?: return
         try {
             val trip = server.loadTrip()
             if (trip == null || trip.cars.isEmpty()) {
-                _state.update { it.copy(serverNote = "진행 중인 운행이 없어 예시 값으로 정산합니다") }
+                _state.update { it.copy(serverNote = NO_TRIP) }
             } else {
-                _state.update { it.copy(cars = trip.cars, tripId = trip.tripId, iDrive = trip.iDrive, serverNote = null) }
+                _state.update { it.copy(cars = trip.cars, tripId = trip.tripId, iDrive = trip.iDrive, myName = trip.myName, serverNote = null) }
             }
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             Log.w(TAG, "운행 불러오기 실패", e)
-            _state.update { it.copy(serverNote = "서버에 연결하지 못해 예시 값으로 정산합니다") }
+            _state.update { it.copy(serverNote = "서버에 연결하지 못했습니다. 잠시 뒤 다시 열어 주세요") }
         }
     }
 
@@ -223,7 +228,7 @@ class SettlementSession(
     fun request(): SettlementRequest? {
         val s = _state.value
         val result = s.settled.first ?: return null
-        val sent = SettlementRequest.of(result, s.myDriver).also(requests::save)
+        val sent = SettlementRequest.of(result, s.me).also(requests::save)
         recorder.reset()
         toll?.reset()
         _state.update { it.copy(request = sent) }
@@ -248,8 +253,16 @@ class SettlementSession(
     fun finish() {
         requests.clear()
         loaded = false
-        _state.value = SettlementState(cars = initialCars())
+        _state.value = SettlementState(cars = startCars())
     }
+
+    /** 서버 운행에 들어갔다. 이전 운행 정산을 끝내지 않았으면(요청 전·송금 확인 중) 버리고 이 운행으로 다시 채운다(#30). */
+    fun startTrip(tripId: String) {
+        if (_state.value.tripId != tripId) finish()
+    }
+
+    // 서버가 있으면 운행 값만 쓴다(예시 값을 실제 운행처럼 보이지 않게). 서버 없이 시연할 때만 데모 그룹.
+    private fun startCars() = if (server != null) emptyList() else initialCars()
 
     private fun SettlementState.withPrices(prices: Map<FuelProduct, Int>) = copy(
         prices = prices,
@@ -260,6 +273,7 @@ class SettlementSession(
 
     private companion object {
         const val TAG = "SettlementSession"
+        const val NO_TRIP = "진행 중인 운행이 없습니다. 운행을 시작하면 도착 후 여기서 정산합니다"
     }
 }
 

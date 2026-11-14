@@ -10,8 +10,9 @@ import kotlin.math.roundToLong
 /**
  * 서버의 진행 중 운행. [cars]는 내가 탄 차(A차)가 맨 앞.
  * @property iDrive 이 기기 사용자가 운전자인지. 동승자면 [cars]의 맨 앞은 남의 차라 이 기기 기록으로 채우거나 저장하지 않는다.
+ * @property myName 이 기기 사용자 이름. 09에서 받을 사람인지 낼 사람인지 가른다.
  */
-data class ServerTrip(val tripId: String, val cars: List<CarInput>, val iDrive: Boolean = true)
+data class ServerTrip(val tripId: String, val cars: List<CarInput>, val iDrive: Boolean = true, val myName: String = "")
 
 /** 정산이 서버(#15 Supabase)에서 쓰는 것: 운행 참가자·차량별 비용 읽기(T3), 내 차 비용 저장(T6·T8). */
 interface SettlementServer {
@@ -38,7 +39,7 @@ class SupabaseSettlementServer(private val groupId: () -> String? = { null }) : 
         val myMemberId = members.firstOrNull { it.userId == me }?.id
         val tripMembers = GroupTripApi.tripMembers(trip.id)
         val iDrive = tripMembers.any { it.isDriver && it.memberId == myMemberId }
-        return ServerTrip(trip.id, carsFromTrip(tripMembers, names, myMemberId), iDrive)
+        return ServerTrip(trip.id, carsFromTrip(tripMembers, names, myMemberId), iDrive, names[myMemberId].orEmpty())
     }
 
     override suspend fun saveMyCost(tripId: String, car: CarInput, choice: PriceChoice, estimatedToll: Long?) {
@@ -68,6 +69,7 @@ internal fun carsFromTrip(members: List<TripMember>, names: Map<String, String>,
             type = type,
             driver = names[d.memberId].orEmpty(),
             memberId = d.memberId,
+            label = d.vehicleLabel.orEmpty(),
             passengers = passengers.joinToString(", "),
             fuelPrice = d.appliedPrice?.takeIf { it > 0 }?.toString() ?: type.defaultFuelPrice,
             startFuelL = d.startFuelMl?.let(::milliToDecimalText).orEmpty(),

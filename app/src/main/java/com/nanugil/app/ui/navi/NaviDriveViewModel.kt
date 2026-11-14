@@ -233,6 +233,21 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
                 groupUi.value = groupUi.value.copy(settlement = ui)
             }
         }
+        // 나중에 참가한 차가 보이면 주행 화면 1인 금액의 인원(탄 사람 수)을 다시 센다
+        viewModelScope.launch {
+            combine(serverGroupId, groupCars.map { it.size }.distinctUntilChanged()) { id, _ -> id }.collectLatest { id ->
+                if (id == null) {
+                    tripCost.members = MockGroupDriveData.SHARE_MEMBERS
+                    return@collectLatest
+                }
+                try {
+                    GroupTripApi.activeTrip(id)?.let { GroupTripApi.tripMembers(it.id).size }?.takeIf { it > 0 }?.let { tripCost.members = it }
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    Log.w(TAG, "탄 사람 수 읽기 실패", e)
+                }
+            }
+        }
         // 내장 내비가 "목적지 도착"을 알리면 08 도착(정산) 화면을 연다.
         // TODO(정산): 시나리오 7단계대로 P단(주차)일 때만 연다 (Vehicle SDK 기어 상태)
         viewModelScope.launch {
@@ -408,12 +423,14 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
                 .filter { it.takenBy == null && (it.selected || !it.member.driver) }
                 .mapNotNull { it.member.id }
             GroupTripApi.setTripPassengers(trip.id, mine)
-            enterTrip(loadGroup(id).info)
+            enterTrip(loadGroup(id))
         }
     }
 
     /** 서버 운행에 들어갔다: 일행 차를 서버에서 받고, 그룹 목적지로 안내를 시작한다. */
-    private fun enterTrip(info: GroupInfo) {
+    private fun enterTrip(l: LoadedGroup) {
+        val info = l.info
+        l.trip?.let { settlement.startTrip(it.id) }
         groupUi.update { it.copy(group = info, tripStarted = true, screen = AppScreen.DRIVE) }
         useServerGroup(info.id)
         startRoute()
@@ -515,7 +532,7 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
             val trip = GroupTripApi.activeTrip(id) ?: throw ServerException("TRIP_NOT_ACTIVE")
             GroupTripApi.joinTrip(trip.id, j.carName.ifBlank { "B차" }.trim(), fuelTypeOf(nanugil.readMyCarType()))
             GroupTripApi.setTripPassengers(trip.id, j.passengers.filter { it.selected }.mapNotNull { it.member.id })
-            enterTrip(loadGroup(id).info)
+            enterTrip(loadGroup(id))
         }
     }
 
@@ -591,7 +608,8 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         val members = GroupTripApi.members(groupId)
         val trip = GroupTripApi.activeTrip(groupId)
         val riders = trip?.let { GroupTripApi.tripMembers(it.id) }.orEmpty()
-        return LoadedGroup(groupInfoOf(g, members, riders), trip, riders, members.firstOrNull { it.userId == me }?.id)
+        val myMemberId = members.firstOrNull { it.userId == me }?.id
+        return LoadedGroup(groupInfoOf(g, members, riders).copy(myId = myMemberId), trip, riders, myMemberId)
     }
 
     /** 홈 "내 그룹"을 서버 값으로. 실패하면 지금 목록을 그대로 둔다. */

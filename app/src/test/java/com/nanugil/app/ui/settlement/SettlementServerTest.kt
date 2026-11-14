@@ -121,6 +121,8 @@ class SettlementServerTest {
         val members = listOf(driver("a", "EV"), rider("p1", "a"), driver("b", "DIESEL"), rider("p2", "b"))
         val local = carsFromTrip(members, names, myMemberId = "p2")
         assertEquals(listOf("이서준", "김민수"), local.map { it.driver })
+        // 차 이름은 순서가 아니라 서버 vehicle_label (#30: 기기마다 A차가 달라지지 않게)
+        assertEquals(listOf("b 차", "a 차"), local.mapIndexed { i, c -> c.name(i) })
 
         // b가 나중에 저장하면 동승자 기기의 A차도 채워진다
         val fresh = carsFromTrip(listOf(driver("a", "EV"), driver("b", "DIESEL", "startFuel" to 40_000, "endFuel" to 35_000)), names, "p2")
