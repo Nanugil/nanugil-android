@@ -631,7 +631,7 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
                 recent = if (serverOn) emptyList() else it.recent,
             )
         }
-        refreshMyGroups()
+        refreshMyGroups(restore = true)
         // 03 대기실·05 운행 참가를 보는 동안 서버 변화(운행 시작, 차 등록·동승자)를 받아 다시 채운다 (#32-3).
         // 그룹 참여는 알림이 없어 tripChanges의 15초 재확인으로 반영된다.
         viewModelScope.launch {
@@ -683,11 +683,21 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * 홈 "내 그룹"·"최근 정산"을 서버 값으로. 실패하면 지금 목록을 그대로 둔다.
-     * 들어가 있던 운행이 (방장이) 끝났으면 진행 중 표시를 내리고, 앱을 다시 켰는데 내가 탄 운행이 있으면 그 운행으로 돌아간다 (#32-6·11).
+     * 들어가 있던 운행이 (방장이) 끝났으면 진행 중 표시를 내린다 (#32-6).
+     * 읽는 중에 다시 부르면 앞의 읽기를 취소한다. 늦게 끝난 앞의 읽기가 운행 종료 전 상태로 덮어쓰지 않게 하려는 것이다.
+     *
+     * @param restore 앱을 켤 때만 true. 내가 탄 진행 중 운행이 있으면 그 운행으로 돌아간다 (#32-11).
+     *   홈에 올 때마다 하면 정산을 끝내고 [홈으로]를 누른 참여자가 (방장이 아직 안 끝낸) 그 운행으로 다시 끌려간다.
      */
-    private fun refreshMyGroups() {
+    private var refreshJob: Job? = null
+    /** 앱을 켤 때의 복귀를 아직 못 했는지. 그사이 다른 읽기가 앞의 읽기를 취소해도 복귀는 이어서 한다. */
+    private var restorePending = false
+
+    private fun refreshMyGroups(restore: Boolean = false) {
         if (!serverOn) return
-        viewModelScope.launch {
+        if (restore) restorePending = true
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
             try {
                 val groups = GroupTripApi.myGroups()
                 val names = groups.associate { mg -> mg.group.id to GroupTripApi.members(mg.group.id).associate { it.id to it.displayName } }
@@ -711,15 +721,18 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
                 if (current != null && groupUi.value.tripStarted && groups.none { it.group.id == current && it.activeTrip != null }) {
                     useServerGroup(null)
                     groupUi.update { it.copy(group = null, tripStarted = false) }
-                } else if (current == null) {
+                } else if (restorePending && current == null) {
                     // 앱을 다시 켰을 때: 내가 탄 진행 중 운행이 있으면 그 그룹으로 돌아간다 (길안내는 내비가 이어 간다)
                     groups.filter { it.activeTrip != null }.firstNotNullOfOrNull { mg ->
                         loadGroup(mg.group.id, mg.group).takeIf { l -> l.riders.any { it.memberId == l.myMemberId } }
                     }?.let { l ->
+                        // enterTrip과 같이 정산도 이 운행으로 맞춘다 (#33). 화면 이동·길안내 시작은 하지 않는다.
+                        l.trip?.let { settlement.startTrip(it.id) }
                         groupUi.update { it.copy(group = l.info, tripStarted = true) }
                         useServerGroup(l.info.id)
                     }
                 }
+                restorePending = false
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 Log.w(TAG, "내 그룹 읽기 실패", e)
