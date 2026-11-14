@@ -174,12 +174,19 @@ data class SettlementUi(
     val sends: List<PaymentStatus> get() = payments.filterNot { it.incoming }
 }
 
+/** 운행을 끝낸 차 [ended] / 전체 [total]. [minimized]면 팝업을 닫고 아래 작은 상자로만 보인다. */
+data class EndWait(val ended: Int, val total: Int, val minimized: Boolean = false)
+
 /** 화면 흐름 전체 상태 (서버가 붙기 전까지는 목업 데이터) */
 data class GroupUiState(
     val screen: AppScreen = AppScreen.HOME,
     val group: GroupInfo? = null,
     /** 운행을 시작했는지 (홈 "진행 중인 운행" 카드) */
     val tripStarted: Boolean = false,
+    /** 목적지 전에 [운행 종료]를 눌러 "정산하시겠습니까?" 확인 창을 띄웠는지 */
+    val confirmEnd: Boolean = false,
+    /** 내 차는 운행을 끝냈고 다른 차를 기다리는 중. 아니면 null */
+    val endWait: EndWait? = null,
     val myGroups: List<GroupSummary> = MockGroups.myGroups,
     val recent: List<RecentSettlement> = MockGroups.recent,
     val createForm: CreateGroupForm = CreateGroupForm(),

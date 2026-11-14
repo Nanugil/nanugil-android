@@ -21,6 +21,7 @@ import com.nanugil.app.data.navi.NaviController
 import com.nanugil.app.data.navi.NaviPlace
 import com.nanugil.app.data.navi.NaviState
 import com.nanugil.app.data.route.NaverDirectionsClient
+import com.nanugil.app.data.server.EndedCars
 import com.nanugil.app.data.server.Group
 import com.nanugil.app.data.server.GroupTripApi
 import com.nanugil.app.data.server.MyCarSnapshot
@@ -49,6 +50,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -116,7 +118,15 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     private val serverGroup = ServerGroupCars()
     /** 일행 차 (나 포함, isMe) */
     private val groupCars: StateFlow<List<CarState>> = serverGroupId
-        .flatMapLatest { id -> if (id == null) mockGroup.observeGroup(GROUP_ID) else serverGroup.cars(id, ::myCarSnapshot) }
+        .flatMapLatest { id ->
+            when {
+                id != null -> serverGroup.cars(id, ::myCarSnapshot)
+                // 서버가 있으면 운행 전(홈·대기실)엔 일행 차가 없다. 목업 차는 서버 없이 시연할 때만.
+                // (serverOn 프로퍼티는 아직 초기화 전이라 BuildConfig를 직접 본다)
+                BuildConfig.SUPABASE_URL.isNotBlank() -> flowOf(emptyList())
+                else -> mockGroup.observeGroup(GROUP_ID)
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** 서버로 보낼 내 차 상태. 내장 내비가 아직 위치를 모르면 null (보내지 않는다) */
@@ -258,7 +268,8 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
                 toll.update(s)
                 if (wasGuiding && !s.guiding && s.message == "목적지 도착") {
                     toll.arrive()
-                    go(AppScreen.ARRIVAL)
+                    // 그룹 운행 중 목적지에 도착하면 [운행 종료]를 누른 것과 같다 (모든 차가 끝나면 다 같이 08)
+                    if (groupUi.value.tripStarted) endTrip() else go(AppScreen.ARRIVAL)
                 }
                 wasGuiding = s.guiding
             }
@@ -442,9 +453,67 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     private fun enterTrip(l: LoadedGroup) {
         val info = l.info
         l.trip?.let { settlement.startTrip(it.id) }
-        groupUi.update { it.copy(group = info, tripStarted = true, screen = AppScreen.DRIVE) }
+        groupUi.update { it.copy(group = info, tripStarted = true, endWait = null, screen = AppScreen.DRIVE) }
         useServerGroup(info.id)
         startRoute()
+    }
+
+    /**
+     * [운행 종료] 버튼 (각 차). 아직 안내 중이면(목적지 전) 실수일 수 있어 "정산하시겠습니까?"를 먼저 묻는다.
+     * 그룹 운행이 아니면(혼자 검색한 목적지) 묻지 않고 길안내만 끈다.
+     */
+    fun endTrip() {
+        val g = groupUi.value
+        when {
+            !g.tripStarted -> navi.cancelRoute()
+            navi.state.value.guiding -> groupUi.update { it.copy(confirmEnd = true) }
+            else -> finishMyCar()
+        }
+    }
+
+    /** 확인 창 [정산하기] */
+    fun confirmEndTrip() {
+        groupUi.update { it.copy(confirmEnd = false) }
+        finishMyCar()
+    }
+
+    /** 확인 창 [계속 주행] */
+    fun cancelEndTrip() = groupUi.update { it.copy(confirmEnd = false) }
+
+    /** 기다림 팝업 오른쪽 위 X: 팝업을 닫고 아래 작은 상자로만 보인다 */
+    fun minimizeEndWait() = groupUi.update { s -> s.copy(endWait = s.endWait?.copy(minimized = true)) }
+
+    /**
+     * 내 차 운행을 지금 끝낸다: 길안내를 끄고, 서버에 운행 종료를 남기고(T6 arrived_at), 내 차 정산 값(연료·통행료)을 이 순간 값으로 채운다.
+     * 통행료는 [TollLedger]가 지나온 만큼만 센다 (목적지 전이면 남은 유료 구간은 빠진다).
+     * 모든 차가 끝내면 [endedCars] 감시가 모두를 08로 보낸다. 서버 없는 시연이면 바로 08.
+     */
+    private fun finishMyCar() {
+        navi.cancelRoute()
+        val id = groupUi.value.group?.id ?: return onTripEnded()
+        serverAction {
+            val trip = GroupTripApi.activeTrip(id) ?: return@serverAction onTripEnded() // 이미 끝난 운행
+            GroupTripApi.markArrived(trip.id)
+            groupUi.update { it.copy(endWait = EndWait(0, 0)) }
+            showEndWaiting(serverGroup.endedCars.value)
+            // 08을 열 때 다시 부르면 이미 채워 둔 값을 그대로 쓴다 (운행마다 한 번)
+            viewModelScope.launch { settlement.load(navi.state.value.currentPosition) }
+        }
+    }
+
+    private fun showEndWaiting(e: EndedCars) {
+        val w = groupUi.value.endWait ?: return
+        if (!groupUi.value.tripStarted || e.allEnded) return
+        // 방금 누른 내 차가 아직 서버 목록에 안 잡혔을 수 있어 최소 1대로 센다
+        groupUi.update { it.copy(endWait = w.copy(ended = maxOf(e.ended, 1), total = maxOf(e.total, 1))) }
+    }
+
+    /** 운행이 끝났다 (모든 차가 [운행 종료]를 눌렀거나 서버 운행이 끝남): 길안내를 끄고 08 정산으로 */
+    private fun onTripEnded() {
+        if (!groupUi.value.tripStarted) return
+        groupUi.update { it.copy(tripStarted = false, confirmEnd = false, endWait = null) }
+        navi.cancelRoute()
+        go(AppScreen.ARRIVAL)
     }
 
     fun typeCode(ch: Char) {
@@ -655,6 +724,18 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
         }
+        // 모든 차가 [운행 종료]를 누르면 다 같이 08로. 그 전엔 누른 차에 기다림 안내(몇 대 끝났는지)를 갱신한다.
+        viewModelScope.launch {
+            serverGroup.endedCars.collect { e -> if (e.allEnded) onTripEnded() else showEndWaiting(e) }
+        }
+        // 서버 운행 자체가 끝나도(ended_at) 남은 차는 길안내를 끄고 08로 간다
+        viewModelScope.launch {
+            var last: String? = null
+            serverGroup.activeTripId.collect { id ->
+                if (last != null && id == null && serverGroupId.value != null) onTripEnded()
+                last = id
+            }
+        }
     }
 
     /** 03·05를 서버 값으로 다시 채운다. 실패해도 다음 알림에 다시 해 본다. */
@@ -757,8 +838,6 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
-
-    fun stopRoute() = navi.cancelRoute()
 
     /** 화면이 다시 보일 때: 내비 화면에서 안내를 바꾸고 돌아왔을 수 있으니 상태를 다시 맞춘다 */
     fun onScreenVisible() {

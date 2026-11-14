@@ -92,6 +92,11 @@ data class GroupActions(
     val onEditPayLink: () -> Unit = {},
     val onRequestSettlement: () -> Unit = {},
     val onGoHome: () -> Unit = {},
+    /** 운행 종료 확인 창 [정산하기] · [계속 주행] */
+    val onConfirmEnd: () -> Unit = {},
+    val onCancelEnd: () -> Unit = {},
+    /** 운행 종료 기다림 팝업 X → 아래 작은 상자로 */
+    val onMinimizeEndWait: () -> Unit = {},
 )
 
 // ================= 위쪽 바: 로고(또는 뒤로) · 제목 · [드라이브|내 차|정산] · 상태 칩 =================
