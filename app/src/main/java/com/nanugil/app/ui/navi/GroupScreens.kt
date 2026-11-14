@@ -607,7 +607,8 @@ internal fun ArrivalScreen(p: NaviPalette, s: SettlementUi, actions: GroupAction
             Column(Modifier.padding(InnerPad)) {
                 // 서버 운행이 없으면 예시 값 대신 안내만 (#30)
                 if (s.cars.isEmpty()) {
-                    Title(p, "정산할 운행이 없어요")
+                    // 서버 운행을 읽는 중이면 안내(serverNote)가 아직 없다
+                    Title(p, if (s.serverNote == null) "운행을 불러오는 중" else "정산할 운행이 없어요")
                     s.serverNote?.let { Label(it, 22.sp, p.textSecondary, modifier = Modifier.padding(top = 8.dp)) }
                     return@Column
                 }

@@ -79,7 +79,7 @@ class SettlementSession(
     private val server: SettlementServer? = null,
     private val toll: TollRecorder? = null,
 ) {
-    private val _state = MutableStateFlow(SettlementState(cars = startCars(), request = requests.load()))
+    private val _state = MutableStateFlow(requests.load().let { SettlementState(cars = startCars(), request = it, tripId = it?.tripId) })
     val state: StateFlow<SettlementState> = _state.asStateFlow()
 
     private val loadLock = Mutex()
@@ -93,6 +93,11 @@ class SettlementSession(
         if (loaded) return@withLock
         loaded = true
         loadTrip()
+        // 운행을 못 읽었으면(없음·연결 실패) 다음에 다시 읽는다. 08을 보는 동안 [refreshTrip] 주기마다 다시 부른다.
+        if (server != null && _state.value.cars.isEmpty()) {
+            loaded = false
+            return@withLock
+        }
         // 동승자면 A차는 남의 차라 이 기기의 운행 기록·차종으로 채우지 않는다
         if (_state.value.iDrive) {
             _state.update { s -> s.copy(cars = s.cars.mapFirst { it.withRecorded(recorder.fuel, recorder.battery) }) }
@@ -228,7 +233,7 @@ class SettlementSession(
     fun request(): SettlementRequest? {
         val s = _state.value
         val result = s.settled.first ?: return null
-        val sent = SettlementRequest.of(result, s.me).also(requests::save)
+        val sent = SettlementRequest.of(result, s.me, s.tripId).also(requests::save)
         recorder.reset()
         toll?.reset()
         _state.update { it.copy(request = sent) }

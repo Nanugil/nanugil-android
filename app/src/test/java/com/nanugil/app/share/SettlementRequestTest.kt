@@ -34,6 +34,11 @@ class SettlementRequestTest {
     fun request_survivesJsonRoundTrip() {
         val request = SettlementRequest.of(settlement, myId = "지수").toggled(1)
         assertEquals(request, SettlementRequest.fromJson(request.toJson()))
+        // 앱을 다시 켜도 같은 운행이면 09를 지우지 않도록 운행 ID도 남는다(#33 리뷰)
+        val onTrip = SettlementRequest.of(settlement, myId = "지수", tripId = "t1")
+        assertEquals("t1", SettlementRequest.fromJson(onTrip.toJson()).tripId)
+        // 운행 ID를 저장하기 전에 보낸 요청
+        assertEquals(null, SettlementRequest.fromJson("""{"myId":"지수","transfers":[]}""").tripId)
     }
 
     @Test

@@ -237,7 +237,8 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             combine(serverGroupId, groupCars.map { it.size }.distinctUntilChanged()) { id, _ -> id }.collectLatest { id ->
                 if (id == null) {
-                    tripCost.members = MockGroupDriveData.SHARE_MEMBERS
+                    // 서버 그룹 밖이면 나 혼자. 서버 키가 없는 오프라인 시연만 데모 인원. (serverOn은 init보다 아래에 있어 아직 초기화 전이다)
+                    tripCost.members = if (BuildConfig.SUPABASE_URL.isNotBlank()) 1 else MockGroupDriveData.SHARE_MEMBERS
                     return@collectLatest
                 }
                 try {
@@ -277,11 +278,14 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
                 ?: withTimeoutOrNull(POSITION_WAIT_MS) { navi.state.first { it.currentPosition != null }.currentPosition }
             settlement.load(here)
         }
-        // 08을 보는 동안 다른 차가 나중에 저장한 비용을 받아 온다. 08을 떠나면 멈춘다.
+        // 08을 보는 동안 다른 차가 나중에 저장한 비용을 받아 온다. 운행을 못 읽었으면 다시 읽는다. 08을 떠나면 멈춘다.
         if (screen == AppScreen.ARRIVAL && tripRefresh?.isActive != true) tripRefresh = viewModelScope.launch {
             while (groupUi.value.screen == AppScreen.ARRIVAL) {
                 delay(TRIP_REFRESH_MS)
-                if (groupUi.value.screen == AppScreen.ARRIVAL) settlement.refreshTrip()
+                if (groupUi.value.screen == AppScreen.ARRIVAL) {
+                    settlement.load(navi.state.value.currentPosition)
+                    settlement.refreshTrip()
+                }
             }
         }
     }

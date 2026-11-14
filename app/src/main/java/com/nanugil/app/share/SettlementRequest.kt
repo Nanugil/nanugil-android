@@ -20,11 +20,13 @@ data class RequestedTransfer(
  * @property myId 이 기기 사용자. [transfers]는 이 사람이 받거나 보내는 송금만 든다.
  *   받을 돈이 있으면 송금 링크 QR과 받은 사람 체크를, 보낼 돈이 있으면 송금 안내를 보여 준다(운전자는 둘 다일 수 있다).
  * @property perPersonWon 요청할 때의 1인 부담액. 요청 뒤에 값을 고쳐도 09 화면은 이 금액을 보여 준다.
+ * @property tripId 요청한 서버 운행. 앱을 다시 켠 뒤 같은 운행에 들어가도 09를 지우지 않도록 함께 저장한다. 서버 운행이 아니면 null.
  */
 data class SettlementRequest(
     val myId: String,
     val transfers: List<RequestedTransfer>,
     val perPersonWon: Long = 0,
+    val tripId: String? = null,
 ) {
     val isComplete: Boolean get() = transfers.all { it.done }
 
@@ -34,16 +36,18 @@ data class SettlementRequest(
     fun toJson(): String = JSONObject()
         .put("myId", myId)
         .put("perPerson", perPersonWon)
+        .put("tripId", tripId)
         .put("transfers", JSONArray(transfers.map {
             JSONObject().put("from", it.fromId).put("to", it.toId).put("amount", it.amountWon).put("done", it.done)
         }))
         .toString()
 
     companion object {
-        fun of(settlement: Settlement, myId: String) = SettlementRequest(
+        fun of(settlement: Settlement, myId: String, tripId: String? = null) = SettlementRequest(
             myId,
             settlement.transfers.filter { it.fromId == myId || it.toId == myId }.map { RequestedTransfer(it.fromId, it.toId, it.amountWon) },
             settlement.perPersonShareWon,
+            tripId,
         )
 
         fun fromJson(json: String): SettlementRequest {
@@ -57,6 +61,7 @@ data class SettlementRequest(
                 },
                 // 1인 금액을 저장하기 전에 보낸 요청에는 없다
                 perPersonWon = o.optLong("perPerson", 0),
+                tripId = o.optString("tripId").takeIf { it.isNotEmpty() },
             )
         }
     }
