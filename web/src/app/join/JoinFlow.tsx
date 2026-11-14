@@ -10,26 +10,20 @@ import type { InviteResult } from "@/lib/types";
 import { Button } from "@/ui/Button";
 import { CodeInput } from "@/ui/CodeInput";
 import { Field } from "@/ui/Field";
-import { GlassCard } from "@/ui/GlassCard";
+import { Body, Chip, IconBox, Initial, Label, Left, Line, PageHeader, Rows, SectionHead, Stack, Tile } from "@/ui/kit";
 import { Icon } from "@/ui/Icon";
 import { useShake } from "@/ui/motion";
 import { styleOnly } from "@/ui/styleProps";
 import { t } from "@/ui/theme";
 
-const Title = styled.h1`font-size: ${t.text.x2};`;
-const Lead = styled.p`color: ${t.color.ink2};`;
 const ErrorText = styled.p`color: ${t.color.error}; font-size: ${t.text.sm}; min-height: 1lh;`;
-const GroupName = styled.h2`font-size: ${t.text.xl};`;
-const Count = styled.p`color: ${t.color.muted}; font-size: ${t.text.sm};`;
-const List = styled.ul`list-style: none; margin: 0; padding: 0; display: grid;`;
 const Pick = styled("button", styleOnly("selected"))<{ selected: boolean }>`
-  display: flex; align-items: center; justify-content: space-between; gap: ${t.space.sm};
-  width: 100%; min-height: 52px; padding: 0 ${t.space.xs};
-  background: transparent; border: 0; border-bottom: 1px solid ${t.color.rule};
-  text-align: left; font-size: ${t.text.md}; cursor: pointer;
-  color: ${(p) => (p.selected ? t.color.ink : t.color.ink2)};
-  font-weight: ${(p) => (p.selected ? 600 : 400)};
-  .material-symbols-rounded { color: ${(p) => (p.selected ? t.color.accent : t.color.muted)}; }
+  display: flex; align-items: center; gap: ${t.space.sm}; width: 100%; min-height: 52px; padding: 0;
+  background: transparent; border: 0; border-bottom: 1px solid ${t.color.rule}; text-align: left; cursor: pointer;
+  font-size: ${t.text.sm}; color: ${t.color.ink}; font-weight: ${(p) => (p.selected ? 600 : 400)};
+  li:last-child & { border-bottom: 0; }
+  > span:nth-of-type(2) { flex: 1; }
+  > .material-symbols-rounded:last-child { color: ${(p) => (p.selected ? t.color.accent : t.color.muted)}; }
   &:focus-visible { outline: 2px solid ${t.color.focus}; outline-offset: -2px; }
 `;
 
@@ -107,48 +101,58 @@ export function JoinFlow({ initialCode }: { initialCode: string }) {
 
   if (step.kind === "pick") {
     return (
-      <GlassCard aria-labelledby="join-group">
-        <GroupName id="join-group">{step.group.groupName}</GroupName>
-        <Count className="num">지금 {step.group.memberCount}명이 함께해요</Count>
-        {step.names.length > 0 && (
-          <>
-            <Lead>운전자가 미리 넣어 둔 이름 중에 내 이름이 있으면 골라 주세요.</Lead>
-            <List role="radiogroup" aria-label="내 이름 고르기">
+      <>
+        <PageHeader title="그룹 참여" back="/" />
+        <Tile aria-labelledby="join-group">
+          <Line>
+            <Left><IconBox tone="dark"><Icon name="groups" /></IconBox>
+              <Stack><Label>참여할 그룹</Label><b id="join-group">{step.group.groupName}</b></Stack></Left>
+            <Chip tone="plain" className="num">{step.group.memberCount}명</Chip>
+          </Line>
+        </Tile>
+        <Body>
+          {step.names.length > 0 && <SectionHead>내 이름 고르기<span>운전자가 넣어 둔 이름</span></SectionHead>}
+          <Tile>
+            <Rows role="radiogroup" aria-label="내 이름 고르기">
               {step.names.map((m) => (
                 <li key={m.id}>
                   <Pick type="button" role="radio" aria-checked={picked === m.id} selected={picked === m.id} onClick={() => setPicked(m.id)}>
-                    {m.displayName}<Icon name={picked === m.id ? "radio_button_checked" : "radio_button_unchecked"} />
+                    <Initial aria-hidden="true">{m.displayName.slice(0, 1)}</Initial><span>{m.displayName}</span>
+                    <Icon name={picked === m.id ? "radio_button_checked" : "radio_button_unchecked"} />
                   </Pick>
                 </li>
               ))}
               <li>
                 <Pick type="button" role="radio" aria-checked={picked === "new"} selected={picked === "new"} onClick={() => setPicked("new")}>
-                  목록에 없어요, 새로 참여할게요<Icon name={picked === "new" ? "radio_button_checked" : "radio_button_unchecked"} />
+                  <Initial aria-hidden="true"><Icon name="add" /></Initial><span>목록에 없어요, 새로 참여할게요</span>
+                  <Icon name={picked === "new" ? "radio_button_checked" : "radio_button_unchecked"} />
                 </Pick>
               </li>
-            </List>
-          </>
-        )}
-        {picked === "new" && (
-          <Field label="이름" value={name} onChange={(e) => setName(e.target.value)} maxLength={20} autoComplete="nickname" help="일행에게 보이는 이름이에요" />
-        )}
-        <ErrorText role={error ? "alert" : undefined}>{error ?? ""}</ErrorText>
-        <Button type="button" onClick={finish} disabled={!picked || busy} aria-busy={busy}>참여하기</Button>
-      </GlassCard>
+            </Rows>
+            {picked === "new" && (
+              <Field label="일행에게 보일 이름" icon="person" value={name} onChange={(e) => setName(e.target.value)} maxLength={20} autoComplete="nickname" />
+            )}
+          </Tile>
+        </Body>
+        {error && <ErrorText role="alert">{error}</ErrorText>}
+        <Button type="button" onClick={finish} disabled={!picked || busy} aria-busy={busy}>{busy ? "참여하는 중" : "참여하기"}</Button>
+      </>
     );
   }
 
   return (
-    <GlassCard aria-labelledby="join-title">
-      <Title id="join-title">코드로 참여</Title>
-      <Lead>운전자 화면에 보이는 초대 코드를 넣어 주세요.</Lead>
-      <CodeInput ref={shakeRef} value={code} onChange={(v) => { setCode(v); setError(null); }}
-        onComplete={(v) => void lookUp(v)} disabled={locked || step.kind === "loading"} invalid={!!error} />
-      <ErrorText role={error ? "alert" : undefined}>{error ?? ""}</ErrorText>
+    <>
+      <PageHeader title="코드로 참여" back="/" />
+      <Tile pad="md" aria-labelledby="join-title">
+        <Stack><b id="join-title">초대 코드 6자리</b><Label>운전자 화면에 보이는 코드를 넣거나 QR을 찍어 주세요.</Label></Stack>
+        <CodeInput ref={shakeRef} value={code} onChange={(v) => { setCode(v); setError(null); }}
+          onComplete={(v) => void lookUp(v)} disabled={locked || step.kind === "loading"} invalid={!!error} />
+        <ErrorText role={error ? "alert" : undefined}>{error ?? ""}</ErrorText>
+      </Tile>
       <Button type="button" onClick={() => void lookUp(code)} disabled={locked || code.length !== 6 || step.kind === "loading"}
         aria-busy={step.kind === "loading"}>
         {step.kind === "loading" ? "찾는 중" : "그룹 찾기"}
       </Button>
-    </GlassCard>
+    </>
   );
 }

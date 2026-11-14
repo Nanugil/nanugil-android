@@ -9,8 +9,8 @@ const Wrap = styled.div`display: grid; gap: ${t.space.x2s};`;
 const Label = styled.label`font-size: ${t.text.sm}; color: ${t.color.ink2}; font-weight: 500;`;
 const Box = styled.div`position: relative; display: grid;
   > .material-symbols-rounded { position: absolute; left: ${t.space.md}; top: 50%; transform: translateY(-50%); color: ${t.color.muted}; pointer-events: none; }`;
-const Eye = styled.button`position: absolute; right: ${t.space.xs}; top: 50%; transform: translateY(-50%);
-  display: grid; place-items: center; width: 40px; height: 40px; border: 0; border-radius: ${t.radius.control};
+const Eye = styled.button`position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: ${t.radius.control};
   background: transparent; color: ${t.color.muted}; cursor: pointer;
   &:focus-visible { outline: 2px solid ${t.color.focus}; outline-offset: -2px; }
   &:active { opacity: 0.7; }`;

@@ -1,21 +1,16 @@
 "use client";
-import styled from "@emotion/styled";
 import type { TransferStatus } from "@/lib/settlement";
-import { styleOnly } from "./styleProps";
-import { t } from "./theme";
+import { Icon } from "./Icon";
+import { Chip } from "./kit";
 
-const LABEL: Record<TransferStatus, string> = { pending: "확인 전", sent: "보냈어요", received: "송금 완료" };
-const COLOR: Record<TransferStatus, string> = { pending: t.color.muted, sent: t.color.accent, received: t.color.success };
+const LOOK: Record<TransferStatus, { label: string; tone: "plain" | "accent" | "success"; icon?: string }> = {
+  pending: { label: "확인 전", tone: "plain" },
+  sent: { label: "보냈어요", tone: "accent", icon: "send" },
+  received: { label: "송금 완료", tone: "success", icon: "check" },
+};
 
-const Chip = styled("span", styleOnly("status"))<{ status: TransferStatus }>`
-  display: inline-flex; align-items: center; min-height: 28px; padding: 0 ${t.space.sm};
-  border-radius: ${t.radius.pill}; font-size: ${t.text.xs}; font-weight: 600; white-space: nowrap;
-  color: ${(p) => (p.status === "pending" ? t.color.ink2 : t.color.accentInk)};
-  background: ${(p) => (p.status === "pending" ? t.color.cardStrong : COLOR[p.status])};
-  transition: opacity ${t.dur.short} ${t.ease.out};
-`;
-
-/** 09 화면의 송금 상태 칩 */
+/** 송금 상태 칩. 색만으로 구분하지 않도록 아이콘과 글자를 함께 쓴다. */
 export function StatusChip({ status }: { status: TransferStatus }) {
-  return <Chip status={status}>{LABEL[status]}</Chip>;
+  const l = LOOK[status];
+  return <Chip tone={l.tone}>{l.icon && <Icon name={l.icon} />}{l.label}</Chip>;
 }

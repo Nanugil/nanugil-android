@@ -21,6 +21,7 @@ const base = (p: Variant) => css`
   font-weight: 600;
   font-size: ${t.text.md};
   text-decoration: none;
+  white-space: nowrap;
   cursor: pointer;
   transition: transform ${t.dur.micro} ${t.ease.out}, opacity ${t.dur.micro} ${t.ease.out};
   -webkit-tap-highlight-color: transparent;

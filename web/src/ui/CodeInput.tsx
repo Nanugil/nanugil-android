@@ -11,8 +11,8 @@ const Boxes = styled.div`
 `;
 const Box = styled("span", styleOnly("filled", "current"))<{ filled: boolean; current: boolean }>`
   display: grid; place-items: center; aspect-ratio: 4 / 5;
-  border-radius: ${t.radius.control};
-  background: ${(p) => (p.filled ? t.color.cardStrong : t.color.input)};
+  border-radius: 12px;
+  background: ${(p) => (p.filled ? t.color.card : t.color.cardStrong)};
   border: 1px solid ${(p) => (p.current ? t.color.accent : t.color.rule)};
   font-size: ${t.text.x2}; font-weight: 700; font-variant-numeric: tabular-nums;
   transition: transform ${t.dur.micro} ${t.ease.out};
@@ -40,7 +40,7 @@ export const CodeInput = forwardRef<HTMLDivElement, Props>(function CodeInput({ 
   const id = useId();
   return (
     <Wrap ref={ref}>
-      <Label htmlFor={id}>초대 코드 6자리</Label>
+      <Label htmlFor={id} className="visually-hidden">초대 코드 6자리</Label>
       <div style={{ position: "relative" }}>
         <Real
           id={id} value={value} disabled={disabled} maxLength={6}

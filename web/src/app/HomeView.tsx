@@ -1,13 +1,12 @@
 "use client";
 import styled from "@emotion/styled";
-import Link from "next/link";
 import { formatWon } from "@/lib/format";
 import { ButtonLink, CtaLink } from "@/ui/Button";
 import { DotNumber } from "@/ui/DotNumber";
 import { Icon } from "@/ui/Icon";
 import { Screen } from "@/ui/Screen";
 import { Segments } from "@/ui/Segments";
-import { styleOnly } from "@/ui/styleProps";
+import { Big, Body, Chip, IconBox, Label, Left, Line, RowLink, Rows, Row, SectionHead, Stack, Tile, Where } from "@/ui/kit";
 import { t } from "@/ui/theme";
 
 export type HomeGroup = {
@@ -23,47 +22,13 @@ const HelloText = styled.div`display: grid; line-height: 1.2;`;
 const Small = styled.span`font-size: ${t.text.xs}; color: ${t.color.muted};`;
 const Name = styled.h1`font-size: ${t.text.lg};`;
 
-// 촘촘한 가로 정렬: 왼쪽 라벨, 오른쪽 값. 휴대폰은 2칸, 넓은 화면은 4칸
 const Bento = styled.div`display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
   @media (min-width: 48rem) { grid-template-columns: repeat(4, minmax(0, 1fr)); }`;
-const Tile = styled("section", styleOnly("span", "wideSpan"))<{ span?: number; wideSpan?: number }>`
-  grid-column: span ${(p) => p.span ?? 1};
-  @media (min-width: 48rem) { grid-column: span ${(p) => p.wideSpan ?? p.span ?? 1}; }
-  display: grid; gap: 10px; align-content: start; min-width: 0;
-  padding: 14px 16px; border-radius: 18px;
-  background: ${t.color.card}; border: 1px solid ${t.color.rule};
-`;
-const Line = styled.div`display: flex; align-items: center; justify-content: space-between; gap: ${t.space.sm}; min-width: 0;`;
-const Left = styled.div`display: flex; align-items: center; gap: 10px; min-width: 0;`;
-const Stack = styled.div`display: grid; min-width: 0; line-height: 1.3;
-  b { font-size: ${t.text.sm}; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }`;
-const Label = styled.span`font-size: ${t.text.xs}; color: ${t.color.muted};`;
-const IconBox = styled.span`display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 10px;
-  background: ${t.color.cardStrong}; border: 1px solid ${t.color.rule}; color: ${t.color.ink};
-  .material-symbols-rounded { font-size: 18px; }`;
-const Big = styled.span`font-size: ${t.text.xl}; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
-  small { font-size: ${t.text.xs}; font-weight: 500; color: ${t.color.muted}; margin-left: 2px; }`;
-const Chip = styled("span", styleOnly("tone"))<{ tone: "accent" | "plain" }>`display: inline-flex; align-items: center; gap: 2px;
-  flex: none; min-height: 28px; padding: 0 10px; border-radius: ${t.radius.pill}; white-space: nowrap;
-  font-size: ${t.text.xs}; font-weight: 600;
-  .material-symbols-rounded { font-size: 16px; }
-  border: 1px solid ${(p) => (p.tone === "accent" ? t.color.accent : t.color.rule)};
-  color: ${(p) => (p.tone === "accent" ? t.color.accent : t.color.ink2)};
-  background: ${(p) => (p.tone === "accent" ? "color-mix(in oklab, var(--color-accent) 8%, var(--color-card))" : t.color.card)};`;
 const Amount = styled.div`display: flex; align-items: flex-end; gap: 3px; flex: none; color: ${t.color.ink};
   span { font-size: ${t.text.sm}; font-weight: 700; line-height: 1; }`;
 const Gauge = styled.div`display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px;
   > div div span { height: 14px; border-radius: 4px; }`;
-const Where = styled.span`display: inline-flex; align-items: center; gap: 2px; font-size: ${t.text.xs}; color: ${t.color.ink2};
-  .material-symbols-rounded { color: ${t.color.warn}; font-size: 14px; }`;
-const SectionHead = styled.h2`font-size: ${t.text.md};`;
-const Rows = styled.ul`list-style: none; margin: 0; padding: 0; display: grid;`;
-const GroupRow = styled(Link)`display: flex; align-items: center; gap: ${t.space.sm}; min-height: 52px; text-decoration: none;
-  border-bottom: 1px solid ${t.color.rule}; li:last-child & { border-bottom: 0; }
-  > .material-symbols-rounded { color: ${t.color.muted}; font-size: 20px; }
-  &:focus-visible { outline: 2px solid ${t.color.focus}; outline-offset: 2px; }`;
 const Empty = styled.div`display: grid; gap: ${t.space.xs}; justify-items: start;`;
-const Body = styled.div`display: grid; gap: 10px;`;
 
 function Greeting({ name }: { name: string }) {
   return (
@@ -79,7 +44,7 @@ export function HomeView({ name, groups }: { name: string; groups: HomeGroup[] |
   if (groups === null || groups.length === 0) {
     const failed = groups === null;
     return (
-      <Screen bar={false}>
+      <Screen>
         <Greeting name={name} />
         <Tile role={failed ? "alert" : undefined}>
           <Empty>
@@ -99,7 +64,7 @@ export function HomeView({ name, groups }: { name: string; groups: HomeGroup[] |
   const prog = (owed ?? settling[0])?.progress ?? null;
 
   return (
-    <Screen bar={false} wide>
+    <Screen wide>
       <Body>
         <Greeting name={name} />
         <Bento>
@@ -132,10 +97,10 @@ export function HomeView({ name, groups }: { name: string; groups: HomeGroup[] |
             </Tile>
           )}
 
-          <Tile aria-label="참여 그룹">
+          <Tile aria-label="참여 그룹" wideSpan={2}>
             <Line><Left><IconBox><Icon name="groups" /></IconBox><Label>참여 그룹</Label></Left><Big className="num">{groups.length}<small>개</small></Big></Line>
           </Tile>
-          <Tile aria-label="진행 중인 정산">
+          <Tile aria-label="진행 중인 정산" wideSpan={2}>
             <Line><Left><IconBox><Icon name="receipt_long" /></IconBox><Label>진행 정산</Label></Left><Big className="num">{settling.length}<small>건</small></Big></Line>
           </Tile>
         </Bento>
@@ -148,14 +113,14 @@ export function HomeView({ name, groups }: { name: string; groups: HomeGroup[] |
         <Tile>
           <Rows>
             {groups.map((g) => (
-              <li key={g.id}>
-                <GroupRow href={`/groups/${g.id}`}>
+              <Row key={g.id}>
+                <RowLink href={`/groups/${g.id}`}>
                   <Stack style={{ flex: 1 }}><b>{g.name}</b><Where><Icon name="location_on" />{g.destination}</Where></Stack>
                   {g.owed ? <Chip tone="accent">{formatWon(g.owed.amountWon)}</Chip>
                     : g.driving ? <Chip tone="plain">운행 중</Chip> : null}
                   <Icon name="chevron_right" />
-                </GroupRow>
-              </li>
+                </RowLink>
+              </Row>
             ))}
           </Rows>
         </Tile>
