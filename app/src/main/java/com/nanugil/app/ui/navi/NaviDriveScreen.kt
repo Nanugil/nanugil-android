@@ -312,7 +312,12 @@ fun NaviDriveScreen(
             AppScreen.LOBBY -> g?.name ?: "초대 코드"
             AppScreen.JOIN_CODE -> "코드로 참여"
             AppScreen.JOIN_SETUP -> "운행 참가"
-            AppScreen.DRIVE -> if (navi.guiding) "${carsDriving}대 주행 중" else "드라이브"
+            AppScreen.DRIVE -> when {
+                // 그룹 없이 안내 중이면 일행 차가 없다 ("0대 주행 중" 대신)
+                !navi.guiding -> "드라이브"
+                carsDriving > 0 -> "${carsDriving}대 주행 중"
+                else -> "주행 중"
+            }
             AppScreen.CAR -> "내 차"
             AppScreen.ARRIVAL -> "도착"
             AppScreen.SETTLE_SENT -> "정산"

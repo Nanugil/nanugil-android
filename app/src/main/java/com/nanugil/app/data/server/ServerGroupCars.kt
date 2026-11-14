@@ -59,6 +59,18 @@ class ServerGroupCars(
     /** 진행 중 운행에서 [운행 종료]를 누른(arrived_at) 차 수 / 전체 차 수 */
     val endedCars: StateFlow<EndedCars> = _endedCars
 
+    /** 다른 차의 휴게소 합류 제안·답 */
+    val meetups: Flow<MeetupMessage> get() = repo.meetups
+
+    /** 이 운행에서 내 차(운전자 멤버 ID). 동승자 기기면 null (합류 제안을 보내지 않는다) */
+    @Volatile private var myCarId: String? = null
+
+    /** 휴게소 합류 제안·답을 보낸다. 운행 중 운전자가 아니면 false */
+    suspend fun sendMeetup(action: MeetupAction, placeName: String, place: Wgs84Point): Boolean {
+        val me = myCarId ?: return false
+        return repo.sendMeetup(MeetupMessage(me, action, placeName, place.latitude, place.longitude, clock()))
+    }
+
     fun cars(groupId: String, mine: () -> MyCarSnapshot?): Flow<List<CarState>> =
         GroupTripApi.tripChanges(groupId)
             .map {
@@ -78,7 +90,7 @@ class ServerGroupCars(
                 true
             }
             // 재시도 뒤에 둔다: 서버 오류로 다시 붙는 동안은 운행이 끝난 것으로 보지 않는다
-            .onCompletion { _activeTripId.value = null; _endedCars.value = EndedCars(0, 0) }
+            .onCompletion { _activeTripId.value = null; _endedCars.value = EndedCars(0, 0); myCarId = null }
 
     /** 진행 중 운행과 그 운행의 차(운전자 멤버 ID → 글자). 이 값이 바뀔 때만 위치 채널에 다시 붙는다 */
     private data class ActiveTrip(val id: String, val labels: Map<String, String>)
@@ -87,6 +99,7 @@ class ServerGroupCars(
         val myUserId = Supabase.ensureSignedIn()
         val me = GroupTripApi.members(groupId).firstOrNull { it.userId == myUserId }?.takeIf { it.id in trip.labels }
         val labels = trip.labels
+        myCarId = me?.id
 
         val myCar = MutableStateFlow<CarState?>(null)
         val others = MutableStateFlow<List<CarState>>(emptyList())
