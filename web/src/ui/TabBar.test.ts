@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { activeTab } from "./TabBar";
+import { activeTab } from "./tabs";
 
 it("주소로 선택된 탭을 정한다", () => {
   expect(activeTab("/")).toBe("home");

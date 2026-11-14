@@ -2,6 +2,7 @@
 import styled from "@emotion/styled";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { activeTab } from "./tabs";
 import { t } from "./theme";
 
 // 탭 아이콘은 선 굵기를 맞춘 SVG로 직접 그린다 (24 격자, 둥근 끝)
@@ -24,14 +25,6 @@ function TabIcon({ name, active }: { name: keyof typeof PATHS; active: boolean }
       {PATHS[name]}
     </svg>
   );
-}
-
-/** 지금 주소가 어느 탭에 속하는지. 그룹·정산 화면은 홈 아래로 본다. 미리보기(/preview/…)도 같은 규칙. */
-export function activeTab(pathname: string): (typeof TABS)[number]["key"] {
-  const path = pathname.replace(/^\/preview(?=\/|$)/, "") || "/";
-  if (path.startsWith("/join")) return "join";
-  if (path.startsWith("/me")) return "me";
-  return "home";
 }
 
 const Bar = styled.nav`
