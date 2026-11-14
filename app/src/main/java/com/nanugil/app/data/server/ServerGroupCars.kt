@@ -10,6 +10,9 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -48,10 +51,37 @@ class ServerGroupCars(
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
 
+    private val _activeTripId = MutableStateFlow<String?>(null)
+    /** [cars]를 받는 동안 그 그룹의 진행 중 운행 ID. 값이 있다가 null이 되면 운행이 끝난 것(ended_at). */
+    val activeTripId: StateFlow<String?> = _activeTripId
+
+    private val _endedCars = MutableStateFlow(EndedCars(0, 0))
+    /** 진행 중 운행에서 [운행 종료]를 누른(arrived_at) 차 수 / 전체 차 수 */
+    val endedCars: StateFlow<EndedCars> = _endedCars
+
+    /** 다른 차의 휴게소 합류 제안·답 */
+    val meetups: Flow<MeetupMessage> get() = repo.meetups
+
+    /** 이 운행에서 내 차(운전자 멤버 ID). 동승자 기기면 null (합류 제안을 보내지 않는다) */
+    @Volatile private var myCarId: String? = null
+
+    /** 휴게소 합류 제안·답을 보낸다. 운행 중 운전자가 아니면 false */
+    suspend fun sendMeetup(action: MeetupAction, placeName: String, place: Wgs84Point): Boolean {
+        val me = myCarId ?: return false
+        return repo.sendMeetup(MeetupMessage(me, action, placeName, place.latitude, place.longitude, clock()))
+    }
+
     fun cars(groupId: String, mine: () -> MyCarSnapshot?): Flow<List<CarState>> =
         GroupTripApi.tripChanges(groupId)
-            .map { GroupTripApi.activeTrip(groupId)?.let { ActiveTrip(it.id, carLabels(GroupTripApi.tripMembers(it.id))) } }
+            .map {
+                GroupTripApi.activeTrip(groupId)?.let { t ->
+                    val members = GroupTripApi.tripMembers(t.id)
+                    _endedCars.value = endedCars(members)
+                    ActiveTrip(t.id, carLabels(members))
+                } ?: null.also { _endedCars.value = EndedCars(0, 0) }
+            }
             .distinctUntilChanged()
+            .onEach { _activeTripId.value = it?.id }
             .flatMapLatest { trip -> if (trip == null) flowOf(emptyList()) else tripCars(groupId, trip, mine) }
             .retryWhen { cause, _ ->
                 if (!currentCoroutineContext().isActive) return@retryWhen false
@@ -59,6 +89,8 @@ class ServerGroupCars(
                 delay(RETRY_MS)
                 true
             }
+            // 재시도 뒤에 둔다: 서버 오류로 다시 붙는 동안은 운행이 끝난 것으로 보지 않는다
+            .onCompletion { _activeTripId.value = null; _endedCars.value = EndedCars(0, 0); myCarId = null }
 
     /** 진행 중 운행과 그 운행의 차(운전자 멤버 ID → 글자). 이 값이 바뀔 때만 위치 채널에 다시 붙는다 */
     private data class ActiveTrip(val id: String, val labels: Map<String, String>)
@@ -67,6 +99,7 @@ class ServerGroupCars(
         val myUserId = Supabase.ensureSignedIn()
         val me = GroupTripApi.members(groupId).firstOrNull { it.userId == myUserId }?.takeIf { it.id in trip.labels }
         val labels = trip.labels
+        myCarId = me?.id
 
         val myCar = MutableStateFlow<CarState?>(null)
         val others = MutableStateFlow<List<CarState>>(emptyList())
@@ -116,10 +149,25 @@ class ServerGroupCars(
     }
 }
 
-/** 운행의 운전자(차)마다 A·B·C… 글자. 멤버 ID 순이라 모든 기기에서 같다. 동승자 행은 뺀다. */
+/** 운행 종료를 누른 차 수 / 전체 차 수. 차가 한 대 이상이고 모두 눌렀으면 [allEnded]. */
+data class EndedCars(val ended: Int, val total: Int) {
+    val allEnded: Boolean get() = total > 0 && ended == total
+}
+
+/** 운전자 행(차)마다 arrived_at이 있으면 운행을 끝낸 차 */
+fun endedCars(tripMembers: List<TripMember>): EndedCars {
+    val cars = tripMembers.filter { it.isDriver }.distinctBy { it.memberId }
+    return EndedCars(cars.count { it.arrivedAt != null }, cars.size)
+}
+
+/**
+ * 운행의 운전자(차)마다 이름 글자. 서버 vehicle_label("A차")에서 "차"를 뗀 값이라 모든 기기에서 같다.
+ * 이름이 없으면 멤버 ID 순으로 A·B·C…. 동승자 행은 뺀다.
+ */
 fun carLabels(tripMembers: List<TripMember>): Map<String, String> =
-    tripMembers.filter { it.isDriver }.map { it.memberId }.distinct().sorted()
-        .mapIndexed { i, id -> id to ('A' + i).toString() }.toMap()
+    tripMembers.filter { it.isDriver }.distinctBy { it.memberId }.sortedBy { it.memberId }
+        .mapIndexed { i, m -> m.memberId to (m.vehicleLabel?.trim()?.removeSuffix("차")?.trim()?.ifBlank { null } ?: ('A' + i).toString()) }
+        .toMap()
 
 /**
  * 내 차 속도와 주행 상태를 위치 변화로 판정한다 (내장 내비는 속도를 주지 않는다).

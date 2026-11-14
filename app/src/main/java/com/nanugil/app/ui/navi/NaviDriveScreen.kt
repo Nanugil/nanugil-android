@@ -6,6 +6,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -177,7 +179,7 @@ fun NaviDriveScreen(
     group: GroupUiState,
     groupActions: GroupActions,
     onStartRoute: () -> Unit,
-    onStopRoute: () -> Unit,
+    onEndTrip: () -> Unit,
     onAcceptMeetup: () -> Unit,
     onSkipMeetup: () -> Unit,
     onZoomIn: () -> Unit,
@@ -228,6 +230,7 @@ fun NaviDriveScreen(
                         p = p,
                         navi = navi,
                         routeError = routeError,
+                        groupDestination = group.group?.destinationName ?: MockGroups.DESTINATION,
                         onStartRoute = onStartRoute,
                         onOpenSearch = searchActions.onOpen,
                         onVoiceSearch = searchActions.onVoice,
@@ -263,10 +266,21 @@ fun NaviDriveScreen(
             AppScreen.SETTLE_SENT -> SettleSentScreen(p, group.settlement, groupActions)
         }
 
-        // 그룹 서버 요청이 실패했거나 기다릴 일이 있으면 아래 가운데에 한 줄로 알린다 (#18 3번)
+        // 그룹 서버 요청이 실패했거나 기다릴 일이 있으면 위쪽 바(28+88dp) 바로 아래 가운데, 입력 카드 위에 크게 띄운다 (#31 7번).
+        // 카드 제목은 왼쪽 정렬이라 가운데 띠는 대부분 비어 있다.
         if (!inputBlocked) group.note?.let { note ->
+            Panel(p, Modifier.align(Alignment.TopCenter).padding(top = 124.dp), CardShape) {
+                Label(note, 28.sp, BrandAmber, FontWeight.Bold, Modifier.padding(horizontal = 32.dp, vertical = 20.dp))
+            }
+        }
+
+        // 운행 종료 기다림: X로 팝업을 닫으면 아래 가운데 작은 상자로 남는다
+        group.endWait?.takeIf { it.minimized }?.let { w ->
             Panel(p, Modifier.align(Alignment.BottomCenter).padding(bottom = 48.dp), CardShape) {
-                Label(note, 23.sp, BrandAmber, FontWeight.Bold, Modifier.padding(horizontal = 28.dp, vertical = 18.dp))
+                Label(
+                    "정산을 기다리고 있습니다… (${w.ended}/${w.total}대 운행 종료)", 26.sp, p.textPrimary, FontWeight.Bold,
+                    Modifier.padding(horizontal = 32.dp, vertical = 20.dp),
+                )
             }
         }
 
@@ -298,12 +312,18 @@ fun NaviDriveScreen(
             AppScreen.LOBBY -> g?.name ?: "초대 코드"
             AppScreen.JOIN_CODE -> "코드로 참여"
             AppScreen.JOIN_SETUP -> "운행 참가"
-            AppScreen.DRIVE -> if (navi.guiding) "${carsDriving}대 주행 중" else "드라이브"
+            AppScreen.DRIVE -> when {
+                // 그룹 없이 안내 중이면 일행 차가 없다 ("0대 주행 중" 대신)
+                !navi.guiding -> "드라이브"
+                carsDriving > 0 -> "${carsDriving}대 주행 중"
+                else -> "주행 중"
+            }
             AppScreen.CAR -> "내 차"
             AppScreen.ARRIVAL -> "도착"
             AppScreen.SETTLE_SENT -> "정산"
         }
         val chip = when {
+            // 운행 종료는 차마다 누른다. 모든 차가 누르면 다 같이 08 정산으로 (NaviDriveViewModel.endTrip)
             screen == AppScreen.DRIVE && navi.guiding -> TopChip.END_TRIP
             (screen == AppScreen.LOBBY || screen == AppScreen.ARRIVAL) && g?.iHost != false -> TopChip.HOST
             // 안내 중이거나 기어가 P가 아니면(D·R·N) 주행 중
@@ -319,9 +339,46 @@ fun NaviDriveScreen(
             onBack = groupActions.onBack,
             onTab = groupActions.onTab,
             onSearch = searchActions.onOpen,
-            onEndTrip = onStopRoute,
+            onEndTrip = onEndTrip,
             modifier = Modifier.align(Alignment.TopCenter).padding(start = OuterPad, end = OuterPad, top = 28.dp).fillMaxWidth(),
         )
+
+        // ---- 운행 종료 팝업 (맨 위에 그린다) ----
+        if (group.confirmEnd) EndTripDialog(p, onClose = null) {
+            Label("아직 주행이 종료되지 않았습니다", 32.sp, p.textPrimary, FontWeight.Bold)
+            Label("정산하시겠습니까? 지금까지 달린 연료·통행료로 정산해요.", 24.sp, p.textSecondary, modifier = Modifier.padding(top = 10.dp))
+            Row(Modifier.padding(top = 28.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                SecondaryButton(p, "계속 주행", groupActions.onCancelEnd, Modifier.weight(1f))
+                PrimaryButton("정산하기", true, groupActions.onConfirmEnd, Modifier.weight(1f))
+            }
+        } else group.endWait?.takeIf { !it.minimized }?.let { w ->
+            EndTripDialog(p, onClose = groupActions.onMinimizeEndWait) {
+                Label("정산을 기다리고 있습니다", 32.sp, p.textPrimary, FontWeight.Bold)
+                Label(
+                    "모든 차가 운행을 끝내면 정산 화면으로 넘어가요. (${w.ended}/${w.total}대 운행 종료)",
+                    24.sp, p.textSecondary, modifier = Modifier.padding(top = 10.dp),
+                )
+            }
+        }
+    }
+}
+
+/** 화면 가운데 팝업. 뒤 지도·카드는 어둡게 덮어 누를 수 없게 한다. [onClose]가 있으면 오른쪽 위에 X. */
+@Composable
+private fun EndTripDialog(p: NaviPalette, onClose: (() -> Unit)?, content: @Composable ColumnScope.() -> Unit) {
+    Box(
+        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)).pointerInput(Unit) {}, // 뒤로 터치가 안 가게 막는다
+        contentAlignment = Alignment.Center,
+    ) {
+        Panel(p, Modifier.width(720.dp), CardShape, solid = true) {
+            Box {
+                Column(Modifier.padding(start = 40.dp, end = 40.dp, top = 36.dp, bottom = 36.dp), content = content)
+                if (onClose != null) Box(
+                    Modifier.align(Alignment.TopEnd).padding(12.dp).size(MinTouch).clip(CircleShape).clickable(onClick = onClose),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(R.drawable.ic_close, p.textSecondary, 30.dp) }
+            }
+        }
     }
 }
 
@@ -353,6 +410,7 @@ internal fun DestinationCard(
     p: NaviPalette,
     navi: NaviState,
     routeError: String?,
+    groupDestination: String,
     onStartRoute: () -> Unit,
     onOpenSearch: () -> Unit,
     onVoiceSearch: () -> Unit,
@@ -378,7 +436,7 @@ internal fun DestinationCard(
                 }
                 SecondaryButton(
                     p = p,
-                    text = "그룹 목적지(가평 펜션)로 안내",
+                    text = "그룹 목적지($groupDestination)로 안내",
                     onClick = onStartRoute,
                     modifier = Modifier.padding(top = 14.dp).fillMaxWidth(),
                 )

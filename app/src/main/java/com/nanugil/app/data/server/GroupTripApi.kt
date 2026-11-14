@@ -8,7 +8,17 @@ import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
+import android.util.Log
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
@@ -61,8 +71,29 @@ object GroupTripApi {
      * 구독이 붙는 순간에도 한 번 알린다. 그때 처음 상태를 읽으면 "읽은 뒤 구독 전" 사이의 변화를 놓치지 않는다.
      * 'group:{그룹 ID}' private 채널 (멤버만 들어올 수 있다). 수집을 멈추면 채널을 닫는다.
      * 알림이 빠지는 때가 있어서(서버가 쉬다 깨어난 직후 첫 알림) [TRIP_RECHECK_MS]마다 알림 없이도 한 번씩 알린다.
+     *
+     * 같은 그룹을 여러 곳(03·05 화면, 지도 일행 차)이 동시에 들어도 채널은 하나만 연다. 같은 이름의 채널을 둘 열면
+     * 한쪽이 닫을 때 다른 쪽 구독까지 끊긴다(03 → 주행 화면으로 넘어갈 때 일행 차가 안 오던 문제, #36).
+     * 연결이 끊기면 [RETRY_MS] 뒤 다시 붙고, 듣는 곳이 없으면 채널을 닫는다.
      */
-    fun tripChanges(groupId: String): Flow<Unit> = flow {
+    fun tripChanges(groupId: String): Flow<Unit> = sharedTripChanges.getOrPut(groupId) {
+        groupChannelChanges(groupId)
+            .retryWhen { cause, _ ->
+                if (cause is CancellationException) return@retryWhen false
+                Log.w(TAG, "그룹 알림 연결 실패, ${RETRY_MS / 1000}초 뒤 다시", cause)
+                delay(RETRY_MS)
+                true
+            }
+            // replay 1: 나중에 듣기 시작한 곳도 바로 한 번 알림을 받아 처음 상태를 읽는다
+            .shareIn(sharingScope, SharingStarted.WhileSubscribed(replayExpirationMillis = 0), replay = 1)
+    }
+
+    private val sharingScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val sharedTripChanges = ConcurrentHashMap<String, SharedFlow<Unit>>()
+    private const val RETRY_MS = 5_000L
+    private const val TAG = "GroupTripApi"
+
+    private fun groupChannelChanges(groupId: String): Flow<Unit> = flow {
         Supabase.ensureSignedIn()
         val channel = Supabase.client.channel("group:$groupId") { isPrivate = true }
         val trips = channel.postgresChangeFlow<PostgresAction>(schema = "public") {

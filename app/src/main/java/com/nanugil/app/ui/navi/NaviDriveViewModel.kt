@@ -21,7 +21,10 @@ import com.nanugil.app.data.navi.NaviController
 import com.nanugil.app.data.navi.NaviPlace
 import com.nanugil.app.data.navi.NaviState
 import com.nanugil.app.data.route.NaverDirectionsClient
+import com.nanugil.app.data.server.EndedCars
 import com.nanugil.app.data.server.Group
+import com.nanugil.app.data.server.MeetupAction
+import com.nanugil.app.data.server.MeetupMessage
 import com.nanugil.app.data.server.GroupTripApi
 import com.nanugil.app.data.server.MyCarSnapshot
 import com.nanugil.app.data.server.Place
@@ -49,6 +52,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -89,6 +93,8 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     // ---- 화면 전용 상태 ----
     /** 합류 제안을 수락하거나 건너뛰면 다시 띄우지 않는다 */
     private val meetupHandled = MutableStateFlow(false)
+    /** 서버 운행에서 다른 차가 보낸 휴게소 합류 제안 (#31 6번). 답하면 null */
+    private val incomingMeetup = MutableStateFlow<MeetupMessage?>(null)
     /** 내 차 연료 부족 → 휴게소 제안 카드 진행 단계 */
     private val restStopPhase = MutableStateFlow(RestStopPhase.NONE)
     /** 음성 인식이 합류 팝업 답변용인지 (아니면 목적지 검색용) */
@@ -116,7 +122,15 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     private val serverGroup = ServerGroupCars()
     /** 일행 차 (나 포함, isMe) */
     private val groupCars: StateFlow<List<CarState>> = serverGroupId
-        .flatMapLatest { id -> if (id == null) mockGroup.observeGroup(GROUP_ID) else serverGroup.cars(id, ::myCarSnapshot) }
+        .flatMapLatest { id ->
+            when {
+                id != null -> serverGroup.cars(id, ::myCarSnapshot)
+                // 서버가 있으면 운행 전(홈·대기실)엔 일행 차가 없다. 목업 차는 서버 없이 시연할 때만.
+                // (serverOn 프로퍼티는 아직 초기화 전이라 BuildConfig를 직접 본다)
+                BuildConfig.SUPABASE_URL.isNotBlank() -> flowOf(emptyList())
+                else -> mockGroup.observeGroup(GROUP_ID)
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** 서버로 보낼 내 차 상태. 내장 내비가 아직 위치를 모르면 null (보내지 않는다) */
@@ -137,12 +151,13 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         vehicleStatus.status,
         groupCars,
         meetupHandled,
-    ) { navi, vehicle, cars, handled ->
+        incomingMeetup,
+    ) { navi, vehicle, cars, handled, incoming ->
         NaviDriveUiState(
             navi = navi,
             vehicle = vehicle,
             groupCars = cars,
-            proposal = meetupProposal(navi, cars, handled),
+            proposal = meetupProposal(navi, cars, handled, incoming),
             cost = tripCost.update(navi, vehicle),
         )
     }
@@ -258,7 +273,8 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
                 toll.update(s)
                 if (wasGuiding && !s.guiding && s.message == "목적지 도착") {
                     toll.arrive()
-                    go(AppScreen.ARRIVAL)
+                    // 그룹 운행 중 목적지에 도착하면 [운행 종료]를 누른 것과 같다 (모든 차가 끝나면 다 같이 08)
+                    if (groupUi.value.tripStarted) endTrip() else go(AppScreen.ARRIVAL)
                 }
                 wasGuiding = s.guiding
             }
@@ -442,9 +458,85 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     private fun enterTrip(l: LoadedGroup) {
         val info = l.info
         l.trip?.let { settlement.startTrip(it.id) }
-        groupUi.update { it.copy(group = info, tripStarted = true, screen = AppScreen.DRIVE) }
+        groupUi.update { it.copy(group = info, tripStarted = true, endWait = null, screen = AppScreen.DRIVE) }
+        // 새 운행: 지난 운행의 합류 제안·답 상태를 지운다
+        restStopPhase.value = RestStopPhase.NONE
+        meetupHandled.value = false
+        incomingMeetup.value = null
         useServerGroup(info.id)
         startRoute()
+    }
+
+    /**
+     * [운행 종료] 버튼 (각 차). 아직 안내 중이면(목적지 전) 실수일 수 있어 "정산하시겠습니까?"를 먼저 묻는다.
+     * 그룹 운행이 아니면(혼자 검색한 목적지) 묻지 않고 길안내만 끈다.
+     */
+    fun endTrip() {
+        val g = groupUi.value
+        when {
+            !g.tripStarted -> navi.cancelRoute()
+            navi.state.value.guiding -> groupUi.update { it.copy(confirmEnd = true) }
+            else -> finishMyCar()
+        }
+    }
+
+    /** 확인 창 [정산하기] */
+    fun confirmEndTrip() {
+        groupUi.update { it.copy(confirmEnd = false) }
+        finishMyCar()
+    }
+
+    /** 확인 창 [계속 주행] */
+    fun cancelEndTrip() = groupUi.update { it.copy(confirmEnd = false) }
+
+    /** 기다림 팝업 오른쪽 위 X: 팝업을 닫고 아래 작은 상자로만 보인다 */
+    fun minimizeEndWait() = groupUi.update { s -> s.copy(endWait = s.endWait?.copy(minimized = true)) }
+
+    /**
+     * 내 차 운행을 지금 끝낸다: 길안내를 끄고, 서버에 운행 종료를 남기고(T6 arrived_at), 내 차 정산 값(연료·통행료)을 이 순간 값으로 채운다.
+     * 통행료는 [TollLedger]가 지나온 만큼만 센다 (목적지 전이면 남은 유료 구간은 빠진다).
+     * 모든 차가 끝내면 [endedCars] 감시가 모두를 08로 보낸다. 서버 없는 시연이면 바로 08.
+     */
+    private fun finishMyCar() {
+        navi.cancelRoute()
+        val id = groupUi.value.group?.id ?: return onTripEnded()
+        serverAction {
+            val trip = GroupTripApi.activeTrip(id) ?: return@serverAction onTripEnded() // 이미 끝난 운행
+            try {
+                GroupTripApi.markArrived(trip.id)
+            } catch (e: ServerException) {
+                when (e.code) {
+                    // 남의 차에 탄 동승자 기기: 끝낼 내 차가 없으니 기다림만 보여 준다 (#27 iDrive와 같은 판단)
+                    "NOT_DRIVER" -> Unit
+                    // 그 사이 방장이 서버 운행을 끝냈다
+                    "TRIP_NOT_ACTIVE" -> return@serverAction onTripEnded()
+                    else -> throw e
+                }
+            }
+            groupUi.update { it.copy(endWait = EndWait(0, 0)) }
+            showEndWaiting(serverGroup.endedCars.value)
+            // 08을 열 때 다시 부르면 이미 채워 둔 값을 그대로 쓴다 (운행마다 한 번).
+            // 내 차 비용도 바로 올린다: [정산 요청] 때만 올리면 앱 2대가 08에서 서로의 비용을 기다리다 멈춘다 (#36 리뷰)
+            viewModelScope.launch {
+                settlement.load(navi.state.value.currentPosition)
+                settlement.saveMyCost()
+            }
+        }
+    }
+
+    private fun showEndWaiting(e: EndedCars) {
+        val w = groupUi.value.endWait ?: return
+        if (!groupUi.value.tripStarted || e.allEnded) return
+        // 방금 누른 내 차가 아직 서버 목록에 안 잡혔을 수 있어 최소 1대로 센다
+        groupUi.update { it.copy(endWait = w.copy(ended = maxOf(e.ended, 1), total = maxOf(e.total, 1))) }
+    }
+
+    /** 운행이 끝났다 (모든 차가 [운행 종료]를 눌렀거나 서버 운행이 끝남): 길안내를 끄고 08 정산으로 */
+    private fun onTripEnded() {
+        if (!groupUi.value.tripStarted) return
+        groupUi.update { it.copy(tripStarted = false, confirmEnd = false, endWait = null) }
+        navi.cancelRoute()
+        go(AppScreen.ARRIVAL)
     }
 
     fun typeCode(ch: Char) {
@@ -655,6 +747,22 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
         }
+        // 모든 차가 [운행 종료]를 누르면 다 같이 08로. 그 전엔 누른 차에 기다림 안내(몇 대 끝났는지)를 갱신한다.
+        viewModelScope.launch {
+            serverGroup.endedCars.collect { e -> if (e.allEnded) onTripEnded() else showEndWaiting(e) }
+        }
+        // 다른 차의 휴게소 합류 제안·답 (#31 6번)
+        viewModelScope.launch { serverGroup.meetups.collect(::onMeetupMessage) }
+        // 서버 운행 자체가 끝나도(ended_at) 남은 차는 길안내를 끄고 08로 간다
+        viewModelScope.launch {
+            // 운행 ID를 그룹과 함께 기억한다: 다른 그룹 운행으로 바로 들어가면 이전 흐름이 끝나며 null을 내는데, 그건 운행 종료가 아니다
+            var last: Pair<String?, String?> = null to null
+            serverGroup.activeTripId.collect { id ->
+                val group = serverGroupId.value
+                if (last.second != null && id == null && group != null && last.first == group) onTripEnded()
+                last = group to id
+            }
+        }
     }
 
     /** 03·05를 서버 값으로 다시 채운다. 실패해도 다음 알림에 다시 해 본다. */
@@ -758,8 +866,6 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun stopRoute() = navi.cancelRoute()
-
     /** 화면이 다시 보일 때: 내비 화면에서 안내를 바꾸고 돌아왔을 수 있으니 상태를 다시 맞춘다 */
     fun onScreenVisible() {
         navi.refreshRoute()
@@ -776,8 +882,20 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     fun proposeRestStop() {
         if (restStopPhase.value != RestStopPhase.NONE) return
         restStopPhase.value = RestStopPhase.SENT
-        // TODO(서버): 제안을 그룹 전체에 푸시하고, 다른 차의 [합류] 응답을 받으면 아래를 실행한다.
-        // 서버가 붙기 전까지는 다른 차가 몇 초 뒤 [합류]했다고 치고 시연한다.
+        // 서버 운행이면 같은 운행 차들에게 제안을 보내고, 누가 [합류]하면(ACCEPT) 그때 경유지를 넣는다 (meetups 수집)
+        if (serverGroupId.value != null) {
+            viewModelScope.launch {
+                val sent = runCatching {
+                    serverGroup.sendMeetup(MeetupAction.PROPOSE, MockGroupDriveData.MEETUP_NAME, MockGroupDriveData.MEETUP_POSITION)
+                }.getOrElse { if (it is CancellationException) throw it else false }
+                if (!sent) {
+                    restStopPhase.value = RestStopPhase.NONE
+                    groupUi.update { it.copy(note = "합류 제안을 보내지 못했어요") }
+                }
+            }
+            return
+        }
+        // 서버 없이 시연할 때는 다른 차가 몇 초 뒤 [합류]했다고 친다
         viewModelScope.launch {
             delay(DEMO_REPLY_DELAY_MS)
             if (restStopPhase.value != RestStopPhase.SENT) return@launch
@@ -820,13 +938,45 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
     fun acceptMeetup() {
         stopAnswering()
         meetupHandled.value = true
-        // TODO(서버): 합류 수락을 그룹 전체에 푸시 → 각 차량이 같은 경유지를 추가
-        navi.addMeetupStop(NaviPlace(MockGroupDriveData.MEETUP_NAME, MockGroupDriveData.MEETUP_POSITION))
+        val m = incomingMeetup.value
+        incomingMeetup.value = null
+        val place = m?.let { NaviPlace(it.placeName, Wgs84Point(it.lat, it.lng)) }
+            ?: NaviPlace(MockGroupDriveData.MEETUP_NAME, MockGroupDriveData.MEETUP_POSITION)
+        navi.addMeetupStop(place)
+        // 제안한 차가 우리 [합류]를 받으면 자기 경로에도 같은 경유지를 넣는다
+        if (m != null) replyMeetup(MeetupAction.ACCEPT, place)
     }
 
     fun skipMeetup() {
         stopAnswering()
         meetupHandled.value = true
+        val m = incomingMeetup.value ?: return
+        incomingMeetup.value = null
+        replyMeetup(MeetupAction.SKIP, NaviPlace(m.placeName, Wgs84Point(m.lat, m.lng)))
+    }
+
+    private fun replyMeetup(action: MeetupAction, place: NaviPlace) = viewModelScope.launch {
+        try {
+            serverGroup.sendMeetup(action, place.name, place.position)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Log.w(TAG, "합류 답 보내기 실패", e)
+        }
+    }
+
+    /** 다른 차의 합류 메시지: PROPOSE → 팝업, ACCEPT → 내가 제안한 거면 경유지 추가. SKIP은 다른 차 답을 계속 기다린다 */
+    private fun onMeetupMessage(m: MeetupMessage) {
+        when (m.action) {
+            MeetupAction.PROPOSE -> {
+                meetupHandled.value = false
+                incomingMeetup.value = m
+            }
+            MeetupAction.ACCEPT -> if (restStopPhase.value == RestStopPhase.SENT) {
+                restStopPhase.value = RestStopPhase.HANDLED
+                navi.addMeetupStop(NaviPlace(m.placeName, Wgs84Point(m.lat, m.lng)))
+            }
+            MeetupAction.SKIP -> Unit
+        }
     }
 
     /** 주유소 하나를 경유지로 추가 (주유소 목록 화면 등에서 부른다) */
@@ -880,9 +1030,24 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- 내부 ----
 
-    /** 연료가 부족한 다른 차가 있으면 합류 제안 (이미 경유지로 넣었거나 건너뛰면 숨김) */
-    private fun meetupProposal(navi: NaviState, cars: List<CarState>, handled: Boolean): MeetupProposal? {
+    /**
+     * 합류 제안 팝업 (이미 경유지로 넣었거나 건너뛰면 숨김).
+     * 서버 운행이면 다른 차가 보낸 제안([incoming])만, 서버 없이 시연하면 연료가 부족한 다른 차가 있을 때.
+     */
+    private fun meetupProposal(navi: NaviState, cars: List<CarState>, handled: Boolean, incoming: MeetupMessage?): MeetupProposal? {
         if (!navi.guiding || handled) return null
+        if (incoming != null) {
+            if (incoming.placeName in navi.waypointNames) return null
+            val from = cars.firstOrNull { it.carId == incoming.fromCarId }
+            return MeetupProposal(
+                carLabel = (from?.label ?: "?") + "차",
+                driverName = from?.driverName.orEmpty(),
+                placeName = incoming.placeName,
+                distanceMeters = navi.currentPosition?.distanceTo(Wgs84Point(incoming.lat, incoming.lng))?.toInt(),
+                fuelPercent = from?.fuelPercent ?: 0,
+            )
+        }
+        if (serverGroupId.value != null) return null
         if (MockGroupDriveData.MEETUP_NAME in navi.waypointNames) return null
         val car = cars.firstOrNull { it.isLowFuel && !it.isMe } ?: return null
         return MeetupProposal(
