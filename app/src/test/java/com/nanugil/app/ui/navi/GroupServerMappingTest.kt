@@ -59,6 +59,35 @@ class GroupServerMappingTest {
     }
 
     @Test
+    fun `운행 전에도 방장은 동승자 후보에서 빠진다`() {
+        val choices = passengerChoices(groupInfoOf(group, members, riders = emptyList()), riders = emptyList(), myMemberId = "m-b")
+        assertEquals(listOf("정예린", "박지우"), choices.map { it.member.name })
+    }
+
+    @Test
+    fun `최근 정산은 끝난 운행의 저장된 비용으로 1인 부담액을 다시 계산한다`() {
+        val names = mapOf("m-host" to "김민수", "m-p1" to "정예린", "m-b" to "이서준")
+        // B차 휘발유 50L → 20L, 1,700원/L, 통행료 15,000원 = 66,000원 ÷ 3명
+        val riders = listOf(
+            TripMember("t", "m-host", "m-host", fuelType = "EV", startBatteryWh = 70_000, endBatteryWh = 70_000, appliedPricePerKwh = 300.0, tollEstimated = 0),
+            TripMember("t", "m-p1", "m-host"),
+            TripMember("t", "m-b", "m-b", fuelType = "GASOLINE", startFuelMl = 50_000, endFuelMl = 20_000, appliedPrice = 1_700, tollEstimated = 15_000),
+        )
+        val r = recentSettlementOf("MT", "2026-11-14T19:35:59.97+09:00", riders, names)
+        assertEquals(22_000, r.perPersonWon)
+        assertEquals("11월 14일", r.date)
+        assertEquals("정산 끝", r.status)
+    }
+
+    @Test
+    fun `비용을 안 저장한 차가 있으면 비용 미입력`() {
+        val riders = listOf(TripMember("t", "m-host", "m-host", fuelType = "GASOLINE"))
+        val r = recentSettlementOf("MT", "2026-11-04T09:00:00+09:00", riders, mapOf("m-host" to "김민수"))
+        assertEquals("비용 미입력", r.status)
+        assertEquals("11월 4일", r.date)
+    }
+
+    @Test
     fun `차 이름이 겹치면 안 쓴 글자로`() {
         assertEquals("B차", freeCarName("B차", listOf("A차")))
         assertEquals("C차", freeCarName("B차", listOf("A차", "B차")))
