@@ -21,7 +21,7 @@ import { t } from "@/ui/theme";
 type State = { kind: "error" } | { kind: "ok"; trip: Trip; members: Member[]; me: string };
 
 const Amount = styled.div`display: flex; align-items: flex-end; gap: 6px;
-  > span[aria-hidden] { font-size: 18px; font-weight: 600; line-height: 1; }`;
+  > span[aria-hidden] { font-size: 20px; font-weight: 700; line-height: 1; }`;
 const Err = styled.p`font-size: 13px; color: ${t.color.error};`;
 const Done = styled.p`display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; color: ${t.color.success};`;
 const Tick = styled.svg`width: 20px; height: 20px; flex: none;`;

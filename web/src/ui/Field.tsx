@@ -6,7 +6,7 @@ import { styleOnly } from "./styleProps";
 import { t } from "./theme";
 
 const Wrap = styled.div`display: grid; gap: 8px;`;
-const Label = styled.label`font-size: 13px; color: ${t.color.ink2}; font-weight: 500;`;
+const Label = styled.label`font-size: 14px; color: ${t.color.ink2}; font-weight: 600;`;
 const Box = styled.div`position: relative; display: grid;
   > .material-symbols-rounded { position: absolute; left: ${t.space.md}; top: 50%; transform: translateY(-50%); color: ${t.color.muted}; pointer-events: none; }`;
 const Eye = styled.button`position: absolute; right: 4px; top: 50%; transform: translateY(-50%);

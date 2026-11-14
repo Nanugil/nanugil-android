@@ -20,7 +20,7 @@ const Track = styled.div`
 const Fill = styled.span`position: absolute; inset: 0 auto 0 0; width: 100%; transform-origin: left center; transform: scaleX(0);
   background: color-mix(in oklab, var(--color-accent) 12%, transparent); pointer-events: none;`;
 const Text = styled.span`position: absolute; inset: 0; display: grid; place-items: center; padding-left: ${HANDLE}px;
-  font-size: 15px; font-weight: 500; color: ${t.color.muted}; pointer-events: none;`;
+  font-size: 15px; font-weight: 600; color: ${t.color.muted}; pointer-events: none;`;
 const Handle = styled.button`
   position: absolute; top: ${PAD}px; left: ${PAD}px; width: ${HANDLE}px; height: ${HANDLE}px; border-radius: 12px; border: 0;
   display: grid; place-items: center; background: ${t.color.cta}; color: ${t.color.ctaInk}; cursor: grab;

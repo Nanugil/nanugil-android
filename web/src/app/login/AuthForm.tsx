@@ -7,12 +7,13 @@ import { safeNext } from "@/lib/next";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 import { Button } from "@/ui/Button";
 import { Field } from "@/ui/Field";
-import { Lead as Text } from "@/ui/kit";
+
 import { t } from "@/ui/theme";
 
 const Wrap = styled.div`display: grid; gap: 28px; padding-top: 32px;`;
 const Brand = styled.div`display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; color: ${t.color.ink2};`;
 const Intro = styled.div`display: grid; gap: 8px;`;
+const Text = styled.p`font-size: 15px; font-weight: 400; line-height: 1.5; color: ${t.color.muted};`;
 const Mark = styled.img`width: 28px; height: 28px; border-radius: 8px;`;
 const Title = styled.h1`font-size: 28px; font-weight: 700; line-height: 1.32; letter-spacing: -0.02em;`;
 const Form = styled.form`display: grid; gap: 20px; > button { margin-top: 4px; }`;

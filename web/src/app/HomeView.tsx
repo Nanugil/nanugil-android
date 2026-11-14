@@ -21,7 +21,7 @@ export type HomeGroup = {
 
 const Top = styled.header`padding-top: 16px;`;
 const Amount = styled.div`display: flex; align-items: flex-end; gap: 6px; color: ${t.color.ink};
-  > span[aria-hidden] { font-size: 18px; font-weight: 600; line-height: 1; }`;
+  > span[aria-hidden] { font-size: 20px; font-weight: 700; line-height: 1; }`;
 const Progress = styled.div`display: grid; gap: 8px;`;
 const Row = styled.div`display: flex; justify-content: space-between; align-items: baseline; gap: 12px;`;
 
