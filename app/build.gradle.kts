@@ -35,6 +35,8 @@ android {
         // Supabase anon key는 공개용 키라 앱에 들어가도 된다. 데이터 보호는 RLS·RPC 검사가 맡는다 (docs/group-trip-api.md 보안 규칙).
         buildConfigField("String", "SUPABASE_URL", "\"${secret("SUPABASE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${secret("SUPABASE_ANON_KEY")}\"")
+        // 동승자 웹 배포 주소 (예: https://nanugil.vercel.app). 03 대기실 QR의 참여 주소가 된다.
+        buildConfigField("String", "PASSENGER_WEB_URL", "\"${secret("PASSENGER_WEB_URL")}\"")
         // TODO(서버): 경로선(Directions 5) 테스트용. Secret은 출시 전에 서버 프록시로 옮긴다 (ADR-002).
         buildConfigField("String", "NAVER_MAP_CLIENT_SECRET", "\"${secret("NAVER_MAP_CLIENT_SECRET")}\"")
         // 선택: NCP 스타일 에디터로 만든 지도 스타일 ID (Figma 시안의 회색 블록 지도). 없으면 기본 내비 지도를 다듬어 쓴다.
