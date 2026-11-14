@@ -1,7 +1,7 @@
 "use client";
 import styled from "@emotion/styled";
-import { useRef, type ReactNode } from "react";
-import { usePageEnter } from "./motion";
+import { useEffect, useRef, type ReactNode } from "react";
+import { markReady, usePageEnter } from "./motion";
 import { styleOnly } from "./styleProps";
 import { TabBar } from "./TabBar";
 import { t } from "./theme";
@@ -18,6 +18,7 @@ const Main = styled("main", styleOnly("wide", "nav"))<{ wide: boolean; nav: bool
 export function Screen({ children, nav = true, wide = false }: { children: ReactNode; nav?: boolean; wide?: boolean }) {
   const main = useRef<HTMLElement>(null);
   usePageEnter(main);
+  useEffect(() => { markReady(); }, []); // 자식 효과가 다 돈 뒤에 실행된다
   return (
     <>
       <Main ref={main} wide={wide} nav={nav}>{children}</Main>

@@ -8,6 +8,11 @@ import { formatWon } from "@/lib/format";
 
 gsap.registerPlugin(useGSAP);
 
+// 처음 페이지를 열 때는 서버가 그린 화면을 그대로 둔다. 붙자마자 숨겼다 다시 보이면 깜빡임처럼 보인다.
+// 첫 화면이 다 붙은 뒤(Screen이 markReady)부터, 앱 안에서 화면을 옮길 때만 움직인다.
+let ready = false;
+export function markReady() { ready = true; }
+
 function reduced(): boolean {
   return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
@@ -36,6 +41,7 @@ export function useShake(ref: RefObject<HTMLElement | null>, trigger: number) {
 export function useRiseIn(ref: RefObject<HTMLElement | null>) {
   useGSAP(() => {
     if (!ref.current || reduced()) return;
+    if (!ready) return;
     gsap.from(ref.current, { y: 24, opacity: 0, duration: 0.6, ease: "power3.out" });
   });
 }
@@ -59,7 +65,7 @@ export function useCountUpValue(to: number): number {
   const [value, setValue] = useState(to);
   const shown = useRef<number | null>(null); // 처음엔 0부터, 이후엔 지금 보이는 값부터 이어서
   useGSAP(() => {
-    if (reduced()) { shown.current = to; setValue(to); return; }
+    if (reduced() || (!ready && shown.current === null)) { shown.current = to; setValue(to); return; }
     const state = { n: shown.current ?? 0 };
     const tween = gsap.to(state, { n: to, duration: 0.9, ease: "power2.out",
       onUpdate: () => { shown.current = Math.round(state.n); setValue(shown.current); },
@@ -73,7 +79,7 @@ export function useCountUpValue(to: number): number {
 export function useDrawCheck(ref: RefObject<SVGPathElement | null>, active: boolean) {
   useGSAP(() => {
     const path = ref.current;
-    if (!path || !active || reduced()) return;
+    if (!path || !active || reduced() || !ready) return;
     const len = path.getTotalLength();
     gsap.fromTo(path, { strokeDasharray: len, strokeDashoffset: len }, { strokeDashoffset: 0, duration: 0.45, ease: "power2.out" });
   }, { dependencies: [active] });
@@ -93,7 +99,7 @@ export function useFlashOnChange(ref: RefObject<HTMLElement | null>, key: unknow
 export function usePageEnter(ref: RefObject<HTMLElement | null>) {
   useGSAP(() => {
     const el = ref.current;
-    if (!el || reduced()) return;
+    if (!el || reduced() || !ready) return;
     gsap.from(el.children, { y: 8, opacity: 0, duration: 0.25, ease: "power2.out", stagger: 0.04, clearProps: "transform,opacity" });
   }, { scope: ref });
 }
