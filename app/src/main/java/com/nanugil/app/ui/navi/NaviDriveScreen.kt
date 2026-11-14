@@ -214,9 +214,9 @@ fun NaviDriveScreen(
         if (inputBlocked) ParkOnlyCard(p, gearUnknown, groupActions.onBack) else when (screen) {
             AppScreen.HOME -> HomeScreen(p, navi, group, carsDriving, groupActions)
             AppScreen.CREATE_GROUP -> CreateGroupScreen(
-                p, group.createForm, navi.destinationName ?: MockGroups.DESTINATION, groupActions,
+                p, group.createForm, navi.destinationName?.takeIf { navi.destinationPosition != null }, groupActions,
             )
-            AppScreen.LOBBY -> group.group?.let { LobbyScreen(p, it, groupActions) }
+            AppScreen.LOBBY -> group.group?.let { LobbyScreen(p, it, group.passengerName, groupActions) }
             AppScreen.JOIN_CODE -> JoinCodeScreen(p, group.join, groupActions)
             AppScreen.JOIN_SETUP -> JoinSetupScreen(p, group.join, groupActions)
             AppScreen.DRIVE -> {

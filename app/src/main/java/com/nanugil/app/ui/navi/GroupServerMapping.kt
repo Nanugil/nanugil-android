@@ -6,6 +6,8 @@ import com.nanugil.app.data.server.Group
 import com.nanugil.app.data.server.ServerException
 import com.nanugil.app.data.server.TripMember
 import com.nanugil.app.ui.settlement.VehicleType
+import com.nanugil.app.ui.settlement.carsFromTrip
+import com.nanugil.app.ui.settlement.settleOrMessage
 import com.nanugil.app.data.server.GroupMember as ServerMember
 
 /**
@@ -41,12 +43,13 @@ internal fun groupInfoOf(group: Group, members: List<ServerMember>, riders: List
 internal fun logoOf(saved: String?): GroupLogo = GroupLogo.entries.firstOrNull { it.name == saved } ?: GroupLogo.CAR
 
 /**
- * 05 운행 참가: 내 차에 태울 수 있는 사람. 운전자와 나는 빼고, 남의 차에 탄 사람은 "B차 탑승"으로 잠근다.
+ * 05 운행 참가: 내 차에 태울 수 있는 사람. 운전자·방장·나는 빼고, 남의 차에 탄 사람은 "B차 탑승"으로 잠근다.
+ * 방장은 운행 시작 전에도 자기 차를 운전하므로 뺀다 (#32-1).
  * 이미 내 차에 탄 사람은 골라 둔다(다시 들어왔을 때).
  */
 internal fun passengerChoices(group: GroupInfo, riders: List<TripMember>, myMemberId: String?): List<PassengerChoice> {
     val labels = riders.filter { it.isDriver }.associate { it.memberId to (it.vehicleLabel ?: "다른 차") }
-    return group.members.filter { it.id != myMemberId && it.id !in labels }.map { m ->
+    return group.members.filter { it.id != myMemberId && it.id !in labels && !it.host }.map { m ->
         when (val car = riders.firstOrNull { it.memberId == m.id }?.vehicleDriverMemberId) {
             null -> PassengerChoice(m, selected = false)
             myMemberId -> PassengerChoice(m, selected = true)
@@ -79,4 +82,25 @@ internal fun groupErrorText(e: Throwable): String = when (val code = (e as? Serv
     "NOT_MEMBER" -> "이 그룹 멤버가 아니에요"
     null -> "서버에 연결하지 못했어요"
     else -> "서버 오류: $code"
+}
+
+/**
+ * 홈 "최근 정산" 한 줄 (#32-8). 끝난 운행의 차별 비용(T8)으로 1인 부담액을 다시 계산한다.
+ * 비용을 저장하지 않은 차가 있으면 금액을 0으로 두고 "비용 미입력"으로 보여 준다.
+ */
+internal fun recentSettlementOf(groupName: String, endedAt: String, riders: List<TripMember>, names: Map<String, String>): RecentSettlement {
+    val (settlement, _) = settleOrMessage(carsFromTrip(riders, names, myMemberId = null))
+    return RecentSettlement(
+        name = groupName,
+        date = monthDay(endedAt),
+        perPersonWon = settlement?.perPersonShareWon?.toInt() ?: 0,
+        status = if (settlement != null) "정산 끝" else "비용 미입력",
+        done = settlement != null,
+    )
+}
+
+/** "2026-11-14T19:35:59.97+09:00" → "11월 14일" */
+internal fun monthDay(timestamp: String): String {
+    val (m, d) = timestamp.substring(5, 10).split('-').map { it.toInt() }
+    return "${m}월 ${d}일"
 }

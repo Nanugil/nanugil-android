@@ -2,6 +2,7 @@ package com.nanugil.app.data.server
 
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.postgrest.query.filter.FilterOperator
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.channel
@@ -139,6 +140,15 @@ object GroupTripApi {
     /** T3. 그룹의 진행 중 운행. 없으면 null. */
     suspend fun activeTrip(groupId: String): Trip? = serverCall {
         db.from("trips").select { filter { eq("group_id", groupId); exact("ended_at", null) } }.decodeList<Trip>().firstOrNull()
+    }
+
+    /** 내 그룹들의 끝난 운행, 최근 끝난 순으로 [limit]개 (홈 "최근 정산"). RLS가 내 그룹 운행만 돌려준다. */
+    suspend fun endedTrips(limit: Long): List<Trip> = serverCall {
+        db.from("trips").select {
+            filter { filterNot("ended_at", FilterOperator.IS, "null") }
+            order("ended_at", Order.DESCENDING)
+            limit(limit)
+        }.decodeList<Trip>()
     }
 
     /** T3. 운행에 탄 사람 전체 (운전자 행 + 동승자 행). 1/N의 N = 개수. */

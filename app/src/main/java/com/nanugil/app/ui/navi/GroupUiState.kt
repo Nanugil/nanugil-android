@@ -79,15 +79,23 @@ data class GroupInfo(
 }
 
 /** 홈 "내 그룹" 목록 한 줄. [id]는 서버 그룹 ID (목업이면 null). */
-data class GroupSummary(val name: String, val memberCount: Int, val logo: GroupLogo, val driving: Boolean, val id: String? = null)
+data class GroupSummary(
+    val name: String,
+    val memberCount: Int,
+    val logo: GroupLogo,
+    val driving: Boolean,
+    val id: String? = null,
+    /** 목적지 이름. 같은 이름 그룹을 구분하는 데 쓴다. */
+    val destination: String = "",
+)
 
 /** 홈 "최근 정산" 목록 한 줄 */
 data class RecentSettlement(val name: String, val date: String, val perPersonWon: Int, val status: String, val done: Boolean)
 
-/** 02 그룹 만들기 입력값 */
+/** 02 그룹 만들기 입력값. 내 이름은 한 번 넣으면 기억한 값으로 채운다 (#32-4). */
 data class CreateGroupForm(
-    val name: String = "2026 신소재공학과 MT",
-    val myName: String = "김민수",
+    val name: String = "",
+    val myName: String = "",
     val logo: GroupLogo = GroupLogo.CAR,
 )
 
@@ -101,8 +109,10 @@ data class JoinState(
     val carName: String = "B차",
     val fuelType: String = "휘발유",
     val passengers: List<PassengerChoice> = emptyList(),
-    /** 그룹에 들어갈 때 쓸 내 이름 */
-    val myName: String = "이서준",
+    /** 그룹에 들어갈 때 쓸 내 이름 (기억한 값으로 채운다) */
+    val myName: String = "",
+    /** 방장이 운행을 시작했는지. 시작 전이면 05 [출발]을 잠근다. 서버 없이(목업)는 시작된 것으로 본다. */
+    val tripStarted: Boolean = true,
 ) {
     val selectedCount: Int get() = passengers.count { it.selected }
 }
@@ -166,6 +176,8 @@ data class GroupUiState(
     val settlement: SettlementUi = MockGroups.settlement(PriceBasis.AVERAGE),
     /** 서버 요청 중이거나 실패했을 때 아래에 띄우는 안내. 없으면 null. */
     val note: String? = null,
+    /** 03 [동승자 추가]에 넣는 이름 */
+    val passengerName: String = "",
 )
 
 /**
