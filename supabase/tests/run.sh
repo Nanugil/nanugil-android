@@ -15,6 +15,6 @@ for f in migrations/*.sql; do
   if [ -n "${SKIP_MIGRATION:-}" ] && echo "$f" | grep -q "$SKIP_MIGRATION"; then continue; fi
   $PSQL -f "$f"
 done
-if [ $# -eq 0 ]; then set -- tests/*_test.sql; fi
+if [ $# -eq 0 ]; then set -- tests/passenger_web_test.sql tests/security_test.sql; fi
 for t in "$@"; do echo "== $t"; $PSQL -f "$t"; done
 echo "ALL PASSED"

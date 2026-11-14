@@ -14,3 +14,9 @@ it("탭·줄바꿈을 섞어 다른 사이트로 빠지는 주소도 홈으로 (
   expect(safeNext("/\n/evil.com")).toBe("/");
   expect(safeNext("/groups/abc#x")).toBe("/groups/abc#x");
 });
+
+it("점(.) 경로를 섞어 //로 바뀌는 주소도 홈으로", () => {
+  expect(safeNext("/.//evil.com")).toBe("/");
+  expect(safeNext("/a/..//evil.com")).toBe("/");
+  expect(safeNext("/%2e//evil.com")).toBe("/");
+});

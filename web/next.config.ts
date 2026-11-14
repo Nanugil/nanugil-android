@@ -6,6 +6,8 @@ const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=()" },
+  // 스크립트 출처까지 막는 전체 CSP는 Next 인라인 스크립트 nonce 설정이 필요해 다음 단계로 둔다
+  { key: "Content-Security-Policy", value: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'" },
 ];
 
 const nextConfig: NextConfig = {

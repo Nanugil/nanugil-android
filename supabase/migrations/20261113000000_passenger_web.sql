@@ -2,10 +2,11 @@
 -- 테이블은 4개 그대로 두고 열 2개와 RPC 6개를 더한다.
 --   group_members.pay_link : 운전자의 카카오페이 송금 링크 (지금은 차량 기기에만 있음)
 --   trips.settlement       : 정산 요청 시점의 송금 목록. 요청 뒤에 값을 고쳐도 바뀌지 않는다.
+-- 보안: 초대 코드 실패 횟수는 성공해도 유지, 송금 1건 1,000만 원·50건·링크 300자 제한, 받는 사람은 운전자
 -- 새 오류 코드: INVALID_TRANSFER, NOT_YOUR_TRANSFER, MEMBER_TAKEN, INVALID_PAY_LINK, SETTLEMENT_CHANGED, ALREADY_REQUESTED
 
 alter table public.group_members
-  add column pay_link text check (pay_link ~ '^https://([a-z0-9-]+\.)*kakaopay\.com(/.*)?$');
+  add column pay_link text check (length(pay_link) <= 300 and pay_link ~ '^https://([a-z0-9-]+\.)*kakaopay\.com(/\S*)?$');
 
 -- { requestedAt, requestedBy, perPersonWon, transfers: [{ from, to, amountWon, sentAt, receivedAt }] }
 alter table public.trips add column settlement jsonb;
@@ -19,7 +20,7 @@ create function public.set_pay_link(p_group_id uuid, p_link text)
 returns void language plpgsql security definer set search_path = '' as $$
 declare v_me uuid := public._my_member_id(p_group_id); v_link text := nullif(btrim(p_link), '');
 begin
-  if v_link is not null and v_link !~ '^https://([a-z0-9-]+\.)*kakaopay\.com(/.*)?$' then
+  if v_link is not null and (length(v_link) > 300 or v_link !~ '^https://([a-z0-9-]+\.)*kakaopay\.com(/\S*)?$') then
     raise exception 'INVALID_PAY_LINK';
   end if;
   update public.group_members set pay_link = v_link where id = v_me;
@@ -55,7 +56,7 @@ begin
   end if;
 
   if p_per_person_won is null or p_per_person_won < 0
-     or p_transfers is null or jsonb_typeof(p_transfers) <> 'array' then
+     or p_transfers is null or jsonb_typeof(p_transfers) <> 'array' or jsonb_array_length(p_transfers) > 50 then
     raise exception 'INVALID_TRANSFER';
   end if;
 
@@ -73,9 +74,11 @@ begin
     exception when others then
       raise exception 'INVALID_TRANSFER';
     end;
-    if v_from is null or v_to is null or v_amount is null or v_amount <= 0 or v_from = v_to
+    -- 받는 사람은 이 운행의 운전자(비용을 낸 사람)여야 하고, 한 건은 1,000만 원을 넘을 수 없다
+    if v_from is null or v_to is null or v_amount is null or v_amount <= 0 or v_amount > 10000000 or v_from = v_to
        or not exists (select 1 from public.trip_members tm where tm.trip_id = p_trip_id and tm.member_id = v_from)
-       or not exists (select 1 from public.trip_members tm where tm.trip_id = p_trip_id and tm.member_id = v_to) then
+       or not exists (select 1 from public.trip_members tm where tm.trip_id = p_trip_id and tm.member_id = v_to
+                      and tm.vehicle_driver_member_id = tm.member_id) then
       raise exception 'INVALID_TRANSFER';
     end if;
 
@@ -189,6 +192,43 @@ begin
     from public.groups g where g.id = v_group;
 end;
 $$;
+
+-- ─────────────────────────────────────────────
+-- 초대 코드 실패 횟수: 성공해도 지우지 않는다 (보안 검토 High 1)
+-- 자기 그룹의 맞는 코드를 섞어 실패 횟수를 0으로 되돌리며 무작위 대입하는 것을 막는다.
+-- 횟수는 10분 창이 지나야만 초기화된다. 인자·반환은 기존과 같아 호출하는 함수는 그대로다.
+-- ─────────────────────────────────────────────
+
+create or replace function public._find_group_by_code(p_code text, out o_group_id uuid, out o_error text)
+language plpgsql security definer set search_path = '' as $$
+declare
+  v_meta  jsonb;
+  v_count int;
+  v_since timestamptz;
+begin
+  if auth.uid() is null then o_error := 'NOT_MEMBER'; return; end if;
+
+  select coalesce(raw_app_meta_data, '{}'::jsonb) into v_meta from auth.users where id = auth.uid() for update;
+  v_count := coalesce((v_meta ->> 'invite_fail_count')::int, 0);
+  v_since := (v_meta ->> 'invite_fail_since')::timestamptz;
+  if v_since is null or v_since < now() - interval '10 minutes' then
+    v_count := 0;
+    v_since := null;
+  end if;
+  if v_count >= 5 then o_error := 'TOO_MANY_ATTEMPTS'; return; end if;
+
+  select id into o_group_id from public.groups
+  where invite_code = upper(btrim(p_code)) and invite_code_expires_at > now();
+
+  if o_group_id is null then
+    update auth.users set raw_app_meta_data = v_meta
+      || jsonb_build_object('invite_fail_count', v_count + 1, 'invite_fail_since', coalesce(v_since, now()))
+    where id = auth.uid();
+    o_error := 'INVALID_CODE';
+  end if;
+end;
+$$;
+revoke execute on function public._find_group_by_code(text) from public, anon, authenticated;
 
 -- ─────────────────────────────────────────────
 -- 실행 권한: 로그인한 사용자만 (내부 도우미 _mark_transfer는 아무도 직접 못 부른다)

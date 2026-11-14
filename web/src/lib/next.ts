@@ -6,5 +6,8 @@ export function safeNext(next: string | null): string {
   if (!next || !next.startsWith("/")) return "/";
   const base = "http://same.invalid";
   const url = new URL(next, base);
-  return url.origin === base ? url.pathname + url.search + url.hash : "/";
+  if (url.origin !== base) return "/";
+  // "/.//evil.com"처럼 점 경로가 풀리면 pathname이 "//"로 시작해 다른 사이트 주소가 된다
+  if (/^\/[\/\\]/.test(url.pathname)) return "/";
+  return url.pathname + url.search + url.hash;
 }
