@@ -85,7 +85,8 @@ object GroupTripApi {
                 true
             }
             // replay 1: 나중에 듣기 시작한 곳도 바로 한 번 알림을 받아 처음 상태를 읽는다
-            .shareIn(sharingScope, SharingStarted.WhileSubscribed(replayExpirationMillis = 0), replay = 1)
+            // 5초: 03 → 주행 화면처럼 듣는 곳이 잠깐 0이 될 때 채널을 닫았다 같은 이름으로 다시 열지 않게
+            .shareIn(sharingScope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000, replayExpirationMillis = 0), replay = 1)
     }
 
     private val sharingScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
