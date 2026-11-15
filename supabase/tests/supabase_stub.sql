@@ -8,7 +8,7 @@ grant usage on schema public to anon, authenticated;
 
 create schema auth;
 grant usage on schema auth to authenticated;
-create table auth.users (id uuid primary key default gen_random_uuid(), raw_app_meta_data jsonb default '{}'::jsonb);
+create table auth.users (id uuid primary key default gen_random_uuid(), raw_app_meta_data jsonb default '{}'::jsonb, is_anonymous boolean not null default false);
 create function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
 $$;

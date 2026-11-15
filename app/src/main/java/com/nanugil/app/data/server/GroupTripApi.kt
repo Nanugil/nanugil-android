@@ -119,6 +119,10 @@ object GroupTripApi {
         db.from("group_members").select { filter { eq("group_id", groupId) } }.decodeList<GroupMember>()
     }
 
+    /** 이 그룹의 차량 앱 사용자(익명 로그인) 멤버 ID. 동승자 웹 계정(이메일)은 빠진다. 실패: NOT_MEMBER. */
+    suspend fun appMemberIds(groupId: String): Set<String> =
+        rpc<List<String>>("app_member_ids") { put("p_group_id", groupId) }.toSet()
+
     /** G4. 이름·로고·목적지만 바꾼다 (방장). null인 값은 그대로 둔다. */
     suspend fun updateGroup(groupId: String, name: String? = null, logoUrl: String? = null, destination: Place? = null): Group =
         rpc("update_group") {
