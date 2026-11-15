@@ -1,5 +1,6 @@
 package com.nanugil.app.data.server
 
+import com.nanugil.app.share.Transfer
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Order
@@ -30,14 +31,15 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.add
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 
 /**
- * 그룹·초대·운행 API (docs/group-trip-api.md의 G·I·T).
+ * 그룹·초대·운행·정산 API (docs/group-trip-api.md의 G·I·T·P).
  * 읽기는 테이블 조회, 쓰기는 모두 RPC. 실패하면 [ServerException] (code = 오류 코드).
- * SQL은 supabase/migrations/20261111000000_group_trip.sql.
+ * SQL은 supabase/migrations/20261111000000_group_trip.sql, 정산은 20261113000000_passenger_web.sql.
  */
 object GroupTripApi {
 
@@ -213,6 +215,33 @@ object GroupTripApi {
             put("p_applied_price_per_kwh", cost.appliedPricePerKwh)
             put("p_toll_estimated", cost.tollEstimated); put("p_toll_adjusted", cost.tollAdjusted)
         }
+
+    // ── 정산 (동승자 웹과 함께 씀) ──
+
+    /** P1. 내 카카오페이 송금 링크를 등록한다. null이나 빈 값이면 지운다. 실패: INVALID_PAY_LINK (kakaopay.com 링크만). */
+    suspend fun setPayLink(groupId: String, link: String?) {
+        serverCall { db.rpc("set_pay_link", buildJsonObject { put("p_group_id", groupId); put("p_link", link) }) }
+    }
+
+    /**
+     * P2. 도착한 운전자가 송금 목록을 올린다. [Transfer]의 id는 그룹 멤버 ID(member_id)여야 한다.
+     * 다시 부르면 덮어쓰고, 같은 송금(보내는 사람·받는 사람·금액)은 이미 눌린 표시를 이어받는다.
+     * 실패: NOT_DRIVER, NOT_ARRIVED, INVALID_TRANSFER, ALREADY_REQUESTED.
+     */
+    suspend fun requestSettlement(tripId: String, perPersonWon: Long, transfers: List<Transfer>): TripSettlement =
+        rpc("request_settlement") {
+            put("p_trip_id", tripId); put("p_per_person_won", perPersonWon)
+            putJsonArray("p_transfers") {
+                transfers.forEach { t -> addJsonObject { put("from", t.fromId); put("to", t.toId); put("amountWon", t.amountWon) } }
+            }
+        }
+
+    /**
+     * P3. 받는 사람이 "받았어요"를 누른다. [requestedAt]은 화면이 보고 있던 [TripSettlement.requestedAt] 그대로.
+     * 실패: NOT_YOUR_TRANSFER, INVALID_TRANSFER, SETTLEMENT_CHANGED (그사이 정산을 다시 요청함 → 다시 읽는다).
+     */
+    suspend fun markTransferReceived(tripId: String, index: Int, requestedAt: String): TripSettlement =
+        rpc("mark_transfer_received") { put("p_trip_id", tripId); put("p_index", index); put("p_requested_at", requestedAt) }
 }
 
 data class Place(val name: String, val lat: Double, val lng: Double)
@@ -308,4 +337,25 @@ data class TripCostInput(
     val startBatteryWh: Long = 0, val chargedWh: Long = 0, val endBatteryWh: Long = 0,
     val appliedPricePerKwh: Double = 0.0,
     val tollEstimated: Int = 0, val tollAdjusted: Int? = null,
+)
+
+/** trips.settlement (P2·P3 결과). 키가 camelCase라 @SerialName이 필요 없다. */
+@Serializable
+data class TripSettlement(
+    /** 요청 시각. P3에 그대로 돌려줘야 해서 문자열로 둔다. */
+    val requestedAt: String,
+    /** 요청한 운전자의 멤버 ID. */
+    val requestedBy: String,
+    val perPersonWon: Long,
+    val transfers: List<SettlementTransfer>,
+)
+
+/** 송금 하나. from·to는 멤버 ID, sentAt·receivedAt은 아직 안 눌렀으면 null. */
+@Serializable
+data class SettlementTransfer(
+    val from: String,
+    val to: String,
+    val amountWon: Long,
+    val sentAt: String? = null,
+    val receivedAt: String? = null,
 )

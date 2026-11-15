@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.nanugil.app.BuildConfig
 import com.nanugil.app.data.group.CarState
+import com.nanugil.app.share.Transfer
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.MemoryCodeVerifierCache
 import io.github.jan.supabase.auth.MemorySessionManager
@@ -21,6 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -124,6 +126,35 @@ class ServerLiveTest {
             GroupTripApi.markArrived(trip.id)
             val cost = GroupTripApi.saveTripCost(trip.id, TripCostInput(startBatteryWh = 60_000, endBatteryWh = 41_000, appliedPricePerKwh = 347.2))
             assertEquals(41_000L, cost.endBatteryWh)
+
+            Log.i("ServerLiveTest", "step P1~P3")
+
+            // P1: kakaopay.com 링크만 받는다
+            GroupTripApi.setPayLink(group.id, "https://qr.kakaopay.com/test")
+            expectError("INVALID_PAY_LINK") { GroupTripApi.setPayLink(group.id, "https://example.com/pay") }
+
+            // P2: 도착한 A가 할머니 → A 송금을 올린다
+            val aMemberId = members.first { it.displayName == "A" }.id
+            val settlement = GroupTripApi.requestSettlement(trip.id, 12_000, listOf(Transfer(passenger.id, aMemberId, 12_000)))
+            assertEquals(aMemberId, settlement.requestedBy)
+            assertEquals(1, settlement.transfers.size)
+            assertNull(settlement.transfers[0].receivedAt)
+            // 이 운행의 운전자가 아닌 사용자(C)는 올릴 수 없다
+            val c = otherUser()
+            c.auth.signInAnonymously()
+            expectError("NOT_DRIVER") {
+                serverCall {
+                    c.postgrest.rpc("request_settlement", buildJsonObject {
+                        put("p_trip_id", trip.id); put("p_per_person_won", 0); put("p_transfers", JsonArray(emptyList()))
+                    })
+                }
+            }
+            c.close()
+
+            // P3: 받는 사람 A가 "받았어요". 다른 requestedAt이면 SETTLEMENT_CHANGED
+            expectError("SETTLEMENT_CHANGED") { GroupTripApi.markTransferReceived(trip.id, 0, "2000-01-01T00:00:00+00:00") }
+            val received0 = GroupTripApi.markTransferReceived(trip.id, 0, settlement.requestedAt)
+            assertTrue(received0.transfers[0].receivedAt != null)
 
             Log.i("ServerLiveTest", "step T4")
 

@@ -230,8 +230,9 @@ sequenceDiagram
 | 지도 | 네이버 지도 Android SDK 3.24.0 ([ADR-002](docs/decisions/002-map-sdk-selection.md)) |
 | 주유소·유가 | 한국석유공사 오피넷 API — 반경 5km 주유소와 판매가격 ([ADR-002](docs/decisions/002-map-sdk-selection.md)) |
 | 경로 변경 | Pleos NaviHelper SDK — 합류 주유소를 경유지로 추가 (연동 예정) |
-| 실시간 통신 | 미정 |
-| 백엔드 | 미정 |
+| 실시간 통신 | Supabase Realtime ([ADR-001](docs/decisions/001-backend-realtime.md)) |
+| 백엔드 | Supabase (Postgres·RLS·RPC, `supabase/migrations`) |
+| 동승자 웹 | Next.js·Emotion·GSAP (`web/`) — 가입, 초대 코드로 참여, 정산 요청 받기 |
 | 결제 연동 | 카카오페이 등 송금 오픈 API |
 | 협업 | GitHub Issues, Pull Request |
 
@@ -281,6 +282,10 @@ nanugil-android/
 │   └── ui/
 │       ├── map/              # 네이버 지도 Compose 래퍼, 차량·주유소 마커
 │       └── drive/            # 그룹 드라이브 화면
+├── supabase/
+│   ├── migrations/           # DB 테이블·RLS·RPC
+│   └── tests/                # 로컬 Postgres로 마이그레이션 시험 (run.sh)
+├── web/                      # 동승자 웹 (Next.js), 실행 방법은 web/README.md
 ├── docs/
 │   ├── troubleshooting/      # 트러블슈팅 기록
 │   └── decisions/            # 기술 의사결정 기록 (ADR)
