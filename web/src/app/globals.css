@@ -60,7 +60,7 @@ p { margin: 0; text-wrap: pretty; }
 button, input, select, textarea { font: inherit; color: inherit; }
 .num { font-variant-numeric: tabular-nums; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.material-symbols-rounded { font-family: var(--font-icon); font-size: 24px; line-height: 1; font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24; }
+.material-symbols-rounded { display: inline-block; flex: none; font-size: 24px; vertical-align: middle; }
 [hidden] { display: none !important; }
 /* 브라우저 자동완성의 하늘색·노란색 배경을 입력칸 색으로 덮는다 */
 input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus {
