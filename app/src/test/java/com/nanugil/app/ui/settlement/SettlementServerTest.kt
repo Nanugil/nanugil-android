@@ -48,9 +48,9 @@ class SettlementServerTest {
     }
 
     @Test
-    fun refresh_fillsOnlyCarsStillWithoutCost() {
+    fun refresh_takesOtherCarsSavedCost_keepsMyCar() {
         val local = carsFromTrip(listOf(driver("a", "EV"), driver("b", "DIESEL"), driver("c", "GASOLINE")), names + ("c" to "최운전"), "a")
-            .let { cars -> cars.mapIndexed { i, c -> if (i == 2) c.copy(startFuelL = "30", endFuelL = "25") else c } } // c차는 사용자가 직접 넣음
+            .let { cars -> cars.mapIndexed { i, c -> if (i == 2) c.copy(startFuelL = "30", endFuelL = "25") else c } } // c차는 이 기기에서 직접 넣음
         val fresh = carsFromTrip(
             listOf(
                 driver("a", "EV", "startBat" to 1), driver("b", "DIESEL", "startFuel" to 40_000, "endFuel" to 35_000),
@@ -62,8 +62,20 @@ class SettlementServerTest {
 
         assertEquals("", merged[0].startBatteryKwh) // 내 차는 이 기기 값
         assertEquals("40", merged[1].startFuelL) // 나중에 저장된 비용
-        assertEquals("30", merged[2].startFuelL) // 고친 값은 그대로
+        assertEquals("50", merged[2].startFuelL) // c 운전자가 저장·고친 서버 값이 이 기기 값보다 먼저
         assertEquals("새운전", merged[3].driver)
+    }
+
+    @Test
+    fun refresh_followsOtherDriversEdit_keepsLocalWhenServerEmpty() {
+        // b가 [정산하기]로 0원을 먼저 저장한 뒤 [값 수정]으로 고쳐 다시 저장했다 (#36 리뷰)
+        val first = carsFromTrip(listOf(driver("a", "EV"), driver("b", "DIESEL", "startFuel" to 40_000, "endFuel" to 40_000), driver("c", "GASOLINE")), names + ("c" to "최운전"), "a")
+            .let { cars -> cars.mapIndexed { i, c -> if (i == 2) c.copy(startFuelL = "30") else c } } // c는 아직 저장 전, 이 기기에서 넣음
+        val edited = carsFromTrip(listOf(driver("a", "EV"), driver("b", "DIESEL", "startFuel" to 40_000, "endFuel" to 35_000), driver("c", "GASOLINE")), names + ("c" to "최운전"), "a")
+        val merged = withSavedCosts(first, edited)
+
+        assertEquals("35", merged[1].endFuelL) // 고친 값을 받는다
+        assertEquals("30", merged[2].startFuelL) // 서버에 없으면 이 기기 값
     }
 
     @Test

@@ -91,6 +91,9 @@ class NaviDriveActivity : ComponentActivity() {
     private val groupActions by lazy {
         GroupActions(
             onTab = viewModel::selectTab,
+            onConfirmEnd = viewModel::confirmEndTrip,
+            onCancelEnd = viewModel::cancelEndTrip,
+            onMinimizeEndWait = viewModel::minimizeEndWait,
             onBack = viewModel::back,
             onOpenDrive = viewModel::openDrive,
             onOpenCreate = viewModel::openCreateGroup,
@@ -152,7 +155,7 @@ class NaviDriveActivity : ComponentActivity() {
                 cost = ui.cost,
                 routeError = ui.navi.message?.takeIf { "실패" in it || "오류" in it },
                 onStartRoute = viewModel::startRoute,
-                onStopRoute = viewModel::stopRoute,
+                onEndTrip = viewModel::endTrip,
                 onAcceptMeetup = viewModel::acceptMeetup,
                 onSkipMeetup = viewModel::skipMeetup,
                 suggestion = ui.suggestion,

@@ -285,8 +285,9 @@ class SettlementSession(
 }
 
 /**
- * 다시 읽은 운행([fresh], 내 차가 맨 앞)을 지금 값에 합친다. 내 차와 값이 있는 차는 그대로 두고(사용자가 고친 값 포함),
- * 아직 비용이 없던 다른 차만 서버 값으로 바꾼다. 새로 생긴 차는 뒤에 붙인다.
+ * 다시 읽은 운행([fresh], 내 차가 맨 앞)을 지금 값에 합친다. 내 차는 그대로 두고, 다른 차는 서버에 비용이 있으면
+ * 서버 값으로 바꾼다(그 운전자가 나중에 고친 값도 받아 기기마다 금액이 같게). 서버에 아직 없으면 이 기기 값을 둔다.
+ * 새로 생긴 차는 뒤에 붙인다.
  */
 internal fun withSavedCosts(local: List<CarInput>, fresh: List<CarInput>, iDrive: Boolean = true): List<CarInput> {
     // 멤버 ID로 맞춘다(같은 이름의 운전자가 있을 수 있다). ID가 없으면 이름으로.
@@ -296,7 +297,8 @@ internal fun withSavedCosts(local: List<CarInput>, fresh: List<CarInput>, iDrive
     val others = fresh.drop(mine)
     val byKey = others.associateBy { it.key() }
     val merged = local.mapIndexed { i, c ->
-        if (i >= mine && c.costMissing) byKey[c.key()] ?: c else c
+        val f = byKey[c.key()]
+        if (i >= mine && f != null && (!f.costMissing || c.costMissing)) f else c
     }
     return merged + others.filter { f -> merged.none { it.key() == f.key() } }
 }

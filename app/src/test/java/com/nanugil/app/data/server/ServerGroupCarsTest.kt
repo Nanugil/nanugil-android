@@ -20,6 +20,26 @@ class ServerGroupCarsTest {
     }
 
     @Test
+    fun `서버 차 이름(vehicle_label)이 있으면 멤버 ID 순서와 상관없이 그 이름을 쓴다`() {
+        val members = listOf(
+            TripMember("t", memberId = "m1", vehicleDriverMemberId = "m1", vehicleLabel = "B차"), // 참여자
+            TripMember("t", memberId = "m3", vehicleDriverMemberId = "m3", vehicleLabel = "A차"), // 방장
+        )
+        assertEquals(mapOf("m1" to "B", "m3" to "A"), carLabels(members))
+    }
+
+    @Test
+    fun `모든 차가 운행 종료(arrived_at)를 눌러야 다 끝난 것이다 (동승자 행은 세지 않는다)`() {
+        val one = TripMember("t", memberId = "m1", vehicleDriverMemberId = "m1", arrivedAt = "2026-11-14T10:00:00Z")
+        val two = TripMember("t", memberId = "m3", vehicleDriverMemberId = "m3")
+        val passenger = TripMember("t", memberId = "p9", vehicleDriverMemberId = "m1")
+        assertEquals(EndedCars(1, 2), endedCars(listOf(one, two, passenger)))
+        assertEquals(false, endedCars(listOf(one, two, passenger)).allEnded)
+        assertEquals(true, endedCars(listOf(one, two.copy(arrivedAt = "2026-11-14T10:01:00Z"), passenger)).allEnded)
+        assertEquals(false, endedCars(emptyList()).allEnded)
+    }
+
+    @Test
     fun `처음엔 정차, 움직이면 속도를 내고 주행이 된다`() {
         val m = MyCarMotion()
         assertEquals(0 to DriveStatus.STOPPED, m.update(start, 0))

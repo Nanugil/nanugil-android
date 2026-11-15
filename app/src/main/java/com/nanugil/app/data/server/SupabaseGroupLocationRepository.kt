@@ -15,6 +15,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.withContext
@@ -32,6 +35,10 @@ class SupabaseGroupLocationRepository : GroupLocationRepository {
     private var lastSent: CarStateMessage? = null
     private var lastSentAt = 0L // 마지막으로 보낸 시각 (이 기기 시계)
 
+    private val _meetups = MutableSharedFlow<MeetupMessage>(extraBufferCapacity = 8)
+    /** 다른 차가 보낸 휴게소 합류 제안·답 (#31 6번). [observeGroup]을 구독하는 동안만 온다. 내 메시지는 돌아오지 않는다. */
+    val meetups: SharedFlow<MeetupMessage> = _meetups
+
     /**
      * 진행 중 운행의 다른 차들 상태. 내 메시지는 돌아오지 않는다. 운행이 없으면 아무것도 내보내지 않고 끝난다.
      * 1분 넘게 소식이 없는 차(앱을 끈 차)는 목록에서 뺀다. 모르는 차가 오면 멤버 목록을 다시 읽는다.
@@ -43,13 +50,15 @@ class SupabaseGroupLocationRepository : GroupLocationRepository {
         val reloadedFor = mutableSetOf<String>() // 같은 carId로 멤버 목록을 계속 다시 읽지 않게
         val channel = Supabase.client.channel(trip.channel) { isPrivate = true }
         val messages = channel.broadcastFlow<CarStateMessage>(CAR_STATE_EVENT)
+        // 합류 이벤트는 같은 채널로 받아 [meetups]로 넘긴다 (위치 처리 쪽에는 null = 확인 틱으로 들어간다)
+        val meetupMessages = channel.broadcastFlow<MeetupMessage>(MEETUP_EVENT).map { _meetups.emit(it); null }
         channel.subscribe(blockUntilSubscribed = true)
         sendChannel = channel
 
         val board = CarBoard()
         val ticks = flow { while (true) { delay(STALE_CHECK_MS); emit(null) } }
         try {
-            merge(messages, ticks).collect { msg ->
+            merge(messages, ticks, meetupMessages).collect { msg ->
                 val now = System.currentTimeMillis()
                 if (msg == null) resendIfStopped(now)
                 var changed = board.dropStale(now)
@@ -82,6 +91,13 @@ class SupabaseGroupLocationRepository : GroupLocationRepository {
         true
     }
 
+    /** 휴게소 합류 제안·답을 같은 운행 차들에게 보낸다. [observeGroup]을 구독하는 동안만 보낼 수 있다. */
+    suspend fun sendMeetup(message: MeetupMessage): Boolean = sendLock.withLock {
+        val channel = sendChannel ?: return@withLock false
+        channel.broadcast(MEETUP_EVENT, message)
+        true
+    }
+
     /** 정차 중인데 30초 넘게 보낸 게 없으면 마지막 상태를 시각만 바꿔 다시 보낸다. 실패하면 다음 확인 때 다시. */
     private suspend fun resendIfStopped(now: Long) = sendLock.withLock {
         val channel = sendChannel ?: return@withLock
@@ -108,6 +124,8 @@ class SupabaseGroupLocationRepository : GroupLocationRepository {
 
     companion object {
         const val CAR_STATE_EVENT = "car_state"
+        /** 휴게소 합류 이벤트. 채널 권한은 채널(진행 중 운행 운전자)에 걸려 있어 서버 변경이 필요 없다 */
+        const val MEETUP_EVENT = "meetup"
 
         /** 주행 중 보내는 간격 (ADR-001) */
         const val DRIVING_INTERVAL_MS = 3_000L
@@ -188,3 +206,17 @@ data class CarStateMessage(
 /** 보내는 쪽이 판정한다: 5 km/h 이상 DRIVING, 3 km/h 미만 30초 이상 STOPPED, 그 사이는 이전 상태 유지. */
 @Serializable
 enum class DriveStatus { DRIVING, STOPPED, REST_AREA }
+
+enum class MeetupAction { PROPOSE, ACCEPT, SKIP }
+
+/** 휴게소 합류 메시지 (#31 6번). fromCarId는 보낸 차의 운전자 멤버 ID */
+@Serializable
+data class MeetupMessage(
+    val fromCarId: String,
+    val action: MeetupAction,
+    val placeName: String,
+    val lat: Double,
+    val lng: Double,
+    /** epoch 밀리초 */
+    val sentAt: Long,
+)
