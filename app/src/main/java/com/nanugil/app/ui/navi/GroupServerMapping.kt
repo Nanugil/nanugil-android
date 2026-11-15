@@ -104,3 +104,7 @@ internal fun monthDay(timestamp: String): String {
     val (m, d) = timestamp.substring(5, 10).split('-').map { it.toInt() }
     return "${m}월 ${d}일"
 }
+
+/** 운행의 모든 차(운전자 행)가 도착했는지. 차가 하나도 없으면 아직 아무도 안 탄 운행이라 false. */
+internal fun allArrived(members: List<TripMember>): Boolean =
+    members.filter { it.isDriver }.let { d -> d.isNotEmpty() && d.all { it.arrivedAt != null } }
