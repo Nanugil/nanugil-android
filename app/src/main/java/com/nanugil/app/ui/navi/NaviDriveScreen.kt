@@ -214,9 +214,9 @@ fun NaviDriveScreen(
         if (inputBlocked) ParkOnlyCard(p, gearUnknown, groupActions.onBack) else when (screen) {
             AppScreen.HOME -> HomeScreen(p, navi, group, carsDriving, groupActions)
             AppScreen.CREATE_GROUP -> CreateGroupScreen(
-                p, group.createForm, navi.destinationName ?: MockGroups.DESTINATION, groupActions,
+                p, group.createForm, navi.destinationName?.takeIf { navi.destinationPosition != null }, groupActions,
             )
-            AppScreen.LOBBY -> group.group?.let { LobbyScreen(p, it, groupActions) }
+            AppScreen.LOBBY -> group.group?.let { LobbyScreen(p, it, group.passengerName, groupActions) }
             AppScreen.JOIN_CODE -> JoinCodeScreen(p, group.join, groupActions)
             AppScreen.JOIN_SETUP -> JoinSetupScreen(p, group.join, groupActions)
             AppScreen.DRIVE -> {
@@ -263,6 +263,13 @@ fun NaviDriveScreen(
             AppScreen.SETTLE_SENT -> SettleSentScreen(p, group.settlement, groupActions)
         }
 
+        // 그룹 서버 요청이 실패했거나 기다릴 일이 있으면 아래 가운데에 한 줄로 알린다 (#18 3번)
+        if (!inputBlocked) group.note?.let { note ->
+            Panel(p, Modifier.align(Alignment.BottomCenter).padding(bottom = 48.dp), CardShape) {
+                Label(note, 23.sp, BrandAmber, FontWeight.Bold, Modifier.padding(horizontal = 28.dp, vertical = 18.dp))
+            }
+        }
+
         // 지도 버튼(확대·축소·내 위치)은 운행 전 화면에서도 쓴다. 오른쪽 아래는 어느 화면에서든 비어 있다.
         MapControls(
             p = p,
@@ -298,7 +305,7 @@ fun NaviDriveScreen(
         }
         val chip = when {
             screen == AppScreen.DRIVE && navi.guiding -> TopChip.END_TRIP
-            screen == AppScreen.LOBBY || screen == AppScreen.ARRIVAL -> TopChip.HOST
+            (screen == AppScreen.LOBBY || screen == AppScreen.ARRIVAL) && g?.iHost != false -> TopChip.HOST
             // 안내 중이거나 기어가 P가 아니면(D·R·N) 주행 중
             navi.guiding || (!canType && !gearUnknown) -> TopChip.DRIVING
             else -> TopChip.STOPPED
@@ -700,7 +707,6 @@ internal fun Label(
         maxLines = 1,
         style = TextStyle(
             color = color, fontSize = size, fontWeight = weight, letterSpacing = letterSpacing,
-            shadow = LocalTextShadow.current,
         ),
     )
 }

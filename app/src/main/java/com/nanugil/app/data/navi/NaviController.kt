@@ -46,6 +46,11 @@ data class NaviState(
     val remainTimeSeconds: Int? = null,
     /** 경로 예상 통행료(원). 정산(R4)에 쓴다. */
     val tollFareWon: Int? = null,
+    /**
+     * 앞으로 지날 유료 구간까지 거리(m): (첫 고속도로 진입·요금소, 마지막 요금소). 요금소가 없으면 null.
+     * 통행료는 요금소를 지날 때 낸다(폐쇄식은 진출 요금소, 개방식은 본선 요금소). 정산 통행료를 나눌 때 쓴다.
+     */
+    val tollSpanAheadM: Pair<Int, Int>? = null,
     val waypointNames: List<String> = emptyList(),
     /** 경유지 좌표 (경로선용, [waypointNames]와 같은 순서) */
     val waypointPositions: List<Wgs84Point> = emptyList(),
@@ -205,6 +210,7 @@ class NaviController(
                         remainDistanceMeters = null,
                         remainTimeSeconds = null,
                         tollFareWon = null,
+                        tollSpanAheadM = null,
                         waypointNames = emptyList(),
                         waypointPositions = emptyList(),
                         waypointRemainMeters = emptyList(),
@@ -263,7 +269,7 @@ class NaviController(
         override fun onTBTInfo(tbtInfoList: List<TBTInfo>) {
             if (tbtInfoList.isNotEmpty()) markNaviReady()
             val turns = tbtInfoList.map { t -> NaviTurn(t.type, t.distance, t.description) }
-            _state.update { it.copy(nextTurn = turns.getOrNull(0), afterNextTurn = turns.getOrNull(1)) }
+            _state.update { it.copy(nextTurn = turns.getOrNull(0), afterNextTurn = turns.getOrNull(1), tollSpanAheadM = tollSpanAhead(turns)) }
         }
 
         override fun onWayPointArrived(waypointArrivedInfo: WaypointArrivedInfo) {
@@ -590,3 +596,15 @@ class NaviController(
         const val QUICK_RETURN_DELAY_MS = 150L
     }
 }
+
+/**
+ * 회전 목록(거리는 앞 회전부터의 간격)에서 유료 구간까지 거리: (첫 고속도로 진입 IC·요금소, 마지막 요금소). 요금소가 없으면 null.
+ */
+internal fun tollSpanAhead(turns: List<NaviTurn>): Pair<Int, Int>? {
+    val at = turns.runningFold(0.0) { sum, t -> sum + t.distanceMeters }.drop(1)
+    val lastGate = turns.indexOfLast { it.type == TurnType.TURN_TOLL }.takeIf { it >= 0 } ?: return null
+    val entry = turns.indexOfFirst { it.type in TOLL_ENTRY } // 요금소도 포함이라 lastGate 이하
+    return at[entry].toInt() to at[lastGate].toInt()
+}
+
+private val TOLL_ENTRY = setOf(TurnType.TURN_ENTER_IC_L, TurnType.TURN_ENTER_IC_R, TurnType.TURN_ENTER_IC_C, TurnType.TURN_TOLL)

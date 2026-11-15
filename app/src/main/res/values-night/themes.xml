@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 기기(차량 화면)가 다크 모드일 때 -->
+    <style name="Theme.Nanugil" parent="android:Theme.Material.NoActionBar" />
+</resources>

@@ -2,6 +2,9 @@ package com.nanugil.app.ui.settlement
 
 import android.util.Log
 import com.nanugil.app.core.geo.Wgs84Point
+import com.nanugil.app.data.fare.TollRecorder
+import com.nanugil.app.data.fare.evTollDiscountPercent
+import com.nanugil.app.data.fare.tollWon
 import com.nanugil.app.data.fuel.FuelProduct
 import com.nanugil.app.data.fuel.GasStation
 import com.nanugil.app.data.fuel.OpinetException
@@ -10,6 +13,7 @@ import com.nanugil.app.data.pay.SettlementRequestStore
 import com.nanugil.app.data.vehicle.TripEnergyRecorder
 import com.nanugil.app.share.Settlement
 import com.nanugil.app.share.SettlementRequest
+import java.time.LocalDate
 import kotlin.math.roundToInt
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -29,8 +33,12 @@ enum class PriceChoice { NEARBY_AVERAGE, NEARBY_LOWEST, PICKED }
  *
  * @property chosen 유종별로 유가를 가져온 주유소. 근처 평균이면 비어 있다.
  * @property request 보낸 정산 요청(09 화면). 보내기 전이면 null.
- * @property tripId 서버의 진행 중 운행. 없으면 데모 값으로 정산한다.
+ * @property tripId 서버의 진행 중 운행. 서버가 없으면(키 없음) 데모 값으로 정산한다.
  * @property serverNote 서버 연결 상태 안내 (예: 데모 값 사용, 비용 저장 실패). 문제없으면 null.
+ * @property iDrive 이 기기 사용자가 A차(맨 앞) 운전자인지. 서버 운행에서 동승자면 false라 내 차 기록으로 채우거나 저장하지 않는다.
+ * @property estimatedTollWon 내 차 통행료의 내비 예상액(경로 변경·할인 반영). 안내 없이 달렸으면 null.
+ * @property tollDiscountPercent [estimatedTollWon]에 뺀 전기차 통행료 감면율(%)
+ * @property myName 이 기기 사용자 이름(서버 운행). 동승자면 [myDriver]와 다르다. 서버가 없으면 빈칸.
  */
 data class SettlementState(
     val cars: List<CarInput>,
@@ -42,9 +50,16 @@ data class SettlementState(
     val request: SettlementRequest? = null,
     val tripId: String? = null,
     val serverNote: String? = null,
+    val iDrive: Boolean = true,
+    val estimatedTollWon: Long? = null,
+    val tollDiscountPercent: Int = 0,
+    val myName: String = "",
 ) {
     /** 이 차(A차) 운전자. 이 사람에게 송금한다. */
     val myDriver: String get() = cars.firstOrNull()?.driver?.trim().orEmpty()
+
+    /** 이 기기 사용자. 09에서 받을 돈인지 낼 돈인지를 이 사람 기준으로 보여 준다. */
+    val me: String get() = myName.trim().ifBlank { myDriver }
 
     /** 입력값으로 바로 정산한다. 값이 틀리면 결과 대신 고칠 내용. */
     val settled: Pair<Settlement?, String?> by lazy { settleOrMessage(cars) }
@@ -62,8 +77,9 @@ class SettlementSession(
     private val loadAverage: suspend () -> Map<FuelProduct, Int>,
     private val initialCars: () -> List<CarInput> = ::demoCars,
     private val server: SettlementServer? = null,
+    private val toll: TollRecorder? = null,
 ) {
-    private val _state = MutableStateFlow(SettlementState(cars = initialCars(), request = requests.load()))
+    private val _state = MutableStateFlow(requests.load().let { SettlementState(cars = startCars(), request = it, tripId = it?.tripId) })
     val state: StateFlow<SettlementState> = _state.asStateFlow()
 
     private val loadLock = Mutex()
@@ -71,33 +87,50 @@ class SettlementSession(
 
     /**
      * 정산 화면이 처음 열릴 때 한 번: 운행 기록으로 내 차 칸을 채우고, 차종을 읽고, [here] 근처 유가를 불러온다.
-     * 다음 운행은 [finish] 뒤에 다시 채운다.
+     * 다음 운행은 [finish]나 [startTrip] 뒤에 다시 채운다.
      */
     suspend fun load(here: Wgs84Point?) = loadLock.withLock {
         if (loaded) return@withLock
         loaded = true
         loadTrip()
-        _state.update { s -> s.copy(cars = s.cars.mapFirst { it.withRecorded(recorder.fuel, recorder.battery) }) }
-        readMyCarType()?.let { type ->
-            _state.update { s -> s.copy(cars = s.cars.mapFirst { if (it.type != type) it.withType(type, s.prices) else it }) }
+        // 운행을 못 읽었으면(없음·연결 실패) 다음에 다시 읽는다. 08을 보는 동안 [refreshTrip] 주기마다 다시 부른다.
+        if (server != null && _state.value.cars.isEmpty()) {
+            loaded = false
+            return@withLock
+        }
+        // 동승자면 A차는 남의 차라 이 기기의 운행 기록·차종으로 채우지 않는다
+        if (_state.value.iDrive) {
+            _state.update { s -> s.copy(cars = s.cars.mapFirst { it.withRecorded(recorder.fuel, recorder.battery) }) }
+            readMyCarType()?.let { type ->
+                _state.update { s -> s.copy(cars = s.cars.mapFirst { if (it.type != type) it.withType(type, s.prices) else it }) }
+            }
+            // 내 차 통행료: 내비 예상액(경로 변경 반영). 전기차는 하이패스 친환경차 감면을 뺀다.
+            toll?.ledger?.totalWon?.takeIf { it > 0 }?.let { raw ->
+                val ev = _state.value.cars.firstOrNull()?.type == VehicleType.ELECTRIC
+                val discount = if (ev) evTollDiscountPercent(LocalDate.now().year) else 0
+                val est = tollWon(raw, discount)
+                _state.update { s ->
+                    s.copy(estimatedTollWon = est, tollDiscountPercent = discount, cars = s.cars.mapFirst { it.copy(tollWon = est.toString()) })
+                }
+            }
         }
         loadPrices(here)
     }
 
-    // 서버에 진행 중 운행이 있으면 그 참가자·차량별 비용으로 바꾼다. 없거나 연결이 안 되면 데모 값 그대로.
+    // 서버에 진행 중 운행이 있으면 그 참가자·차량별 비용으로 바꾼다. 없거나 연결이 안 되면 빈 화면에 안내만 띄운다.
     private suspend fun loadTrip() {
         val server = server ?: return
         try {
             val trip = server.loadTrip()
             if (trip == null || trip.cars.isEmpty()) {
-                _state.update { it.copy(serverNote = "진행 중인 운행이 없어 예시 값으로 정산합니다") }
+                _state.update { it.copy(serverNote = NO_TRIP) }
             } else {
-                _state.update { it.copy(cars = trip.cars, tripId = trip.tripId, serverNote = null) }
+                _state.update { it.copy(cars = trip.cars, tripId = trip.tripId, iDrive = trip.iDrive, myName = trip.myName, serverNote = null) }
             }
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             Log.w(TAG, "운행 불러오기 실패", e)
-            _state.update { it.copy(serverNote = "서버에 연결하지 못해 예시 값으로 정산합니다") }
+            _state.update { it.copy(serverNote = "서버에 연결하지 못했습니다. 잠시 뒤 다시 열어 주세요") }
         }
     }
 
@@ -118,7 +151,7 @@ class SettlementSession(
             return@withLock
         }
         if (trip?.tripId != tripId) return@withLock
-        _state.update { it.copy(cars = withSavedCosts(it.cars, trip.cars)) }
+        _state.update { it.copy(cars = withSavedCosts(it.cars, trip.cars, it.iDrive)) }
     }
 
     /**
@@ -129,9 +162,10 @@ class SettlementSession(
         val s = _state.value
         val tripId = s.tripId ?: return
         val server = server ?: return
+        if (!s.iDrive) return // 동승자는 저장할 내 차가 없다(서버가 NOT_DRIVER로 거부)
         val car = s.cars.firstOrNull() ?: return
         try {
-            server.saveMyCost(tripId, car, s.choice)
+            server.saveMyCost(tripId, car, s.choice, s.estimatedTollWon)
             _state.update { it.copy(serverNote = null) }
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
@@ -164,7 +198,7 @@ class SettlementSession(
             s.copy(
                 prices = prices,
                 priceSource = source,
-                cars = s.cars.map { c -> if (c.fuelPrice == c.type.defaultFuelPrice) c.copy(fuelPrice = c.type.priceText(prices)) else c },
+                cars = s.cars.mapIndexed { i, c -> if (s.repriceable(i) && c.fuelPrice == c.type.defaultFuelPrice) c.copy(fuelPrice = c.type.priceText(prices)) else c },
             )
         }
     }
@@ -199,8 +233,9 @@ class SettlementSession(
     fun request(): SettlementRequest? {
         val s = _state.value
         val result = s.settled.first ?: return null
-        val sent = SettlementRequest.of(result, s.myDriver).also(requests::save)
+        val sent = SettlementRequest.of(result, s.me, s.tripId).also(requests::save)
         recorder.reset()
+        toll?.reset()
         _state.update { it.copy(request = sent) }
         return sent
     }
@@ -223,18 +258,29 @@ class SettlementSession(
     fun finish() {
         requests.clear()
         loaded = false
-        _state.value = SettlementState(cars = initialCars())
+        _state.value = SettlementState(cars = startCars())
     }
+
+    /** 서버 운행에 들어갔다. 이전 운행 정산을 끝내지 않았으면(요청 전·송금 확인 중) 버리고 이 운행으로 다시 채운다(#30). */
+    fun startTrip(tripId: String) {
+        if (_state.value.tripId != tripId) finish()
+    }
+
+    // 서버가 있으면 운행 값만 쓴다(예시 값을 실제 운행처럼 보이지 않게). 서버 없이 시연할 때만 데모 그룹.
+    private fun startCars() = if (server != null) emptyList() else initialCars()
 
     private fun SettlementState.withPrices(prices: Map<FuelProduct, Int>) = copy(
         prices = prices,
-        cars = cars.map { c -> c.type.opinetProduct?.let(prices::get)?.let { c.copy(fuelPrice = it.toString()) } ?: c },
+        cars = cars.mapIndexed { i, c ->
+            if (!repriceable(i)) c else c.type.opinetProduct?.let(prices::get)?.let { c.copy(fuelPrice = it.toString()) } ?: c
+        },
     )
 
     private fun List<CarInput>.mapFirst(f: (CarInput) -> CarInput) = mapIndexed { i, c -> if (i == 0) f(c) else c }
 
     private companion object {
         const val TAG = "SettlementSession"
+        const val NO_TRIP = "진행 중인 운행이 없습니다. 운행을 시작하면 도착 후 여기서 정산합니다"
     }
 }
 
@@ -242,14 +288,28 @@ class SettlementSession(
  * 다시 읽은 운행([fresh], 내 차가 맨 앞)을 지금 값에 합친다. 내 차와 값이 있는 차는 그대로 두고(사용자가 고친 값 포함),
  * 아직 비용이 없던 다른 차만 서버 값으로 바꾼다. 새로 생긴 차는 뒤에 붙인다.
  */
-internal fun withSavedCosts(local: List<CarInput>, fresh: List<CarInput>): List<CarInput> {
-    val others = fresh.drop(1)
-    val byDriver = others.associateBy { it.driver }
+internal fun withSavedCosts(local: List<CarInput>, fresh: List<CarInput>, iDrive: Boolean = true): List<CarInput> {
+    // 멤버 ID로 맞춘다(같은 이름의 운전자가 있을 수 있다). ID가 없으면 이름으로.
+    fun CarInput.key() = memberId.ifBlank { driver }
+    // 운전자 기기는 A차를 이 기기 값으로 두고, 동승자 기기는 A차도 서버 값으로 채운다
+    val mine = if (iDrive) 1 else 0
+    val others = fresh.drop(mine)
+    val byKey = others.associateBy { it.key() }
     val merged = local.mapIndexed { i, c ->
-        if (i > 0 && c.startFuelL.isBlank() && c.startBatteryKwh.isBlank()) byDriver[c.driver] ?: c else c
+        if (i >= mine && c.costMissing) byKey[c.key()] ?: c else c
     }
-    return merged + others.filter { f -> merged.none { it.driver == f.driver } }
+    return merged + others.filter { f -> merged.none { it.key() == f.key() } }
 }
+
+/**
+ * 이 기기에서 고른 유가 기준(근처 평균·최저가·직접 고름)을 [index] 차에 넣어도 되는지.
+ * 다른 운전자가 저장한 유가는 그 사람 값 그대로 둔다. 기기마다 고른 유가로 바꾸면 같은 운행인데 기기마다 정산 금액이 달라진다(#29).
+ */
+internal fun SettlementState.repriceable(index: Int): Boolean =
+    tripId == null || (index == 0 && iDrive) || cars[index].costMissing
+
+/** 서버 운행에서 이 차 운전자가 아직 비용을 저장(T8)하지 않았는지. 출발 연료·배터리가 둘 다 비어 있다. */
+internal val CarInput.costMissing: Boolean get() = startFuelL.isBlank() && startBatteryKwh.isBlank()
 
 /**
  * 서버가 붙기 전 데모 그룹(#13 MockGroups와 같은 사람들). A차가 이 기기가 달린 내 차라 운행 기록으로 다시 채워진다.

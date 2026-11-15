@@ -28,8 +28,10 @@ data class TripCost(
  *
  * 출발 기준값은 앱을 껐다 켜도 이어지도록 SharedPreferences에 둔다.
  * TODO(정산): 그룹 전체 합산은 서버에서 받는다.
+ *
+ * @param members 1인 금액을 나눌 인원. 서버 운행에 들어가면 실제 탄 사람 수(trip_members)로 바꾼다.
  */
-class TripCostTracker(context: Context, private val members: Int) {
+class TripCostTracker(context: Context, @Volatile var members: Int) {
 
     private val prefs = context.getSharedPreferences("trip_cost", Context.MODE_PRIVATE)
 

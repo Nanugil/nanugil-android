@@ -53,10 +53,10 @@ data class Transfer(
 /**
  * 정산 결과.
  *
- * @property vehicleCostsWon 차량 식별자별 비용(주유비 추정 + 통행료).
- * @property totalCostWon 전체 차량 비용 합계.
- * @property perPersonShareWon 1인 부담액. [SettlementCalculator.settle]의 `roundingUnitWon` 단위로 내림한 값.
- * @property remainderWon 1인 부담액을 내림하면서 남은 금액. 받을 사람들이 나눠서 덜 받는 방식으로 흡수한다.
+ * @property vehicleCostsWon 차량 식별자별 비용(주유비 추정 + 충전비 추정 + 통행료), 원 단위 반올림.
+ * @property totalCostWon 전체 차량 비용 합계(소수까지 더한 뒤 원 단위 반올림).
+ * @property perPersonShareWon 1인 부담액. [SettlementCalculator.settle]의 `roundingUnitWon` 단위로 올림한 값.
+ * @property surplusWon 1인 부담액을 올리면서 더 걷힌 금액(원 단위 반올림). 운전자들이 비용 비율대로 나눠 받는다. 전체 비용의 1%를 넘지 않는다.
  * @property balancesWon 사람별 정산 잔액. 양수는 받을 돈, 음수는 보낼 돈. 합계는 항상 0이다.
  * @property transfers 잔액을 맞추는 송금 목록.
  */
@@ -64,7 +64,7 @@ data class Settlement(
     val vehicleCostsWon: Map<String, Long>,
     val totalCostWon: Long,
     val perPersonShareWon: Long,
-    val remainderWon: Long,
+    val surplusWon: Long,
     val balancesWon: Map<String, Long>,
     val transfers: List<Transfer>,
 )
@@ -79,6 +79,10 @@ data class Settlement(
 object SettlementCalculator {
 
     private const val ML_PER_LITER = 1_000L
+    private const val MILLI = 1_000L
+
+    /** 올림으로 더 걷는 돈은 전체 비용의 이 비율(%)까지만. 넘으면 1원 단위로 올린다. */
+    private const val MAX_SURPLUS_PERCENT = 1L
 
     /**
      * 이번 운행에 쓴 연료량(mL) = 출발 연료량 + 주유량 − 도착 연료량.
@@ -122,60 +126,90 @@ object SettlementCalculator {
         return used
     }
 
+    /** 차량 비용(원) = 주유비 추정 + 충전비 추정 + 통행료, 원 단위 반올림. 화면 표시용이고 정산은 [vehicleCostMilliWon]으로 한다. */
+    fun vehicleCostWon(trip: VehicleTrip): Long = Math.addExact(vehicleCostMilliWon(trip), MILLI / 2) / MILLI
+
     /**
-     * 차량 비용(원) = 주유비 추정 + 충전비 추정 + 통행료.
-     * 충전비 = 사용 전력(Wh) × 단가(원/MWh) ÷ 1,000,000, 원 단위 반올림.
+     * 차량 비용을 1/1000원 단위로. 충전비(325.6원/kWh × 12.345kWh = 4,019.53원)처럼 원 아래가 생겨도 정산 끝까지 버리지 않는다.
+     * 주유비 = 사용 연료(mL) × 유가(원/L)는 그대로 1/1000원, 충전비 = 사용 전력(Wh) × 단가(원/MWh) ÷ 1,000은 1/1000원 아래 반올림.
      */
-    fun vehicleCostWon(trip: VehicleTrip): Long {
+    fun vehicleCostMilliWon(trip: VehicleTrip): Long {
         require(trip.tollWon >= 0) { "통행료는 0 이상이어야 합니다: ${trip.vehicleId}" }
-        val fuel = fuelCostWon(usedFuelMl(trip.startFuelMl, trip.refueledMl, trip.endFuelMl), trip.fuelPriceWonPerLiter)
+        val usedMl = usedFuelMl(trip.startFuelMl, trip.refueledMl, trip.endFuelMl)
+        require(trip.fuelPriceWonPerLiter >= 0) { "유가는 0 이상이어야 합니다: ${trip.fuelPriceWonPerLiter}" }
+        val fuel = Math.multiplyExact(usedMl, trip.fuelPriceWonPerLiter)
         require(trip.electricityWonPerMwh >= 0) { "충전 단가는 0 이상이어야 합니다: ${trip.vehicleId}" }
         val usedWh = usedEnergyWh(trip.startBatteryWh, trip.chargedWh, trip.endBatteryWh)
-        val electricity = Math.addExact(Math.multiplyExact(usedWh, trip.electricityWonPerMwh), 500_000) / 1_000_000
-        return Math.addExact(Math.addExact(fuel, electricity), trip.tollWon)
+        val electricity = Math.addExact(Math.multiplyExact(usedWh, trip.electricityWonPerMwh), MILLI / 2) / MILLI
+        return Math.addExact(Math.addExact(fuel, electricity), Math.multiplyExact(trip.tollWon, MILLI))
     }
 
     /**
      * 그룹 전체를 정산한다.
      *
-     * 1. 차량별 비용을 구해 운전자가 낸 돈으로 본다.
-     * 2. 1인 부담액 = 전체 비용 ÷ 전체 인원을 [roundingUnitWon] 단위로 내림한다.
-     *    내림으로 남은 금액은 받을 사람들이 나눠서 덜 받는다. 원 단위 처리 정책은 팀에서 아직 정하지 않아 단위만 바꿀 수 있게 했다.
+     * 1. 차량별 비용을 원 아래(1/1000원)까지 구해 운전자가 낸 돈으로 본다.
+     * 2. 1인 부담액 = 전체 비용 ÷ 전체 인원을 [roundingUnitWon] 단위로 올린다. 송금액이 원 아래로 쪼개지지 않게 하려는 것이다.
+     *    올려서 더 걷히는 돈은 전체 비용의 1%까지만 둔다. 넘으면(부담액이 아주 작을 때) 1원 단위로 올린다.
+     *    더 걷힌 돈은 운전자들이 비용 비율대로 나눠 받는다. 그래서 운전자는 반올림 때문에 손해 보지 않는다.
      * 3. 동승자는 모두 똑같이 1인 부담액 전액을 자기 차 운전자에게 보낸다. 동승자가 보낼 상대는 항상 한 명이다.
      *    그다음 운전자끼리 남은 잔액을 금액이 큰 사람끼리 먼저 짝지어 정산한다.
      *    그래서 운전자가 다른 차 몫까지 받아 넘겨주는 경우가 생긴다.
      *
      * @param trips 그룹의 차량 기록. 비어 있으면 안 되고, 한 사람이 두 차에 들어가면 안 된다.
-     * @param roundingUnitWon 1인 부담액의 단위(원). 1이면 원 단위, 10이면 10원 단위로 내림한다.
+     * @param roundingUnitWon 1인 부담액을 올리는 단위(원). 10이면 10원 단위로 올린다.
      * @throws IllegalArgumentException 입력이 잘못되었을 때.
      */
-    fun settle(trips: List<VehicleTrip>, roundingUnitWon: Long = 1): Settlement {
+    fun settle(trips: List<VehicleTrip>, roundingUnitWon: Long = 10): Settlement {
         require(trips.isNotEmpty()) { "정산할 차량이 없습니다." }
-        require(roundingUnitWon >= 1) { "반올림 단위는 1원 이상이어야 합니다: $roundingUnitWon" }
+        require(roundingUnitWon >= 1) { "올림 단위는 1원 이상이어야 합니다: $roundingUnitWon" }
         validateMembers(trips)
 
-        val vehicleCosts = trips.associate { it.vehicleId to vehicleCostWon(it) }
-        val total = vehicleCosts.values.fold(0L) { acc, cost -> Math.addExact(acc, cost) }
+        val costsMilli = trips.associate { it.vehicleId to vehicleCostMilliWon(it) }
+        val totalMilli = costsMilli.values.fold(0L) { acc, cost -> Math.addExact(acc, cost) }
 
         // 입력 순서(운전자, 동승자 순)를 유지해 결과를 결정적으로 만든다.
         val members = trips.flatMap { listOf(it.driverId) + it.passengerIds }
         val headCount = members.size.toLong()
-        val share = total / headCount / roundingUnitWon * roundingUnitWon
-        val remainder = total - share * headCount
+        val share = shareWon(totalMilli, headCount, roundingUnitWon)
+        val collected = Math.multiplyExact(share, headCount)
 
         val balances = members.associateWith { -share }.toMutableMap()
-        trips.forEach { balances[it.driverId] = balances.getValue(it.driverId) + vehicleCosts.getValue(it.vehicleId) }
-
-        absorbRemainder(balances, remainder)
+        val reimbursed = splitByCost(collected, trips.map { costsMilli.getValue(it.vehicleId) })
+        trips.forEachIndexed { i, trip -> balances[trip.driverId] = balances.getValue(trip.driverId) + reimbursed[i] }
 
         return Settlement(
-            vehicleCostsWon = vehicleCosts,
-            totalCostWon = total,
+            vehicleCostsWon = costsMilli.mapValues { (_, milli) -> (milli + MILLI / 2) / MILLI },
+            totalCostWon = (totalMilli + MILLI / 2) / MILLI,
             perPersonShareWon = share,
-            remainderWon = remainder,
+            surplusWon = (collected * MILLI - totalMilli + MILLI / 2) / MILLI,
             balancesWon = balances,
             transfers = buildTransfers(trips, balances),
         )
+    }
+
+    // 1인 부담액: [unit]원 단위 올림. 더 걷히는 돈이 1%를 넘으면 1원 단위 올림.
+    private fun shareWon(totalMilli: Long, headCount: Long, unit: Long): Long {
+        fun ceilTo(unitWon: Long): Long {
+            val step = Math.multiplyExact(Math.multiplyExact(headCount, MILLI), unitWon)
+            return (totalMilli + step - 1) / step * unitWon
+        }
+        val share = ceilTo(unit)
+        val surplusMilli = Math.multiplyExact(Math.multiplyExact(share, headCount), MILLI) - totalMilli
+        return if (surplusMilli * 100 <= totalMilli * MAX_SURPLUS_PERCENT) share else ceilTo(1)
+    }
+
+    /**
+     * 걷은 돈 [collectedWon]을 운전자들에게 비용 비율대로 원 단위로 나눈다(합계가 정확히 [collectedWon]).
+     * 나누어떨어지지 않는 몇 원은 원 아래가 큰 사람부터(동점이면 입력 순서) 1원씩 더 준다.
+     */
+    private fun splitByCost(collectedWon: Long, costsMilli: List<Long>): List<Long> {
+        val total = costsMilli.sum()
+        if (total == 0L) return costsMilli.map { 0L }
+        val exact = costsMilli.map { Math.multiplyExact(it, collectedWon) }
+        val parts = exact.map { it / total }.toMutableList()
+        val left = (collectedWon - parts.sum()).toInt()
+        exact.indices.sortedByDescending { exact[it] % total }.take(left).forEach { parts[it] += 1 }
+        return parts
     }
 
     private fun validateMembers(trips: List<VehicleTrip>) {
@@ -186,31 +220,6 @@ object SettlementCalculator {
         require(members.none { it.isBlank() }) { "운전자나 동승자 식별자가 비어 있습니다." }
         val duplicated = members.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
         require(duplicated.isEmpty()) { "한 사람이 여러 번 들어 있습니다: $duplicated" }
-    }
-
-    /**
-     * 내림으로 남은 금액만큼 받을 사람들의 잔액을 줄여 잔액 합계를 0으로 맞춘다.
-     *
-     * 받을 사람들에게 나머지를 고르게 나눠 줄이고, 나누어떨어지지 않는 몇 원은 많이 받을 사람부터(동점이면 입력 순서) 1원씩 더 줄인다.
-     * 한 사람의 잔액은 0 아래로 내리지 않는다. 잔액 합계가 remainder이므로 받을 돈의 합계는 항상 remainder 이상이라 모두 흡수된다.
-     */
-    private fun absorbRemainder(balances: MutableMap<String, Long>, remainder: Long) {
-        var left = remainder
-        while (left > 0) {
-            val creditors = balances.entries.filter { it.value > 0 }.sortedByDescending { it.value }.map { it.key }
-            check(creditors.isNotEmpty()) { "나머지 ${left}원을 흡수할 사람이 없습니다." }
-            val each = left / creditors.size
-            if (each == 0L) {
-                creditors.take(left.toInt()).forEach { balances[it] = balances.getValue(it) - 1 }
-                left = 0
-            } else {
-                for (creditor in creditors) {
-                    val cut = minOf(each, balances.getValue(creditor))
-                    balances[creditor] = balances.getValue(creditor) - cut
-                    left -= cut
-                }
-            }
-        }
     }
 
     private fun buildTransfers(trips: List<VehicleTrip>, balances: Map<String, Long>): List<Transfer> {
@@ -224,7 +233,7 @@ object SettlementCalculator {
             remaining[to] = remaining.getValue(to) - amount
         }
 
-        // 1차: 동승자 → 자기 차 운전자, 부담액 전액. 나머지는 받을 사람(운전자)만 흡수하므로 동승자 잔액은 늘 −부담액이다
+        // 1차: 동승자 → 자기 차 운전자, 부담액 전액. 동승자 잔액은 늘 −부담액이다
         trips.forEach { trip -> trip.passengerIds.forEach { pay(it, trip.driverId, -remaining.getValue(it)) } }
 
         // 2차: 운전자끼리. 잔액이 큰 사람끼리 먼저 짝지어 한 사람이 여러 번 나눠 보내는 일을 줄인다(동점이면 입력 순서)

@@ -78,6 +78,8 @@ data class GroupActions(
     val onStartTrip: () -> Unit = {},
     val onCodeKey: (Char) -> Unit = {},
     val onCodeDelete: () -> Unit = {},
+    val onJoinNameChange: (String) -> Unit = {},
+    val onPassengerNameChange: (String) -> Unit = {},
     val onJoin: () -> Unit = {},
     val onCarNameChange: (String) -> Unit = {},
     val onTogglePassenger: (String) -> Unit = {},
@@ -178,23 +180,24 @@ private fun StatusChip(p: NaviPalette, chip: TopChip, onEndTrip: () -> Unit) {
         TopChip.STOPPED -> R.drawable.ic_pause to "정차 중"
         TopChip.DRIVING -> R.drawable.ic_nav_arrow to "주행 중"
         TopChip.HOST -> R.drawable.ic_person to "방장"
-        TopChip.END_TRIP -> R.drawable.ic_stop to "운행 종료"
+        TopChip.END_TRIP -> R.drawable.ic_end_trip to "운행 종료"
     }
     val danger = chip == TopChip.END_TRIP
     val accent = when {
-        danger -> BrandDanger
+        danger -> Color.White
         chip == TopChip.DRIVING -> BrandPrimary
         else -> p.textSecondary
     }
     Row(
         Modifier.height(MinTouch).clip(RoundedCornerShape(16.dp))
-            .background(if (danger) BrandDanger.copy(alpha = 0.18f) else p.navSelected)
+            // 운행 종료는 지도 위에서도 또렷하게 불투명한 빨강 버튼으로
+            .background(if (danger) BrandDanger else p.navSelected)
             .clickable(enabled = danger, onClick = onEndTrip)
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, accent, 22.dp)
-        Label(text, 22.sp, if (danger) BrandDanger else p.textPrimary, FontWeight.Bold, Modifier.padding(start = 10.dp))
+        Icon(icon, accent, if (danger) 32.dp else 22.dp)
+        Label(text, 22.sp, if (danger) Color.White else p.textPrimary, FontWeight.Bold, Modifier.padding(start = 10.dp))
     }
 }
 
@@ -214,9 +217,10 @@ internal fun HomeScreen(
             Column(Modifier.padding(InnerPad)) {
                 Caption(p, "진행 중인 운행")
                 val group = state.group
-                if (navi.guiding) {
-                    Title(p, group?.name ?: navi.destinationName ?: "운행 중", Modifier.padding(top = 4.dp))
-                    navi.remainTimeSeconds?.let { remain ->
+                // 내비 길안내가 아니라 그룹 운행(서버 운행)이 진행 중인지로 정한다 (#32-6)
+                if (state.tripStarted && group != null) {
+                    Title(p, group.name, Modifier.padding(top = 4.dp))
+                    navi.remainTimeSeconds?.takeIf { navi.guiding }?.let { remain ->
                         Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.Bottom) {
                             Label(arrivalTime(remain), 76.sp, p.textPrimary, FontWeight.ExtraBold, letterSpacing = (-2).sp)
                             Label("도착", 22.sp, p.textSecondary, modifier = Modifier.padding(start = 10.dp, bottom = 12.dp))
@@ -226,9 +230,9 @@ internal fun HomeScreen(
                     MetaRow(
                         p,
                         listOf(
-                            R.drawable.ic_pin to (group?.destinationName ?: navi.destinationName ?: "목적지"),
-                            R.drawable.ic_car to "${carsDriving.coerceAtLeast(1)}대",
-                            R.drawable.ic_people to "${group?.members?.size ?: MockGroups.members.size}명",
+                            R.drawable.ic_pin to group.destinationName,
+                            R.drawable.ic_car to "${maxOf(group.cars, carsDriving, 1)}대",
+                            R.drawable.ic_people to "${group.members.size}명",
                         ),
                         Modifier.padding(top = 18.dp),
                     )
@@ -257,7 +261,8 @@ internal fun HomeScreen(
                             LogoBadge(p, g.logo, 52.dp)
                             Column(Modifier.weight(1f).padding(start = 16.dp)) {
                                 Label(g.name, 24.sp, p.textPrimary, FontWeight.Bold)
-                                Label("멤버 ${g.memberCount}명", 19.sp, p.textSecondary)
+                                // 같은 이름 그룹을 구분하도록 목적지를 같이 보여 준다 (#32-12)
+                                Label(listOfNotNull("멤버 ${g.memberCount}명", g.destination.ifBlank { null }).joinToString(" · "), 19.sp, p.textSecondary)
                             }
                             if (g.driving) Tag(p, "운행 중", accent = true) else Icon(R.drawable.ic_chevron_right, p.textSecondary, 28.dp)
                         }
@@ -279,7 +284,8 @@ internal fun HomeScreen(
                                 Label(r.name, 24.sp, p.textPrimary, FontWeight.Bold)
                                 Label(r.date, 19.sp, p.textSecondary)
                             }
-                            Label(won(r.perPersonWon.toLong()), 25.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(end = 14.dp))
+                            // 비용이 다 모이지 않았으면 0원 정산으로 보이지 않게 "—" (08과 같은 표시)
+                            Label(if (r.done) won(r.perPersonWon.toLong()) else "—", 25.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(end = 14.dp))
                             Tag(p, r.status, accent = !r.done)
                         }
                     }
@@ -292,7 +298,7 @@ internal fun HomeScreen(
 // ================= 02 그룹 만들기 =================
 
 @Composable
-internal fun CreateGroupScreen(p: NaviPalette, form: CreateGroupForm, destinationName: String, actions: GroupActions) {
+internal fun CreateGroupScreen(p: NaviPalette, form: CreateGroupForm, destinationName: String?, actions: GroupActions) {
     Box(Modifier.fillMaxSize().padding(start = OuterPad, end = OuterPad, top = CardTop)) {
         Panel(p, Modifier.width(HalfLeft), CardShape) {
             Column(Modifier.padding(InnerPad)) {
@@ -301,7 +307,8 @@ internal fun CreateGroupScreen(p: NaviPalette, form: CreateGroupForm, destinatio
                 Caption(p, "목적지", Modifier.padding(top = 24.dp))
                 FieldBox(p, Modifier.clickable(onClick = actions.onSearchDestination)) {
                     Icon(R.drawable.ic_pin, p.textSecondary, 24.dp)
-                    Label(destinationName, 25.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(start = 12.dp).weight(1f))
+                    // 목적지를 안 골랐으면 데모 목적지 대신 고르라고 보여 준다 (#32-5)
+                    Label(destinationName ?: "목적지를 검색하세요", 25.sp, if (destinationName != null) p.textPrimary else p.textSecondary, FontWeight.Bold, Modifier.padding(start = 12.dp).weight(1f))
                     Icon(R.drawable.ic_search, p.textSecondary, 24.dp)
                 }
                 Caption(p, "내 이름", Modifier.padding(top = 24.dp))
@@ -329,7 +336,7 @@ internal fun CreateGroupScreen(p: NaviPalette, form: CreateGroupForm, destinatio
                         }
                     }
                 }
-                PrimaryButton("만들고 코드 받기", form.name.isNotBlank(), actions.onCreate, Modifier.padding(top = 24.dp).fillMaxWidth())
+                PrimaryButton("만들고 코드 받기", form.name.isNotBlank() && form.myName.isNotBlank() && destinationName != null, actions.onCreate, Modifier.padding(top = 24.dp).fillMaxWidth())
             }
         }
     }
@@ -338,7 +345,7 @@ internal fun CreateGroupScreen(p: NaviPalette, form: CreateGroupForm, destinatio
 // ================= 03 초대 코드 (대기실) =================
 
 @Composable
-internal fun LobbyScreen(p: NaviPalette, group: GroupInfo, actions: GroupActions) {
+internal fun LobbyScreen(p: NaviPalette, group: GroupInfo, passengerName: String, actions: GroupActions) {
     Box(Modifier.fillMaxSize().padding(start = OuterPad, end = OuterPad, top = CardTop)) {
         Panel(p, Modifier.width(WideLeft), CardShape) {
             Column(Modifier.padding(InnerPad)) {
@@ -381,14 +388,20 @@ internal fun LobbyScreen(p: NaviPalette, group: GroupInfo, actions: GroupActions
                         if (m.host) Tag(p, "방장", accent = true)
                     }
                 }
-                Row(
-                    Modifier.padding(top = 18.dp).fillMaxWidth().height(72.dp).clip(SmallShape)
-                        .background(p.secondaryButton).clickable(onClick = actions.onAddPassenger),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(R.drawable.ic_plus, p.secondaryButtonText, 24.dp)
-                    Label("동승자 추가", 25.sp, p.secondaryButtonText, FontWeight.Bold, Modifier.padding(start = 8.dp))
+                // 앱 없는 동승자는 이름을 넣어 추가한다 (#32-10)
+                Caption(p, "동승자 추가 (앱 없는 사람)", Modifier.padding(top = 18.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) { InputField(p, passengerName, actions.onPassengerNameChange) }
+                    val canAdd = passengerName.isNotBlank()
+                    Row(
+                        Modifier.padding(start = 12.dp).height(72.dp).clip(SmallShape)
+                            .background(p.secondaryButton).clickable(enabled = canAdd, onClick = actions.onAddPassenger)
+                            .padding(horizontal = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(R.drawable.ic_plus, if (canAdd) p.secondaryButtonText else p.textSecondary, 24.dp)
+                        Label("추가", 25.sp, if (canAdd) p.secondaryButtonText else p.textSecondary, FontWeight.Bold, Modifier.padding(start = 8.dp))
+                    }
                 }
                 PrimaryButton("운행 시작", true, actions.onStartTrip, Modifier.padding(top = 14.dp).fillMaxWidth())
             }
@@ -405,11 +418,14 @@ internal fun JoinCodeScreen(p: NaviPalette, join: JoinState, actions: GroupActio
             Column(Modifier.padding(InnerPad)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Caption(p, "초대 코드", Modifier.weight(1f))
-                    if (join.code.isNotEmpty()) {
-                        Label("지우기", 21.sp, p.textSecondary, FontWeight.Bold, Modifier.clip(SmallShape).clickable(onClick = actions.onCodeDelete).heightIn(min = MinTouch).padding(horizontal = 16.dp, vertical = 18.dp))
-                    }
+                    // 자리를 처음부터 잡아 둬서 첫 글자를 넣어도 자판이 밀리지 않는다 (#32-7)
+                    val canDelete = join.code.isNotEmpty()
+                    Label(
+                        "지우기", 21.sp, if (canDelete) p.textSecondary else Color.Transparent, FontWeight.Bold,
+                        Modifier.clip(SmallShape).clickable(enabled = canDelete, onClick = actions.onCodeDelete).heightIn(min = MinTouch).padding(horizontal = 16.dp, vertical = 18.dp),
+                    )
                 }
-                CodeBoxes(p, join.code, Modifier.padding(top = 14.dp).clickable(onClick = actions.onCodeDelete))
+                CodeBoxes(p, join.code, Modifier.padding(top = 14.dp))
                 // 0/O, 1/I를 뺀 32글자 키패드
                 MockGroups.CODE_CHARS.chunked(8).forEachIndexed { row, keys ->
                     Row(Modifier.padding(top = if (row == 0) 22.dp else 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -438,12 +454,17 @@ internal fun JoinCodeScreen(p: NaviPalette, join: JoinState, actions: GroupActio
                             Label(found.name, 30.sp, p.textPrimary, FontWeight.Bold)
                         }
                     }
-                    InfoRow(p, "멤버", "${found.members.size}명", Modifier.padding(top = 18.dp))
+                    InfoRow(p, "멤버", "${found.memberCount}명", Modifier.padding(top = 18.dp))
                     Divider(p)
-                    InfoRow(p, "방장", found.host?.name ?: "-")
-                    Divider(p)
+                    // 참여 전에는 방장을 알 수 없다(미리보기는 이름·인원만 준다). 모르면 줄을 뺀다 (#32-13)
+                    found.host?.let { host ->
+                        InfoRow(p, "방장", host.name)
+                        Divider(p)
+                    }
                     InfoRow(p, "목적지", found.destinationName)
-                    PrimaryButton("참여하기", true, actions.onJoin, Modifier.padding(top = 18.dp).fillMaxWidth())
+                    Caption(p, "내 이름", Modifier.padding(top = 14.dp))
+                    InputField(p, join.myName, actions.onJoinNameChange)
+                    PrimaryButton("참여하기", join.myName.isNotBlank(), actions.onJoin, Modifier.padding(top = 18.dp).fillMaxWidth())
                 }
             }
         }
@@ -459,11 +480,14 @@ internal fun JoinSetupScreen(p: NaviPalette, join: JoinState, actions: GroupActi
         Column(Modifier.width(HalfLeft), verticalArrangement = Arrangement.spacedBy(CardGap)) {
             Panel(p, Modifier.fillMaxWidth(), CardShape) {
                 Column(Modifier.padding(InnerPad)) {
-                    Caption(p, "운행 시작됨")
+                    Caption(p, if (join.tripStarted) "운행 시작됨" else "운행 시작 전")
                     Title(p, group.destinationName, Modifier.padding(top = 4.dp))
                     MetaRow(
                         p,
-                        listOf(R.drawable.ic_person to (group.host?.name ?: "-"), R.drawable.ic_clock to "09:40 출발"),
+                        listOfNotNull(
+                            group.host?.let { R.drawable.ic_person to "방장 ${it.name}" },
+                            R.drawable.ic_clock to if (join.tripStarted) "출발할 수 있어요" else "방장이 시작하면 출발",
+                        ),
                         Modifier.padding(top = 12.dp),
                     )
                 }
@@ -504,7 +528,7 @@ internal fun JoinSetupScreen(p: NaviPalette, join: JoinState, actions: GroupActi
                 }
                 PrimaryButton(
                     if (join.selectedCount > 0) "동승자 ${join.selectedCount}명과 출발" else "혼자 출발",
-                    true, actions.onDepart, Modifier.padding(top = 18.dp).fillMaxWidth(),
+                    join.tripStarted, actions.onDepart, Modifier.padding(top = 18.dp).fillMaxWidth(),
                 )
             }
         }
@@ -601,18 +625,31 @@ internal fun ArrivalScreen(p: NaviPalette, s: SettlementUi, actions: GroupAction
     Box(Modifier.fillMaxSize().padding(start = OuterPad, end = OuterPad, top = CardTop)) {
         Panel(p, Modifier.width(HalfLeft), CardShape) {
             Column(Modifier.padding(InnerPad)) {
+                // 서버 운행이 없으면 예시 값 대신 안내만 (#30)
+                if (s.cars.isEmpty()) {
+                    // 서버 운행을 읽는 중이면 안내(serverNote)가 아직 없다
+                    Title(p, if (s.serverNote == null) "운행을 불러오는 중" else "정산할 운행이 없어요")
+                    s.serverNote?.let { Label(it, 22.sp, p.textSecondary, modifier = Modifier.padding(top = 8.dp)) }
+                    return@Column
+                }
                 Caption(p, "1인")
-                BigAmount(p, s.perPersonWon)
-                Label("총 ${won(s.totalWon)} | ${s.people}명", 22.sp, p.textSecondary)
+                if (s.waiting == null) {
+                    BigAmount(p, s.perPersonWon)
+                    Label("총 ${won(s.totalWon)} | ${s.people}명", 22.sp, p.textSecondary)
+                } else {
+                    // 다른 차 비용이 모이기 전에는 1인 금액을 내지 않는다(0원으로 보이지 않게)
+                    Label("계산 중", 56.sp, p.textSecondary, FontWeight.ExtraBold, Modifier.padding(top = 2.dp))
+                    Label("지금까지 ${won(s.totalWon)} | ${s.people}명", 22.sp, p.textSecondary)
+                }
                 s.cars.forEachIndexed { i, c ->
                     Divider(p, Modifier.padding(top = if (i == 0) 20.dp else 0.dp))
                     Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Avatar(p, c.label.take(1), accent = i == 0)
                         Column(Modifier.weight(1f).padding(start = 16.dp)) {
                             Label(c.label, 24.sp, p.textPrimary, FontWeight.Bold)
-                            Label("${c.energyLabel} ${num(c.fuelWon)} | 통행료 ${num(c.tollWon)}", 19.sp, p.textSecondary)
+                            Label(if (c.waiting) "비용 저장 기다리는 중" else "${c.energyLabel} ${num(c.fuelWon)} | ${c.tollLabel} ${num(c.tollWon)}", 19.sp, p.textSecondary)
                         }
-                        Label(won(c.totalWon), 26.sp, p.textPrimary, FontWeight.Bold)
+                        Label(if (c.waiting) "—" else won(c.totalWon), 26.sp, p.textPrimary, FontWeight.Bold)
                     }
                 }
                 Caption(p, "유가 기준", Modifier.padding(top = 18.dp))
@@ -635,13 +672,16 @@ internal fun ArrivalScreen(p: NaviPalette, s: SettlementUi, actions: GroupAction
                 // 유가를 가져온 주유소(최저가·직접 고름) 또는 근처를 못 불러온 이유
                 s.basisDetail?.let { Label(it, 19.sp, p.textSecondary, modifier = Modifier.padding(top = 10.dp)) }
                 s.problem?.let { Label(it, 19.sp, BrandAmber, FontWeight.Bold, Modifier.padding(top = 10.dp)) }
+                s.waiting?.let { Label(it, 19.sp, BrandAmber, FontWeight.Bold, Modifier.padding(top = 10.dp)) }
                 s.serverNote?.let { Label(it, 19.sp, p.textSecondary, modifier = Modifier.padding(top = 6.dp)) }
             }
         }
-        Panel(p, Modifier.align(Alignment.TopEnd).width(HalfRight), CardShape) {
+        if (s.cars.isNotEmpty()) Panel(p, Modifier.align(Alignment.TopEnd).width(HalfRight), CardShape) {
             Column(Modifier.padding(InnerPad)) {
                 Caption(p, "주고받을 돈")
-                s.lines.forEachIndexed { i, line ->
+                if (s.waiting != null) {
+                    Label("모든 차의 비용이 모이면 계산합니다", 22.sp, p.textSecondary, modifier = Modifier.padding(vertical = 14.dp))
+                } else s.lines.forEachIndexed { i, line ->
                     if (i > 0) Divider(p)
                     Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Avatar(p, line.initial, accent = line.highlight)
@@ -656,13 +696,13 @@ internal fun ArrivalScreen(p: NaviPalette, s: SettlementUi, actions: GroupAction
                     }
                 }
                 Divider(p)
-                Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (s.waiting == null) Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Label("합계", 22.sp, p.textSecondary, modifier = Modifier.weight(1f))
                     Label("${won(s.sumCheckWon)} 일치", 22.sp, p.textSecondary)
                 }
                 Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     SecondaryButton(p, "값 수정", actions.onEditToll, Modifier.weight(1f))
-                    PrimaryButton("정산 요청", true, actions.onRequestSettlement, Modifier.weight(1f))
+                    PrimaryButton("정산 요청", s.waiting == null, actions.onRequestSettlement, Modifier.weight(1f))
                 }
             }
         }
@@ -682,11 +722,17 @@ internal fun SettleSentScreen(p: NaviPalette, s: SettlementUi, actions: GroupAct
                     contentAlignment = Alignment.Center,
                 ) { Icon(R.drawable.ic_check, Color.White, 46.dp) }
                 Title(p, "정산 요청 보냄", Modifier.padding(top = 22.dp))
-                Label("${s.myName}에게 카카오페이로 | 1인 ${won(s.perPersonWon)}", 22.sp, p.textSecondary, modifier = Modifier.padding(top = 4.dp))
+                // 운전자는 동승자에게 받으면서 다른 운전자에게 보낼 수도 있다
+                val payTo = s.sends.joinToString(", ") { it.name }
+                if (s.receives) Label("${s.myName}에게 카카오페이로 | 1인 ${won(s.perPersonWon)}", 22.sp, p.textSecondary, modifier = Modifier.padding(top = 4.dp))
+                if (s.sends.isNotEmpty()) Label("${payTo}에게 카카오페이로 송금 | ${won(s.sends.sumOf { it.amountWon })}", 22.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(top = 4.dp))
                 s.serverNote?.let { Label(it, 19.sp, BrandAmber, FontWeight.Bold, Modifier.padding(top = 4.dp)) }
                 // 운전자 송금 링크 QR. 동승자가 폰 카메라로 찍으면 카카오페이 송금이 열린다(금액은 직접 입력).
+                // 내는 사람 기기에는 받을 사람의 링크가 없어 QR을 띄우지 않는다(받을 사람 기기의 QR을 찍는다).
                 val link = s.payLink
-                if (link != null) {
+                if (!s.receives) {
+                    Label("${payTo} 기기의 QR을 찍어 송금하세요", 19.sp, p.textSecondary, modifier = Modifier.padding(top = 16.dp))
+                } else if (link != null) {
                     val qr = remember(link) { qrBitmap(link) }
                     Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.Bottom) {
                         Image(qr, "${s.myName} 카카오페이 송금 QR", Modifier.size(200.dp).clip(RoundedCornerShape(12.dp)))
@@ -700,7 +746,8 @@ internal fun SettleSentScreen(p: NaviPalette, s: SettlementUi, actions: GroupAct
         }
         Panel(p, Modifier.align(Alignment.TopEnd).width(HalfRight), CardShape) {
             Column(Modifier.padding(InnerPad)) {
-                Caption(p, "받은 사람 ${s.paidCount}/${s.payments.size} · 받으면 눌러서 체크")
+                val incoming = s.payments.count { it.incoming }
+                Caption(p, if (incoming > 0) "받은 사람 ${s.paidCount}/$incoming · 받거나 보내면 눌러서 체크" else "보낼 돈 · 보내면 눌러서 체크")
                 // 한 화면에 4명씩. 넘치면 아래 [이전]·[다음]으로 넘겨 모든 사람을 확인한다.
                 val pages = paymentPages(s.payments.size)
                 var page by remember(pages) { mutableIntStateOf(0) }
@@ -712,9 +759,9 @@ internal fun SettleSentScreen(p: NaviPalette, s: SettlementUi, actions: GroupAct
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Avatar(p, pay.initial, accent = false)
-                        Label(pay.name, 24.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(start = 16.dp).weight(1f))
+                        Label(if (pay.incoming) pay.name else "→ ${pay.name}", 24.sp, p.textPrimary, FontWeight.Bold, Modifier.padding(start = 16.dp).weight(1f))
                         Label(won(pay.amountWon), 22.sp, p.textSecondary, modifier = Modifier.padding(end = 12.dp))
-                        Tag(p, if (pay.paid) "송금 완료" else "확인 전", accent = pay.paid)
+                        Tag(p, if (pay.paid) "송금 완료" else if (pay.incoming) "확인 전" else "보내기 전", accent = pay.paid)
                     }
                 }
                 if (pages > 1) {

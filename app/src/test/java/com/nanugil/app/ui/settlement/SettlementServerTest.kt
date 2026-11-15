@@ -67,6 +67,22 @@ class SettlementServerTest {
     }
 
     @Test
+    fun refresh_matchesCarsByMemberId_evenWithSameDriverName() {
+        // 운전자 둘이 이름이 같다(김민수). 이름으로 맞추면 b의 비용이 c 자리에 들어간다
+        val sameName = mapOf("a" to "나", "b" to "김민수", "c" to "김민수")
+        val local = carsFromTrip(listOf(driver("a", "EV"), driver("b", "DIESEL"), driver("c", "GASOLINE")), sameName, "a")
+        val fresh = carsFromTrip(
+            listOf(driver("a", "EV"), driver("b", "DIESEL"), driver("c", "GASOLINE", "startFuel" to 30_000, "endFuel" to 20_000)),
+            sameName, "a",
+        )
+        val merged = withSavedCosts(local, fresh)
+
+        assertEquals(listOf("a", "b", "c"), merged.map { it.memberId })
+        assertEquals("", merged[1].startFuelL) // b는 아직 저장 전
+        assertEquals("30", merged[2].startFuelL) // c의 비용은 c 자리에
+    }
+
+    @Test
     fun myCar_becomesCostInput() {
         val ev = CarInput(VehicleType.ELECTRIC, "김민수", electricityPrice = "348.4", startBatteryKwh = "77.4", chargedKwh = "15", endBatteryKwh = "72", tollWon = "10000")
         val cost = ev.toCostInput(PriceChoice.NEARBY_LOWEST)
@@ -83,5 +99,48 @@ class SettlementServerTest {
         assertEquals("CHEAPEST", gas.toCostInput(PriceChoice.NEARBY_LOWEST).priceBasis)
         assertNull(gas.toCostInput(PriceChoice.NEARBY_AVERAGE).priceBasis)
         assertEquals(1_804, gas.toCostInput(PriceChoice.PICKED).appliedPrice)
+    }
+
+    @Test
+    fun toll_estimateAndDriverFix_goToSeparateColumns() {
+        val car = CarInput(VehicleType.GASOLINE, "김민수", fuelPrice = "1804", startFuelL = "50", endFuelL = "20", tollWon = "9000")
+        car.toCostInput(PriceChoice.PICKED, estimatedToll = 9_000).let {
+            assertEquals(9_000, it.tollEstimated)
+            assertNull(it.tollAdjusted) // 고치지 않음
+        }
+        car.copy(tollWon = "7500").toCostInput(PriceChoice.PICKED, estimatedToll = 9_000).let {
+            assertEquals(9_000, it.tollEstimated)
+            assertEquals(7_500, it.tollAdjusted)
+        }
+        assertNull(car.toCostInput(PriceChoice.PICKED).tollAdjusted) // 내비 안내 없이 직접 넣은 값
+    }
+
+    @Test
+    fun passengerDevice_putsMyRideFirst_andRefreshFillsIt() {
+        // p2는 b차 동승자: 서버 순서와 상관없이 b차가 A차
+        val members = listOf(driver("a", "EV"), rider("p1", "a"), driver("b", "DIESEL"), rider("p2", "b"))
+        val local = carsFromTrip(members, names, myMemberId = "p2")
+        assertEquals(listOf("이서준", "김민수"), local.map { it.driver })
+        // 차 이름은 순서가 아니라 서버 vehicle_label (#30: 기기마다 A차가 달라지지 않게)
+        assertEquals(listOf("b 차", "a 차"), local.mapIndexed { i, c -> c.name(i) })
+
+        // b가 나중에 저장하면 동승자 기기의 A차도 채워진다
+        val fresh = carsFromTrip(listOf(driver("a", "EV"), driver("b", "DIESEL", "startFuel" to 40_000, "endFuel" to 35_000)), names, "p2")
+        assertEquals("", withSavedCosts(local, fresh)[0].startFuelL) // 운전자 기기면 A차는 이 기기 값
+        assertEquals("40", withSavedCosts(local, fresh, iDrive = false)[0].startFuelL)
+    }
+
+    @Test
+    fun priceBasis_keepsOtherDriversSavedPrice() {
+        // #29: 이 기기에서 고른 근처 최저가가 B차가 저장한 1,700원/L를 덮으면 기기마다 금액이 달라진다
+        val saved = carsFromTrip(listOf(driver("a", "GASOLINE"), driver("b", "GASOLINE", "startFuel" to 40_000, "endFuel" to 30_000, "price" to 1_700)), names, "a")
+        val waiting = saved + carsFromTrip(listOf(driver("c", "GASOLINE")), names, "c")
+        val server = SettlementState(cars = waiting, tripId = "t")
+        assertEquals(listOf(true, false, true), waiting.indices.map(server::repriceable)) // 내 차, 저장한 B차, 아직 저장 전
+        // 동승자 기기의 A차는 남의 차: 저장 전에는 임시 유가, 저장하면 그 운전자 값
+        val passenger = server.copy(iDrive = false)
+        assertEquals(true, passenger.repriceable(0))
+        assertEquals(false, passenger.copy(cars = saved.reversed()).repriceable(0))
+        assertEquals(true, SettlementState(cars = saved).repriceable(1)) // 서버 없이(데모)는 모두 이 기기 값
     }
 }

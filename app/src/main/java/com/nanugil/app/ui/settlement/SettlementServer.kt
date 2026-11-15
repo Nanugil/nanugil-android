@@ -1,39 +1,55 @@
 package com.nanugil.app.ui.settlement
 
 import com.nanugil.app.data.server.GroupTripApi
+import com.nanugil.app.data.server.ServerException
 import com.nanugil.app.data.server.Supabase
 import com.nanugil.app.data.server.TripCostInput
 import com.nanugil.app.data.server.TripMember
 import kotlin.math.roundToLong
 
-/** 서버의 진행 중 운행. [cars]는 내 차(A차)가 맨 앞. */
-data class ServerTrip(val tripId: String, val cars: List<CarInput>)
+/**
+ * 서버의 진행 중 운행. [cars]는 내가 탄 차(A차)가 맨 앞.
+ * @property iDrive 이 기기 사용자가 운전자인지. 동승자면 [cars]의 맨 앞은 남의 차라 이 기기 기록으로 채우거나 저장하지 않는다.
+ * @property myName 이 기기 사용자 이름. 09에서 받을 사람인지 낼 사람인지 가른다.
+ */
+data class ServerTrip(val tripId: String, val cars: List<CarInput>, val iDrive: Boolean = true, val myName: String = "")
 
 /** 정산이 서버(#15 Supabase)에서 쓰는 것: 운행 참가자·차량별 비용 읽기(T3), 내 차 비용 저장(T6·T8). */
 interface SettlementServer {
     /** 내가 속한 그룹의 진행 중 운행. 없으면 null(데모 값으로 정산한다). */
     suspend fun loadTrip(): ServerTrip?
 
-    /** 도착 처리 후 내 차 비용을 저장한다. 다시 부르면 덮어쓴다. */
-    suspend fun saveMyCost(tripId: String, car: CarInput, choice: PriceChoice)
+    /** 도착 처리 후 내 차 비용을 저장한다. 다시 부르면 덮어쓴다. [estimatedToll]은 내비 예상 통행료(없으면 null). */
+    suspend fun saveMyCost(tripId: String, car: CarInput, choice: PriceChoice, estimatedToll: Long?)
 }
 
-/** [SettlementServer]의 Supabase 구현. 그룹·운행 만들기·참가는 그룹 화면 담당이고, 여기서는 읽기와 내 차 비용 저장만 한다. */
-class SupabaseSettlementServer : SettlementServer {
+/**
+ * [SettlementServer]의 Supabase 구현. 그룹·운행 만들기·참가는 그룹 화면 담당이고, 여기서는 읽기와 내 차 비용 저장만 한다.
+ * @param groupId 그룹 화면에서 들어간 그룹. null이면 진행 중 운행이 있는 첫 그룹을 쓴다.
+ */
+class SupabaseSettlementServer(private val groupId: () -> String? = { null }) : SettlementServer {
 
     override suspend fun loadTrip(): ServerTrip? {
         val me = Supabase.ensureSignedIn()
-        // shortcut: 진행 중 운행이 여러 그룹에 있으면 첫 번째를 쓴다. 그룹 화면이 서버에 붙으면 고른 그룹의 운행을 넘겨받는다.
-        val trip = GroupTripApi.myGroups().firstNotNullOfOrNull { it.activeTrip } ?: return null
+        val chosen = groupId()
+        val trip = GroupTripApi.myGroups().filter { chosen == null || it.group.id == chosen }
+            .firstNotNullOfOrNull { it.activeTrip } ?: return null
         val members = GroupTripApi.members(trip.groupId)
         val names = members.associate { it.id to it.displayName }
         val myMemberId = members.firstOrNull { it.userId == me }?.id
-        return ServerTrip(trip.id, carsFromTrip(GroupTripApi.tripMembers(trip.id), names, myMemberId))
+        val tripMembers = GroupTripApi.tripMembers(trip.id)
+        val iDrive = tripMembers.any { it.isDriver && it.memberId == myMemberId }
+        return ServerTrip(trip.id, carsFromTrip(tripMembers, names, myMemberId), iDrive, names[myMemberId].orEmpty())
     }
 
-    override suspend fun saveMyCost(tripId: String, car: CarInput, choice: PriceChoice) {
-        GroupTripApi.markArrived(tripId)
-        GroupTripApi.saveTripCost(tripId, car.toCostInput(choice))
+    override suspend fun saveMyCost(tripId: String, car: CarInput, choice: PriceChoice, estimatedToll: Long?) {
+        try {
+            GroupTripApi.markArrived(tripId)
+        } catch (e: ServerException) {
+            // 누가 운행을 먼저 끝냈으면(T4) 도착 처리는 안 되지만, 끝난 운행에도 비용은 저장된다(T8)
+            if (e.code != "TRIP_NOT_ACTIVE") throw e
+        }
+        GroupTripApi.saveTripCost(tripId, car.toCostInput(choice, estimatedToll))
     }
 }
 
@@ -42,7 +58,9 @@ class SupabaseSettlementServer : SettlementServer {
  * 다른 운전자가 아직 비용을 저장(T8)하지 않았으면 그 칸은 비워 두고, 08 화면에 "값을 입력하세요"가 뜬다.
  */
 internal fun carsFromTrip(members: List<TripMember>, names: Map<String, String>, myMemberId: String?): List<CarInput> {
-    val drivers = members.filter { it.isDriver }.sortedByDescending { it.memberId == myMemberId }
+    // 내가 탄 차가 맨 앞: 운전자면 내 차, 동승자면 내 행의 vehicle_driver_member_id 차
+    val myCar = members.firstOrNull { it.memberId == myMemberId }?.vehicleDriverMemberId ?: myMemberId
+    val drivers = members.filter { it.isDriver }.sortedByDescending { it.memberId == myCar }
     return drivers.map { d ->
         val passengers = members.filter { !it.isDriver && it.vehicleDriverMemberId == d.memberId }
             .mapNotNull { names[it.memberId] }
@@ -50,6 +68,8 @@ internal fun carsFromTrip(members: List<TripMember>, names: Map<String, String>,
         CarInput(
             type = type,
             driver = names[d.memberId].orEmpty(),
+            memberId = d.memberId,
+            label = d.vehicleLabel.orEmpty(),
             passengers = passengers.joinToString(", "),
             fuelPrice = d.appliedPrice?.takeIf { it > 0 }?.toString() ?: type.defaultFuelPrice,
             startFuelL = d.startFuelMl?.let(::milliToDecimalText).orEmpty(),
@@ -75,9 +95,10 @@ internal fun vehicleTypeOf(fuelType: String?): VehicleType = when (fuelType) {
 
 /**
  * 내 차 입력값 → T8 저장값. 차종이 안 쓰는 값은 0.
+ * 통행료는 내비 예상액([estimatedToll])을 toll_estimated에, 운전자가 다르게 고쳤으면 그 값을 toll_adjusted에 둔다.
  * @throws IllegalArgumentException 값이 비었거나 숫자가 아닐 때(화면에 이미 같은 안내가 떠 있다).
  */
-internal fun CarInput.toCostInput(choice: PriceChoice): TripCostInput {
+internal fun CarInput.toCostInput(choice: PriceChoice, estimatedToll: Long? = null): TripCostInput {
     val trip = toTrips(listOf(this)).single()
     return TripCostInput(
         startFuelMl = trip.startFuelMl, refueledMl = trip.refueledMl, endFuelMl = trip.endFuelMl,
@@ -87,6 +108,7 @@ internal fun CarInput.toCostInput(choice: PriceChoice): TripCostInput {
         appliedPrice = trip.fuelPriceWonPerLiter.toInt(),
         startBatteryWh = trip.startBatteryWh, chargedWh = trip.chargedWh, endBatteryWh = trip.endBatteryWh,
         appliedPricePerKwh = trip.electricityWonPerMwh / 1000.0,
-        tollEstimated = trip.tollWon.toInt(),
+        tollEstimated = (estimatedToll ?: trip.tollWon).toInt(),
+        tollAdjusted = trip.tollWon.takeIf { estimatedToll != null && it != estimatedToll }?.toInt(),
     )
 }

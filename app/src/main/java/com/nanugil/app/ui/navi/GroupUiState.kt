@@ -1,6 +1,7 @@
 package com.nanugil.app.ui.navi
 
 import com.nanugil.app.R
+import com.nanugil.app.core.geo.Wgs84Point
 import com.nanugil.app.share.SettlementCalculator
 import com.nanugil.app.share.VehicleTrip
 
@@ -53,6 +54,8 @@ data class GroupMember(
     val host: Boolean = false,
     /** 타는 차 ("A차") */
     val car: String? = null,
+    /** 서버 멤버 ID (group_members.id). 목업이면 null. */
+    val id: String? = null,
 ) {
     val initial: String get() = name.take(1)
     val roleLabel: String get() = if (driver) "운전" else "동승"
@@ -65,20 +68,38 @@ data class GroupInfo(
     val logo: GroupLogo,
     val members: List<GroupMember>,
     val cars: Int,
+    /** 서버 그룹 ID. 목업이면 null. */
+    val id: String? = null,
+    /** 목적지 좌표 (서버 그룹). 목업이면 null → 데모 목적지 */
+    val destination: Wgs84Point? = null,
+    /** 04에서 참여 전에 보이는 인원. 참여 전에는 멤버 목록을 읽을 수 없어서 따로 둔다. */
+    val memberCount: Int = members.size,
+    /** 이 기기 사용자의 서버 멤버 ID. 목업이면 null. */
+    val myId: String? = null,
 ) {
     val host: GroupMember? get() = members.firstOrNull { it.host }
+    /** 이 기기 사용자가 방장인지. 목업은 내가 만든 그룹이라 방장. */
+    val iHost: Boolean get() = myId == null || host?.id == myId
 }
 
-/** 홈 "내 그룹" 목록 한 줄 */
-data class GroupSummary(val name: String, val memberCount: Int, val logo: GroupLogo, val driving: Boolean)
+/** 홈 "내 그룹" 목록 한 줄. [id]는 서버 그룹 ID (목업이면 null). */
+data class GroupSummary(
+    val name: String,
+    val memberCount: Int,
+    val logo: GroupLogo,
+    val driving: Boolean,
+    val id: String? = null,
+    /** 목적지 이름. 같은 이름 그룹을 구분하는 데 쓴다. */
+    val destination: String = "",
+)
 
 /** 홈 "최근 정산" 목록 한 줄 */
 data class RecentSettlement(val name: String, val date: String, val perPersonWon: Int, val status: String, val done: Boolean)
 
-/** 02 그룹 만들기 입력값 */
+/** 02 그룹 만들기 입력값. 내 이름은 한 번 넣으면 기억한 값으로 채운다 (#32-4). */
 data class CreateGroupForm(
-    val name: String = "2026 신소재공학과 MT",
-    val myName: String = "김민수",
+    val name: String = "",
+    val myName: String = "",
     val logo: GroupLogo = GroupLogo.CAR,
 )
 
@@ -92,6 +113,10 @@ data class JoinState(
     val carName: String = "B차",
     val fuelType: String = "휘발유",
     val passengers: List<PassengerChoice> = emptyList(),
+    /** 그룹에 들어갈 때 쓸 내 이름 (기억한 값으로 채운다) */
+    val myName: String = "",
+    /** 방장이 운행을 시작했는지. 시작 전이면 05 [출발]을 잠근다. 서버 없이(목업)는 시작된 것으로 본다. */
+    val tripStarted: Boolean = true,
 ) {
     val selectedCount: Int get() = passengers.count { it.selected }
 }
@@ -99,15 +124,26 @@ data class JoinState(
 enum class PriceBasis(val label: String) { AVERAGE("근처 평균"), LOWEST("근처 최저가") }
 
 /** 08 도착: 차별 비용 한 줄. [energyLabel]은 연료비 이름(주유·충전·주유·충전). */
-data class CarCost(val label: String, val fuelWon: Long, val tollWon: Long, val energyLabel: String = "주유") {
+data class CarCost(
+    val label: String,
+    val fuelWon: Long,
+    val tollWon: Long,
+    val energyLabel: String = "주유",
+    val tollLabel: String = "통행료",
+    /** 서버 운행에서 이 차 운전자가 아직 비용을 저장하지 않음(08에 "기다리는 중") */
+    val waiting: Boolean = false,
+) {
     val totalWon: Long get() = fuelWon + tollWon
 }
 
 /** 08 도착: 주고받을 돈 한 줄 (+ 받음, - 보냄) */
 data class MoneyLine(val initial: String, val name: String, val detail: String, val amountWon: Long, val highlight: Boolean)
 
-/** 09 정산 요청 보냄: 송금 한 줄. 누르면 받음 체크가 바뀐다(카카오페이가 송금 결과를 알려 주지 않는다). */
-data class PaymentStatus(val initial: String, val name: String, val paid: Boolean, val amountWon: Long = 0)
+/**
+ * 09 정산 요청 보냄: 이 기기 사용자가 받거나 보낼 송금 한 줄. 누르면 받음(보냄) 체크가 바뀐다(카카오페이가 송금 결과를 알려 주지 않는다).
+ * @property name 상대 이름. [incoming]이면 보낼 사람, 아니면 받을 사람.
+ */
+data class PaymentStatus(val initial: String, val name: String, val paid: Boolean, val amountWon: Long = 0, val incoming: Boolean = true)
 
 data class SettlementUi(
     val perPersonWon: Long,
@@ -123,13 +159,19 @@ data class SettlementUi(
     val basisDetail: String? = null,
     /** 값이 비었거나 틀려 정산할 수 없을 때 고칠 내용 */
     val problem: String? = null,
-    /** 이 차 운전자 이름과 카카오페이 송금 링크 (09 QR). 링크가 없으면 등록 버튼을 보여 준다. */
+    /** 이 기기 사용자 이름과 카카오페이 송금 링크 (09 QR). 링크가 없으면 등록 버튼을 보여 준다. */
     val myName: String = "",
     val payLink: String? = null,
     /** 서버 연결 상태 안내 (예시 값 사용, 비용 저장 실패). 문제없으면 null. */
     val serverNote: String? = null,
+    /** 다른 차가 비용을 저장하기 전이라 정산을 미룰 때 안내 (예: "B차(이서준) 비용 저장을 기다리는 중"). 모두 모였으면 null. */
+    val waiting: String? = null,
 ) {
-    val paidCount: Int get() = payments.count { it.paid }
+    /** 내가 받을 송금 중 받은 것 */
+    val paidCount: Int get() = payments.count { it.incoming && it.paid }
+    val receives: Boolean get() = payments.any { it.incoming }
+    /** 내가 보낼 송금 (동승자, 또는 덜 쓴 차 운전자) */
+    val sends: List<PaymentStatus> get() = payments.filterNot { it.incoming }
 }
 
 /** 화면 흐름 전체 상태 (서버가 붙기 전까지는 목업 데이터) */
@@ -142,7 +184,12 @@ data class GroupUiState(
     val recent: List<RecentSettlement> = MockGroups.recent,
     val createForm: CreateGroupForm = CreateGroupForm(),
     val join: JoinState = JoinState(),
-    val settlement: SettlementUi = MockGroups.settlement(PriceBasis.AVERAGE),
+    /** 정산 세션 값으로 바로 채운다(서버가 없으면 세션의 데모 그룹). */
+    val settlement: SettlementUi = SettlementUi(0, 0, 0, emptyList(), null, emptyList(), 0, emptyList()),
+    /** 서버 요청 중이거나 실패했을 때 아래에 띄우는 안내. 없으면 null. */
+    val note: String? = null,
+    /** 03 [동승자 추가]에 넣는 이름 */
+    val passengerName: String = "",
 )
 
 /**

@@ -63,7 +63,7 @@ class SettlementCalculatorTest {
         assertEquals(mapOf("A" to 22_000L, "B" to 32_000L), result.vehicleCostsWon)
         assertEquals(54_000L, result.totalCostWon)
         assertEquals(6_750L, result.perPersonShareWon)
-        assertEquals(0L, result.remainderWon)
+        assertEquals(0L, result.surplusWon)
         assertEquals(15_250L, result.balancesWon["a"])
         assertEquals(25_250L, result.balancesWon["b"])
         (1..6).forEach { assertEquals(-6_750L, result.balancesWon["p$it"]) }
@@ -123,81 +123,75 @@ class SettlementCalculatorTest {
     }
 
     @Test
-    fun settle_remainderIsAbsorbedBySingleCreditor() {
-        val trips = listOf(
-            VehicleTrip("A", "a", listOf("p1", "p2"), 0, 0, 0, 0, tollWon = 10_001),
-        )
+    fun settle_shareRoundsUpToTenWon_surplusGoesToDriver() {
+        // 10,001 ÷ 3 = 3,333.67원 → 3,340원. 더 걷힌 19원(0.19%)은 운전자 몫
+        val trips = listOf(VehicleTrip("A", "a", listOf("p1", "p2"), tollWon = 10_001))
 
         val result = SettlementCalculator.settle(trips)
 
-        assertEquals(3_333L, result.perPersonShareWon)
-        assertEquals(2L, result.remainderWon)
-        assertEquals(6_666L, result.balancesWon["a"]) // 10,001 − 3,333 − 나머지 2
-        assertEquals(0L, result.balancesWon.values.sum())
+        assertEquals(3_340L, result.perPersonShareWon)
+        assertEquals(19L, result.surplusWon)
+        assertEquals(6_680L, result.balancesWon["a"]) // 10,020 − 3,340
+        assertEquals(listOf(3_340L), result.transfers.map { it.amountWon }.distinct())
         assertTransfersBalance(result)
     }
 
     @Test
-    fun settle_roundingUnitFloorsShare() {
-        val trips = listOf(
-            VehicleTrip("A", "a", listOf("p1", "p2", "p3"), 0, 0, 0, 0, tollWon = 54_003),
-        )
+    fun settle_roundingUnitRoundsUp() {
+        // 54,003 ÷ 4 = 13,500.75원 → 100원 단위 13,600원. 더 걷힌 397원은 0.73%라 1% 안
+        val trips = listOf(VehicleTrip("A", "a", listOf("p1", "p2", "p3"), tollWon = 54_003))
 
         val result = SettlementCalculator.settle(trips, roundingUnitWon = 100)
 
-        assertEquals(13_500L, result.perPersonShareWon)
-        assertEquals(3L, result.remainderWon)
-        assertEquals(listOf(13_500L), result.transfers.map { it.amountWon }.distinct())
-    }
-
-    @Test
-    fun settle_remainderLargerThanTopCreditor_isSpreadWithoutGoingNegative() {
-        // 100원 단위로 내리면 1인 0원, 나머지 33원. 받을 사람은 a(+30)와 b(+3)뿐이다
-        val trips = listOf(
-            VehicleTrip("A", "a", listOf("p1"), 0, 0, 0, 0, tollWon = 30),
-            VehicleTrip("B", "b", startFuelMl = 0, endFuelMl = 0, fuelPriceWonPerLiter = 0, tollWon = 3),
-        )
-
-        val result = SettlementCalculator.settle(trips, roundingUnitWon = 100)
-
-        assertEquals(0L, result.perPersonShareWon)
-        assertEquals(33L, result.remainderWon)
-        assertTrue(result.balancesWon.values.all { it == 0L })
-        assertTrue(result.transfers.isEmpty())
-    }
-
-    @Test
-    fun settle_remainderIsSpreadAcrossCreditors() {
-        // 1인 6,750원, 나머지 3원. a와 b가 똑같이 받을 때 한 사람에게 몰지 않는다
-        val trips = listOf(
-            VehicleTrip("A", "a", listOf("p1", "p2", "p3"), 0, 0, 0, 0, tollWon = 27_000),
-            VehicleTrip("B", "b", listOf("p4", "p5", "p6"), 0, 0, 0, 0, tollWon = 27_003),
-        )
-
-        val result = SettlementCalculator.settle(trips)
-
-        assertEquals(6_750L, result.perPersonShareWon)
-        assertEquals(3L, result.remainderWon)
-        // b(+20,253)가 더 많이 받으므로 2원, a(+20,250)는 1원을 덜 받는다
-        assertEquals(20_249L, result.balancesWon["a"])
-        assertEquals(20_251L, result.balancesWon["b"])
+        assertEquals(13_600L, result.perPersonShareWon)
+        assertEquals(397L, result.surplusWon)
         assertTransfersBalance(result)
     }
 
     @Test
-    fun settle_remainderWithTiedCreditors_followsInputOrder() {
-        // 1인 3,333원, 나머지 1원. a, b 모두 +1,667로 같으면 입력 순서가 앞선 a가 1원 덜 받는다
+    fun settle_surplusOverOnePercent_roundsUpToOneWonInstead() {
+        // 33 ÷ 3 = 11원. 100원 단위로 올리면 267원을 더 걷어 1%를 넘으니 1원 단위로 올린다
         val trips = listOf(
-            VehicleTrip("A", "a", listOf("p1"), 0, 0, 0, 0, tollWon = 5_000),
-            VehicleTrip("B", "b", startFuelMl = 0, endFuelMl = 0, fuelPriceWonPerLiter = 0, tollWon = 5_000),
+            VehicleTrip("A", "a", listOf("p1"), tollWon = 30),
+            VehicleTrip("B", "b", tollWon = 3),
+        )
+
+        val result = SettlementCalculator.settle(trips, roundingUnitWon = 100)
+
+        assertEquals(11L, result.perPersonShareWon)
+        assertEquals(0L, result.surplusWon)
+        assertEquals(mapOf("a" to 19L, "p1" to -11L, "b" to -8L), result.balancesWon)
+        assertTransfersBalance(result)
+    }
+
+    @Test
+    fun settle_surplusIsSplitByDriverCost() {
+        // 54,003 ÷ 8 = 6,750.38원 → 6,760원, 더 걷힌 77원을 a·b가 비용 비율대로 나눈다(b가 1원 더)
+        val trips = listOf(
+            VehicleTrip("A", "a", listOf("p1", "p2", "p3"), tollWon = 27_000),
+            VehicleTrip("B", "b", listOf("p4", "p5", "p6"), tollWon = 27_003),
         )
 
         val result = SettlementCalculator.settle(trips)
 
-        assertEquals(3_333L, result.perPersonShareWon)
-        assertEquals(1L, result.remainderWon)
-        assertEquals(1_666L, result.balancesWon["a"])
-        assertEquals(1_667L, result.balancesWon["b"])
+        assertEquals(6_760L, result.perPersonShareWon)
+        assertEquals(77L, result.surplusWon)
+        assertEquals(20_278L, result.balancesWon["a"]) // 27,038 − 6,760
+        assertEquals(20_282L, result.balancesWon["b"]) // 27,042 − 6,760
+        assertTransfersBalance(result)
+    }
+
+    @Test
+    fun settle_keepsElectricityBelowOneWon_untilTheEnd() {
+        // 12.345 kWh × 325.6원 = 4,019.532원. 원 단위로 먼저 반올림하지 않고 정산 끝에서 올린다
+        val ev = VehicleTrip("A", "a", listOf("p1", "p2"), startBatteryWh = 60_000, endBatteryWh = 47_655, electricityWonPerMwh = 325_600)
+        assertEquals(4_019_532L, SettlementCalculator.vehicleCostMilliWon(ev))
+
+        val result = SettlementCalculator.settle(listOf(ev))
+
+        assertEquals(1_340L, result.perPersonShareWon) // 1,339.84원 → 1,340원
+        assertEquals(4_020L, result.vehicleCostsWon["A"])
+        assertEquals(2_680L, result.balancesWon["a"])
         assertTransfersBalance(result)
     }
 

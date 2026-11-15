@@ -46,18 +46,37 @@ class SettlementUiMappingTest {
     }
 
     @Test
-    fun sent_listsTransfersToMeByNameAndOthersWithArrow() {
+    fun sent_listsOnlyMyTransfers_withDirection() {
         val state = SettlementState(cars = cars)
-        val request = SettlementRequest.of(state.settled.first!!, myId = "김민수").toggled(0)
+        val request = SettlementRequest.of(state.settled.first!!, myId = "김민수")
         val ui = state.copy(request = request).toUi(payLink = "https://qr.kakaopay.com/x")
 
-        assertEquals(request.transfers.size, ui.payments.size)
-        assertEquals(1, ui.paidCount)
-        ui.payments.zip(request.transfers).forEach { (pay, t) ->
-            assertEquals(if (t.toId == "김민수") t.fromId else "${t.fromId} → ${t.toId}", pay.name)
-            assertEquals(t.amountWon, pay.amountWon)
-        }
+        // 김민수는 정예린에게 받고, 더 쓴 이서준에게 보낸다
+        assertEquals(listOf("정예린" to true, "이서준" to false), ui.payments.map { it.name to it.incoming })
+        ui.payments.zip(request.transfers).forEach { (pay, t) -> assertEquals(t.amountWon, pay.amountWon) }
+        assertEquals(listOf("이서준"), ui.sends.map { it.name })
         assertEquals("김민수", ui.myName)
+        assertEquals(0, ui.paidCount)
+        assertEquals(1, state.copy(request = request.toggled(0)).toUi(payLink = null).paidCount)
+    }
+
+    @Test
+    fun sent_passengerSeesWhoToPay_notReceivedChecks() {
+        // #30: 동승자 기기의 A차는 남의 차. 요청한 사람은 받을 사람이 아니라 낼 사람이다.
+        val state = SettlementState(cars = cars, myName = "정예린")
+        val request = SettlementRequest.of(state.settled.first!!, state.me)
+        val ui = state.copy(request = request).toUi(payLink = null)
+
+        assertEquals("정예린", ui.myName)
+        assertEquals(false, ui.receives)
+        assertEquals(listOf("김민수"), ui.sends.map { it.name })
+    }
+
+    @Test
+    fun carNames_comeFromServerLabel() {
+        val ui = SettlementState(cars = listOf(cars[1].copy(label = "B차"), cars[0].copy(label = "A차"))).toUi(payLink = null)
+        assertEquals(listOf("B차", "A차"), ui.cars.map { it.label })
+        assertEquals("B차 운전", ui.lines[0].detail)
     }
 
     @Test
@@ -74,5 +93,38 @@ class SettlementUiMappingTest {
         assertEquals(2, paymentPages(5))
         assertEquals(2, paymentPages(7))
         assertEquals(3, paymentPages(9))
+    }
+
+    @Test
+    fun serverTrip_otherCarNotSavedYet_showsWaitingInsteadOfZero() {
+        // 서버 운행에서 B차(이서준)가 아직 비용을 저장하지 않았다
+        val ui = SettlementState(
+            cars = listOf(cars[0], CarInput(VehicleType.DIESEL, "이서준", "박지우", memberId = "b")),
+            tripId = "t",
+        ).toUi(payLink = null)
+
+        assertEquals("B차(이서준) 비용 저장을 기다리는 중", ui.waiting)
+        assertEquals(listOf(false, true), ui.cars.map { it.waiting })
+        assertEquals(10_000L, ui.cars[0].totalWon) // 값이 있는 A차는 그대로 보인다
+        assertEquals(10_000L, ui.totalWon) // 지금까지 모인 비용
+        assertNull(ui.problem) // "2번 차 출발 연료 값을 입력하세요"를 띄우지 않는다
+    }
+
+    @Test
+    fun myOwnCarEmpty_isStillAProblemToFix() {
+        // 내 차(A차) 값이 비었으면 기다릴 일이 아니라 직접 넣어야 한다
+        val ui = SettlementState(cars = listOf(CarInput(VehicleType.DIESEL, "김민수"), cars[1]), tripId = "t").toUi(payLink = null)
+
+        assertNull(ui.waiting)
+        assertEquals("1번 차 출발 연료 값을 입력하세요.", ui.problem)
+    }
+
+    @Test
+    fun passengerDevice_waitsForMyRideDriverToo() {
+        // 동승자 기기에서 A차는 남의 차라, 비었으면 직접 넣을 게 아니라 그 운전자가 저장하길 기다린다
+        val ui = SettlementState(cars = listOf(CarInput(VehicleType.DIESEL, "김민수"), cars[1]), tripId = "t", iDrive = false).toUi(payLink = null)
+
+        assertEquals("A차(김민수) 비용 저장을 기다리는 중", ui.waiting)
+        assertNull(ui.problem)
     }
 }
