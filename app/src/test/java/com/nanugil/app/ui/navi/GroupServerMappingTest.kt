@@ -6,7 +6,9 @@ import com.nanugil.app.data.server.ServerException
 import com.nanugil.app.data.server.TripMember
 import com.nanugil.app.ui.settlement.VehicleType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import com.nanugil.app.data.server.GroupMember as ServerMember
 
@@ -102,5 +104,15 @@ class GroupServerMappingTest {
         assertEquals("코드가 맞지 않거나 만료됐어요", groupErrorText(ServerException("INVALID_CODE")))
         assertEquals("서버 오류: WEIRD", groupErrorText(ServerException("WEIRD")))
         assertEquals("서버에 연결하지 못했어요", groupErrorText(RuntimeException()))
+    }
+
+    @Test
+    fun allArrived_onlyWhenEveryCarArrived() {
+        val a = TripMember("t", "a", "a", arrivedAt = "2026-11-15T10:00:00Z")
+        val b = TripMember("t", "b", "b")
+        val rider = TripMember("t", "p", "a")
+        assertFalse(allArrived(emptyList()))
+        assertFalse(allArrived(listOf(a, b, rider)))
+        assertTrue(allArrived(listOf(a, b.copy(arrivedAt = "2026-11-15T10:05:00Z"), rider)))
     }
 }

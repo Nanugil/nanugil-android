@@ -443,7 +443,10 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         serverAction {
-            val trip = GroupTripApi.activeTrip(id) ?: GroupTripApi.startTrip(id)
+            // 모든 차가 이미 도착한 운행은 끝난 운행이라 닫고 새로 시작한다
+            val old = GroupTripApi.activeTrip(id)
+            val trip = old?.takeUnless { allArrived(GroupTripApi.tripMembers(it.id)) }
+                ?: run { old?.let { GroupTripApi.endTrip(it.id) }; GroupTripApi.startTrip(id) }
             GroupTripApi.joinTrip(trip.id, HOST_CAR_LABEL, fuelTypeOf(nanugil.readMyCarType()))
             val l = loadGroup(id)
             val mine = passengerChoices(l.info, l.riders, l.myMemberId)
