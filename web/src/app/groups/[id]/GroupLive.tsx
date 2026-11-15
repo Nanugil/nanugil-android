@@ -22,10 +22,9 @@ export function GroupLive({ state }: { state: State }) {
   const [trips, setTrips] = useState(state.kind === "ok" ? state.trips : []);
   const tripsRef = useRef(trips);
   const [lost, setLost] = useState(false);
-  const reload = () => {
-    if (state.kind !== "ok") return;
-    groupTrips(createBrowserSupabase(), state.group.id).then((list) => { tripsRef.current = list; setTrips(list); setLost(false); }).catch(() => setLost(true));
-  };
+  // 다시 불러오기: 구독을 새로 맺는다(effect 재실행). 경고는 연결이 확인(SUBSCRIBED)될 때만 지운다.
+  const [subKey, setSubKey] = useState(0);
+  const reload = () => setSubKey((k) => k + 1);
   const [perm, setPerm] = useState<NotificationPermission | "unsupported">("granted");
 
   useEffect(() => { setPerm(typeof Notification === "undefined" ? "unsupported" : Notification.permission); }, []);
@@ -51,7 +50,7 @@ export function GroupLive({ state }: { state: State }) {
       else if (status !== "CLOSED") setLost(true);
     }).then((u) => { if (alive) off = u; else u(); }, () => setLost(true));
     return () => { alive = false; off(); };
-  }, [state, router]);
+  }, [state, router, subKey]);
 
   if (state.kind === "error") {
     return (

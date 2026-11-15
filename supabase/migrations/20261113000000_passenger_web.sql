@@ -83,6 +83,11 @@ begin
       raise exception 'INVALID_TRANSFER';
     end if;
 
+    -- 같은 (보내는 사람, 받는 사람) 송금은 한 건만. 중복을 허용하면 표시된 송금 하나를 빼도 잠금 검사를 통과한다
+    if exists (select 1 from jsonb_array_elements(v_list) n where n ->> 'from' = v_from::text and n ->> 'to' = v_to::text) then
+      raise exception 'INVALID_TRANSFER';
+    end if;
+
     v_prev := null;
     if v_old is not null then
       select o into v_prev from jsonb_array_elements(v_old -> 'transfers') o
@@ -243,7 +248,7 @@ $$;
 revoke execute on function public._find_group_by_code(text) from public, anon, authenticated;
 
 -- ─────────────────────────────────────────────
--- 그룹 나가기·강퇴: 운행에 참여한 기록이 있는 멤버는 지우지 않는다 (상용화 검토 3번)
+-- 그룹 나가기·강퇴: 운행에 참여했거나 정산 송금에 이름이 있는 멤버는 지우지 않는다 (상용화 검토 3번)
 -- 지우면 trip_members가 연쇄 삭제되고 정산 JSON의 멤버 ID가 고아가 된다. 인자·반환은 기존과 같다.
 -- ─────────────────────────────────────────────
 
@@ -263,7 +268,11 @@ begin
       raise exception 'NOT_MEMBER';
     end if;
   end if;
-  if exists (select 1 from public.trip_members where member_id = v_target) then
+  -- 운행에 탔거나(trip_members) 정산 송금에 이름이 있는(trips.settlement) 멤버는 지우지 않는다
+  if exists (select 1 from public.trip_members where member_id = v_target)
+     or exists (select 1 from public.trips t, jsonb_array_elements(t.settlement -> 'transfers') x
+                where t.group_id = p_group_id and t.settlement is not null
+                  and (x ->> 'from' = v_target::text or x ->> 'to' = v_target::text)) then
     raise exception 'MEMBER_HAS_HISTORY';
   end if;
   delete from public.group_members where id = v_target;

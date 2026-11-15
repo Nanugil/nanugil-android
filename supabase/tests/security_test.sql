@@ -32,5 +32,12 @@ select t.expect_error(format('select public.request_settlement(%L, 1, %L)', t.v(
   (select jsonb_agg(jsonb_build_object('from', t.v('pB'), 'to', t.v('mA'), 'amountWon', 1)) from generate_series(1, 51))), 'INVALID_TRANSFER');
 -- 운행 기록이 있는 멤버는 나가거나 강퇴할 수 없다 (과거 운행·정산 보존)
 select t.expect_error(format('select public.leave_group(%L, %L)', t.v('group'), t.v('pD')), 'MEMBER_HAS_HISTORY');
+-- 동승자에서 뺀 뒤라도 정산에 들어 있으면 뺄 수 없다
+select public.set_trip_passengers(t.v('trip')::uuid, array[t.v('pB')::uuid]);
+select t.expect_error(format('select public.leave_group(%L, %L)', t.v('group'), t.v('pD')), 'MEMBER_HAS_HISTORY');
+-- 같은 (보내는 사람, 받는 사람) 송금을 두 건 넣으면 거절 (잠금 우회 방지)
+select t.expect_error(format('select public.request_settlement(%L, 1, %L)', t.v('trip'),
+  jsonb_build_array(jsonb_build_object('from', t.v('pB'), 'to', t.v('mA'), 'amountWon', 11750),
+                    jsonb_build_object('from', t.v('pB'), 'to', t.v('mA'), 'amountWon', 11750))), 'INVALID_TRANSFER');
 reset role;
 select 'security_test OK';

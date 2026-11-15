@@ -88,10 +88,9 @@ export function SettleView({ state }: { state: State }) {
   const [announce, setAnnounce] = useState("");
   const inFlight = useRef(new Set<number>());
   const [lost, setLost] = useState(false);
-  const reload = () => {
-    if (state.kind !== "ok") return;
-    getTrip(createBrowserSupabase(), state.trip.id).then((tr) => { setSettlement(tr.settlement); setLost(false); }).catch(() => setLost(true));
-  };
+  // 다시 불러오기: 구독을 새로 맺는다. 연결되면(SUBSCRIBED) 최신 값을 다시 읽고 경고를 지운다.
+  const [subKey, setSubKey] = useState(0);
+  const reload = () => setSubKey((k) => k + 1);
 
   useEffect(() => {
     if (state.kind !== "ok") return;
@@ -104,7 +103,7 @@ export function SettleView({ state }: { state: State }) {
       else if (status !== "CLOSED") setLost(true);
     }).then((u) => { if (alive) off = u; else u(); }, () => setLost(true));
     return () => { alive = false; off(); };
-  }, [state]);
+  }, [state, subKey]);
 
   if (state.kind === "error") {
     return (
@@ -125,6 +124,7 @@ export function SettleView({ state }: { state: State }) {
     return (
       <Screen>
         <PageHeader title="정산" back={groupHref} />
+        <LiveNotice lost={lost} onRetry={reload} />
         <Section><Lead>아직 정산 요청이 없습니다.</Lead><Hint>도착 후 운전자가 정산을 요청하면 금액이 표시됩니다.</Hint></Section>
         <ButtonLink href={groupHref} variant="ghost">그룹으로</ButtonLink>
       </Screen>

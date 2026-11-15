@@ -7,7 +7,7 @@ type Check = { name: string; ok: boolean; detail: string; fix?: string };
 const checks: Check[] = [];
 const add = (c: Check) => checks.push(c);
 
-/** 함수가 서버에 있는지: 404/PGRST202 = 없음, 401·403·42501(익명 권한 없음)·400 = 있음, 5xx = 서버 오류 */
+/** 함수가 서버에 있는지: 404/PGRST202 = 없음, 429 = 판단 불가(요청 제한), 5xx = 서버 오류, 401·403·42501(익명 권한 없음)·400 = 있음 */
 async function rpcState(fn: string, body: Record<string, unknown>): Promise<{ ok: boolean; detail: string }> {
   const r = await fetch(`${url}/rest/v1/rpc/${fn}`, {
     method: "POST", headers: { apikey: key, "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -15,6 +15,7 @@ async function rpcState(fn: string, body: Record<string, unknown>): Promise<{ ok
   const err = await r.json().catch(() => ({})) as { code?: string; message?: string };
   const detail = `${fn} → HTTP ${r.status}${err.code ? ` ${err.code}` : ""}`;
   if (r.status === 404 || err.code === "PGRST202") return { ok: false, detail: `${detail} (함수 없음)` };
+  if (r.status === 429) return { ok: false, detail: `${detail} (요청 제한, 잠시 후 다시 점검)` };
   if (r.status >= 500) return { ok: false, detail: `${detail} (서버 오류: ${err.message ?? ""})` };
   return { ok: true, detail };
 }
