@@ -255,7 +255,7 @@ class DriveMapController(context: Context, private val map: NaverMap) {
             g.target = target
             g.state = car
             styleGroupMarker(g)
-            animateTo(g, target)
+            animateTo(g, drawnPosition(car))
         }
         if (selectedCarId != null) carInfo.invalidate()
     }
@@ -349,6 +349,13 @@ class DriveMapController(context: Context, private val map: NaverMap) {
             subColor = if (car.isLowFuel) DANGER else groupSubInk,
             topGapDp = 26,
         )
+    }
+
+    /** 내 차와 거의 같은 자리(같은 휴게소, 에뮬레이터 기본 위치)면 내 차 화살표를 덮으니 오른쪽으로 비켜 그린다 */
+    private fun drawnPosition(car: CarState): LatLng {
+        val me = current ?: return car.position.toLatLng()
+        if (me.distanceTo(car.position) >= OVERLAP_M) return car.position.toLatLng()
+        return car.position.offset(90.0, dp(OVERLAP_SHIFT_DP) * map.projection.metersPerPixel).toLatLng()
     }
 
     /** 새 위치까지 [GROUP_ANIM_MS] 동안 미끄러지듯 옮긴다. 팝업도 같이 따라간다. */
@@ -676,6 +683,10 @@ class DriveMapController(context: Context, private val map: NaverMap) {
         const val STOPPED_KMH = 3
         /** 이보다 덜 움직이면 방향을 바꾸지 않는다 (GPS 흔들림) */
         const val HEADING_MIN_MOVE_M = 3.0
+        /** 일행 차가 내 차와 이만큼 가까우면 옆으로 비켜 그린다 */
+        const val OVERLAP_M = 15.0
+        /** 비켜 그릴 때 오른쪽으로 옮기는 화면 거리 (내 차 화살표 56dp + 여유) */
+        const val OVERLAP_SHIFT_DP = 64
         /** 위치 사이를 미끄러지는 시간 (위치는 약 1초마다 온다) */
         const val GROUP_ANIM_MS = 950L
         /** 이보다 멀리 뛰면 애니메이션 없이 옮긴다 */
