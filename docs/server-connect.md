@@ -17,7 +17,7 @@ npm run check:server
 1. **Authentication → Sign In / Providers → Email → Confirm email 끄기**
    켜 두면 가입 직후 로그인되지 않고 확인 메일 발송 한도(시간당 몇 통)에 바로 걸립니다. 공모전 시연용 설정입니다. 실서비스 전에는 SMTP를 연결한 뒤 다시 켭니다.
 2. **SQL Editor → 새 쿼리 → `supabase/migrations/20261113000000_passenger_web.sql` 전체 붙여 넣고 실행**
-   `ALTER TABLE` 2개와 `CREATE FUNCTION` 7개가 오류 없이 끝나야 합니다. 같은 파일을 두 번 실행하면 "already exists" 오류가 나므로 한 번만 실행합니다.
+   `ALTER TABLE` 2개와 함수 9개(새로 만드는 7개, 기존 함수를 바꾸는 `_find_group_by_code`·`leave_group` 2개)가 오류 없이 끝나야 합니다. **새 Supabase 프로젝트라면** `supabase/migrations/`의 파일을 이름 순서대로 모두 실행합니다. 같은 파일을 두 번 실행하면 "already exists" 오류가 나므로 한 번만 실행합니다.
 
 적용 전에 로컬에서 미리 확인하려면 저장소 루트에서 `supabase/tests/run.sh`를 실행합니다(로컬 Postgres로 마이그레이션 전체와 권한 규칙을 시험합니다).
 

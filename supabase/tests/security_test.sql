@@ -30,5 +30,7 @@ select t.expect_error(format('select public.request_settlement(%L, 1, %L)', t.v(
   jsonb_build_array(jsonb_build_object('from', t.v('mA'), 'to', t.v('pB'), 'amountWon', 1000))), 'INVALID_TRANSFER');
 select t.expect_error(format('select public.request_settlement(%L, 1, %L)', t.v('trip'),
   (select jsonb_agg(jsonb_build_object('from', t.v('pB'), 'to', t.v('mA'), 'amountWon', 1)) from generate_series(1, 51))), 'INVALID_TRANSFER');
+-- 운행 기록이 있는 멤버는 나가거나 강퇴할 수 없다 (과거 운행·정산 보존)
+select t.expect_error(format('select public.leave_group(%L, %L)', t.v('group'), t.v('pD')), 'MEMBER_HAS_HISTORY');
 reset role;
 select 'security_test OK';

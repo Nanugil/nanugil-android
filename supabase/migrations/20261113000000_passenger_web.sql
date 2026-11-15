@@ -3,7 +3,8 @@
 --   group_members.pay_link : 운전자의 카카오페이 송금 링크 (지금은 차량 기기에만 있음)
 --   trips.settlement       : 정산 요청 시점의 송금 목록. 요청 뒤에 값을 고쳐도 바뀌지 않는다.
 -- 보안: 초대 코드 실패 횟수는 성공해도 유지, 송금 1건 1,000만 원·50건·링크 300자 제한, 받는 사람은 운전자
--- 새 오류 코드: INVALID_TRANSFER, NOT_YOUR_TRANSFER, MEMBER_TAKEN, INVALID_PAY_LINK, SETTLEMENT_CHANGED, ALREADY_REQUESTED
+-- 새 오류 코드: INVALID_TRANSFER, NOT_YOUR_TRANSFER, MEMBER_TAKEN, INVALID_PAY_LINK, SETTLEMENT_CHANGED, ALREADY_REQUESTED,
+--              SETTLEMENT_LOCKED, MEMBER_HAS_HISTORY
 
 alter table public.group_members
   add column pay_link text check (length(pay_link) <= 300 and pay_link ~ '^https://([a-z0-9-]+\.)*kakaopay\.com(/\S*)?$');
@@ -95,6 +96,17 @@ begin
       'receivedAt', coalesce(v_prev -> 'receivedAt', 'null'::jsonb)
     ));
   end loop;
+
+  -- 이미 송금·수령 표시가 된 송금은 그대로 남아 있어야 한다. 바꾸거나 빼면 낸 기록이 지워진다.
+  if v_old is not null and exists (
+    select 1 from jsonb_array_elements(v_old -> 'transfers') o
+    where (jsonb_typeof(o -> 'sentAt') = 'string' or jsonb_typeof(o -> 'receivedAt') = 'string')
+      and not exists (
+        select 1 from jsonb_array_elements(v_list) n
+        where n ->> 'from' = o ->> 'from' and n ->> 'to' = o ->> 'to' and (n ->> 'amountWon')::bigint = (o ->> 'amountWon')::bigint)
+  ) then
+    raise exception 'SETTLEMENT_LOCKED';
+  end if;
 
   v_result := jsonb_build_object(
     'requestedAt', now(), 'requestedBy', v_me, 'perPersonWon', p_per_person_won, 'transfers', v_list
@@ -229,6 +241,34 @@ begin
 end;
 $$;
 revoke execute on function public._find_group_by_code(text) from public, anon, authenticated;
+
+-- ─────────────────────────────────────────────
+-- 그룹 나가기·강퇴: 운행에 참여한 기록이 있는 멤버는 지우지 않는다 (상용화 검토 3번)
+-- 지우면 trip_members가 연쇄 삭제되고 정산 JSON의 멤버 ID가 고아가 된다. 인자·반환은 기존과 같다.
+-- ─────────────────────────────────────────────
+
+create or replace function public.leave_group(p_group_id uuid, p_member_id uuid default null)
+returns void language plpgsql security definer set search_path = '' as $$
+declare
+  v_me     uuid := public._my_member_id(p_group_id);
+  v_target uuid := coalesce(p_member_id, v_me);
+  v_owner  uuid;
+begin
+  select owner_id into v_owner from public.groups where id = p_group_id;
+  if v_target = v_me then
+    if v_owner = auth.uid() then raise exception 'OWNER_CANNOT_LEAVE'; end if;
+  else
+    if v_owner <> auth.uid() then raise exception 'NOT_OWNER'; end if;
+    if not exists (select 1 from public.group_members where id = v_target and group_id = p_group_id) then
+      raise exception 'NOT_MEMBER';
+    end if;
+  end if;
+  if exists (select 1 from public.trip_members where member_id = v_target) then
+    raise exception 'MEMBER_HAS_HISTORY';
+  end if;
+  delete from public.group_members where id = v_target;
+end;
+$$;
 
 -- ─────────────────────────────────────────────
 -- 실행 권한: 로그인한 사용자만 (내부 도우미 _mark_transfer는 아무도 직접 못 부른다)

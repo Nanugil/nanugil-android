@@ -70,13 +70,12 @@ describe.skipIf(!hasServer)("동승자 웹 서버", () => {
     expect((await markReceived(A.sb, t.tripId, 0, req)).transfers[0].receivedAt).not.toBeNull();
   });
 
-  it("다시 요청하면 같은 송금의 표시는 남고, 금액이 바뀌면 지워진다", async () => {
+  it("다시 요청하면 같은 송금의 표시는 남고, 표시된 송금은 바꿀 수 없다", async () => {
     await requestSettlement(A.sb, t.tripId, 11750, [{ from: pB, to: t.driverMemberId, amountWon: 11750 }]);
-    let trip = await getTrip(B.sb, t.tripId);
+    const trip = await getTrip(B.sb, t.tripId);
     expect(trip.settlement?.transfers[0].sentAt).not.toBeNull();
-    await requestSettlement(A.sb, t.tripId, 12000, [{ from: pB, to: t.driverMemberId, amountWon: 12000 }]);
-    trip = await getTrip(B.sb, t.tripId);
-    expect(trip.settlement?.transfers[0].sentAt).toBeNull();
+    await expect(requestSettlement(A.sb, t.tripId, 12000, [{ from: pB, to: t.driverMemberId, amountWon: 12000 }]))
+      .rejects.toThrow("SETTLEMENT_LOCKED");
   });
 
   it("그룹 밖 사람은 운행을 볼 수 없다", async () => {

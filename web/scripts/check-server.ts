@@ -7,11 +7,16 @@ type Check = { name: string; ok: boolean; detail: string; fix?: string };
 const checks: Check[] = [];
 const add = (c: Check) => checks.push(c);
 
-async function rpcExists(fn: string, body: Record<string, unknown>): Promise<number> {
+/** 함수가 서버에 있는지: 404/PGRST202 = 없음, 401·403·42501(익명 권한 없음)·400 = 있음, 5xx = 서버 오류 */
+async function rpcState(fn: string, body: Record<string, unknown>): Promise<{ ok: boolean; detail: string }> {
   const r = await fetch(`${url}/rest/v1/rpc/${fn}`, {
     method: "POST", headers: { apikey: key, "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
-  return r.status; // 404 = 함수 없음(마이그레이션 미적용), 401/403/400 = 함수는 있음(익명은 권한 없음)
+  const err = await r.json().catch(() => ({})) as { code?: string; message?: string };
+  const detail = `${fn} → HTTP ${r.status}${err.code ? ` ${err.code}` : ""}`;
+  if (r.status === 404 || err.code === "PGRST202") return { ok: false, detail: `${detail} (함수 없음)` };
+  if (r.status >= 500) return { ok: false, detail: `${detail} (서버 오류: ${err.message ?? ""})` };
+  return { ok: true, detail };
 }
 
 async function main() {
@@ -24,18 +29,19 @@ async function main() {
   if (settings) {
     add({ name: "이메일 가입 켜짐", ok: settings.external?.email === true, detail: String(settings.external?.email),
       fix: "Authentication → Sign In / Providers → Email을 켜세요." });
-    add({ name: "Confirm email 꺼짐", ok: settings.mailer_autoconfirm === true, detail: `mailer_autoconfirm=${settings.mailer_autoconfirm}`,
-      fix: "Authentication → Sign In / Providers → Email → Confirm email을 끄세요 (켜 두면 가입 직후 로그인이 안 되고 메일 한도에 걸립니다)." });
+    add({ name: "Confirm email (시연은 끔 권장)", ok: settings.mailer_autoconfirm === true || process.env.ALLOW_EMAIL_CONFIRM === "1",
+      detail: `mailer_autoconfirm=${settings.mailer_autoconfirm}`,
+      fix: "시연·live 테스트: Authentication → Email → Confirm email을 끄세요. 실서비스에서 SMTP와 함께 켜려면 ALLOW_EMAIL_CONFIRM=1 로 이 항목을 건너뜁니다 (확인 링크는 /auth/confirm이 처리)." });
   }
 
-  const base = await rpcExists("join_group", { p_code: "AAAAAA", p_display_name: "x" });
-  add({ name: "기존 마이그레이션(그룹·운행)", ok: base !== 404, detail: `join_group → HTTP ${base}`,
+  const base = await rpcState("join_group", { p_code: "AAAAAA", p_display_name: "x" });
+  add({ name: "기존 마이그레이션(그룹·운행)", ok: base.ok, detail: base.detail,
     fix: "supabase/migrations/20261111000000_group_trip.sql부터 순서대로 적용하세요." });
-  const web = await rpcExists("claim_member", { p_code: "AAAAAA", p_member_id: "00000000-0000-0000-0000-000000000000" });
-  add({ name: "동승자 웹 마이그레이션", ok: web !== 404, detail: `claim_member → HTTP ${web}`,
+  const web = await rpcState("claim_member", { p_code: "AAAAAA", p_member_id: "00000000-0000-0000-0000-000000000000" });
+  add({ name: "동승자 웹 마이그레이션", ok: web.ok, detail: web.detail,
     fix: "SQL Editor에 supabase/migrations/20261113000000_passenger_web.sql 내용을 붙여 넣고 실행하세요." });
-  const mark = await rpcExists("mark_transfer_sent", { p_trip_id: "00000000-0000-0000-0000-000000000000", p_index: 0, p_requested_at: null });
-  add({ name: "송금 표시 함수(최신 시그니처)", ok: mark !== 404, detail: `mark_transfer_sent(p_requested_at) → HTTP ${mark}`,
+  const mark = await rpcState("mark_transfer_sent", { p_trip_id: "00000000-0000-0000-0000-000000000000", p_index: 0, p_requested_at: null });
+  add({ name: "송금 표시 함수(최신 시그니처)", ok: mark.ok, detail: mark.detail,
     fix: "마이그레이션 파일이 최신인지 확인하세요 (requestedAt을 받는 버전)." });
   report();
 }

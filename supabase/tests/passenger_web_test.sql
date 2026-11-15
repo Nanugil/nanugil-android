@@ -132,11 +132,10 @@ do $$ declare s jsonb; begin
     jsonb_build_object('from', t.v('pD'), 'to', t.v('mA'), 'amountWon', 11750)));
   perform t.ok(s -> 'transfers' -> 0 ->> 'sentAt' = t.v('sentAt0'), '같은 송금은 sentAt 유지');
   perform t.ok(jsonb_typeof(s -> 'transfers' -> 0 -> 'receivedAt') = 'string', '같은 송금은 receivedAt 유지');
-  s := public.request_settlement(t.v('trip')::uuid, 12000, jsonb_build_array(
-    jsonb_build_object('from', t.v('pB'), 'to', t.v('mA'), 'amountWon', 12000)));
-  perform t.ok(jsonb_typeof(s -> 'transfers' -> 0 -> 'sentAt') = 'null', '금액이 바뀌면 sentAt 초기화');
-  perform t.ok(jsonb_typeof(s -> 'transfers' -> 0 -> 'receivedAt') = 'null', '금액이 바뀌면 receivedAt 초기화');
 end $$;
+-- 이미 표시된 송금을 바꾸거나 빼는 재요청은 거절 (낸 기록이 지워지지 않게)
+select t.expect_error(format('select public.request_settlement(%L, 12000, %L)', t.v('trip'),
+  jsonb_build_array(jsonb_build_object('from', t.v('pB'), 'to', t.v('mA'), 'amountWon', 12000))), 'SETTLEMENT_LOCKED');
 
 -- 권한: 내부 도우미는 직접 못 부르고, anon은 RPC를 못 부른다
 select t.expect_error(format('select public._mark_transfer(%L, 0, %L, %L, %L)', t.v('trip'), t.req(), 'to', 'receivedAt'),

@@ -65,7 +65,8 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next: strin
     let res;
     try {
       res = signup
-        ? await sb.auth.signUp({ email, password, options: { data: { display_name: name } } })
+        ? await sb.auth.signUp({ email, password, options: { data: { display_name: name },
+          emailRedirectTo: `${window.location.origin}/auth/confirm?next=${encodeURIComponent(target)}` } })
         : await sb.auth.signInWithPassword({ email, password });
     } catch {
       setError("네트워크 연결을 확인한 뒤 다시 시도해 주세요.");

@@ -13,12 +13,17 @@ export default async function Home() {
     groups = await Promise.all((await myGroups(sb)).map(async (g) => {
       const [trips, me] = await Promise.all([groupTrips(sb, g.id), myMemberId(sb, g.id)]);
       const active = trips.find((tr) => tr.endedAt === null) ?? null;
-      const settled = trips.find((tr) => tr.settlement !== null) ?? null;
-      const s = settled?.settlement ?? null;
-      const toSend = s ? viewFor(s, me).toSend.filter((x) => statusOf(x.transfer) === "pending") : [];
+      // 운행이 여러 번이면 미납금을 모두 더한다. 이동은 가장 오래된 미납 운행으로 (최근 것만 보면 이전 미납이 사라진다)
+      const unpaid = trips
+        .filter((tr) => tr.settlement)
+        .map((tr) => ({ tr, owed: viewFor(tr.settlement!, me).toSend.filter((x) => statusOf(x.transfer) === "pending") }))
+        .filter((x) => x.owed.length > 0);
+      const owedWon = unpaid.reduce((sum, x) => sum + x.owed.reduce((s2, y) => s2 + y.transfer.amountWon, 0), 0);
+      const focus = unpaid.at(-1)?.tr ?? trips.find((tr) => tr.settlement !== null) ?? null; // trips는 최신순
+      const s = focus?.settlement ?? null;
       return {
         id: g.id, name: g.name, destination: active?.destinationName ?? g.destinationName, driving: active !== null,
-        owed: toSend.length > 0 && settled ? { tripId: settled.id, amountWon: toSend.reduce((sum, x) => sum + x.transfer.amountWon, 0) } : null,
+        owed: unpaid.length > 0 && focus ? { tripId: focus.id, amountWon: owedWon } : null,
         progress: s ? { done: s.transfers.filter((x) => statusOf(x) === "received").length, total: s.transfers.length } : null,
       };
     }));

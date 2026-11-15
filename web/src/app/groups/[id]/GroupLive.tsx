@@ -8,6 +8,7 @@ import { createBrowserSupabase } from "@/lib/supabase/browser";
 import type { Group, Member, Trip } from "@/lib/types";
 import { Button, ButtonLink } from "@/ui/Button";
 import { Avatar, Hint, Item, ItemText, Lead, List, PageHeader, Section, SectionHead, Tag } from "@/ui/kit";
+import { LiveNotice } from "@/ui/LiveNotice";
 import { Screen } from "@/ui/Screen";
 import styled from "@emotion/styled";
 import { t } from "@/ui/theme";
@@ -20,6 +21,11 @@ export function GroupLive({ state }: { state: State }) {
   const router = useRouter();
   const [trips, setTrips] = useState(state.kind === "ok" ? state.trips : []);
   const tripsRef = useRef(trips);
+  const [lost, setLost] = useState(false);
+  const reload = () => {
+    if (state.kind !== "ok") return;
+    groupTrips(createBrowserSupabase(), state.group.id).then((list) => { tripsRef.current = list; setTrips(list); setLost(false); }).catch(() => setLost(true));
+  };
   const [perm, setPerm] = useState<NotificationPermission | "unsupported">("granted");
 
   useEffect(() => { setPerm(typeof Notification === "undefined" ? "unsupported" : Notification.permission); }, []);
@@ -41,8 +47,9 @@ export function GroupLive({ state }: { state: State }) {
       }
     }, (status) => {
       // 연결될 때마다 운행 목록을 다시 읽어 그 사이 놓친 변경을 반영한다
-      if (status === "SUBSCRIBED") groupTrips(sb, state.group.id).then((list) => { tripsRef.current = list; setTrips(list); }).catch(() => {});
-    }).then((u) => { if (alive) off = u; else u(); });
+      if (status === "SUBSCRIBED") { setLost(false); groupTrips(sb, state.group.id).then((list) => { tripsRef.current = list; setTrips(list); }).catch(() => {}); }
+      else if (status !== "CLOSED") setLost(true);
+    }).then((u) => { if (alive) off = u; else u(); }, () => setLost(true));
     return () => { alive = false; off(); };
   }, [state, router]);
 
@@ -62,6 +69,7 @@ export function GroupLive({ state }: { state: State }) {
   return (
     <Screen nav={false}>
       <PageHeader title={state.group.name} back="/" />
+      <LiveNotice lost={lost} onRetry={reload} />
       <Section aria-labelledby="trip-title">
         <SectionHead><h2 id="trip-title">운행</h2>{active ? <Tag tone="accent">운행 중</Tag> : <Tag>운행 없음</Tag>}</SectionHead>
         <List>

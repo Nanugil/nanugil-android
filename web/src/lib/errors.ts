@@ -17,6 +17,8 @@ const MESSAGES: Record<string, string> = {
   INVALID_TRANSFER: "정산 정보가 맞지 않습니다. 새로고침한 뒤 다시 시도해 주세요.",
   INVALID_PAY_LINK: "카카오페이 송금 링크를 입력해 주세요.",
   SETTLEMENT_CHANGED: "운전자가 정산을 다시 요청했습니다. 바뀐 금액을 확인해 주세요.",
+  SETTLEMENT_LOCKED: "이미 송금이 표시된 정산은 바꿀 수 없습니다.",
+  MEMBER_HAS_HISTORY: "운행 기록이 있는 멤버는 그룹에서 뺄 수 없습니다.",
   ALREADY_REQUESTED: "다른 운전자가 이미 정산을 요청했습니다.",
 };
 

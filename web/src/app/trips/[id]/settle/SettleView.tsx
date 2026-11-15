@@ -13,6 +13,7 @@ import { DotNumber } from "@/ui/DotNumber";
 import { Icon } from "@/ui/Icon";
 import { Avatar, Flash, Hint, IconButton, Item, ItemText, Lead, List, PageHeader, Section, SectionHead, Value } from "@/ui/kit";
 import { useCountUpValue, useDrawCheck, useFlashOnChange } from "@/ui/motion";
+import { LiveNotice } from "@/ui/LiveNotice";
 import { Screen } from "@/ui/Screen";
 import { Segments } from "@/ui/Segments";
 import { StatusChip } from "@/ui/StatusChip";
@@ -86,6 +87,11 @@ export function SettleView({ state }: { state: State }) {
   const [copied, setCopied] = useState(false);
   const [announce, setAnnounce] = useState("");
   const inFlight = useRef(new Set<number>());
+  const [lost, setLost] = useState(false);
+  const reload = () => {
+    if (state.kind !== "ok") return;
+    getTrip(createBrowserSupabase(), state.trip.id).then((tr) => { setSettlement(tr.settlement); setLost(false); }).catch(() => setLost(true));
+  };
 
   useEffect(() => {
     if (state.kind !== "ok") return;
@@ -94,8 +100,9 @@ export function SettleView({ state }: { state: State }) {
     subscribeGroup(createBrowserSupabase(), state.trip.groupId, (trip) => {
       if (trip.id === state.trip.id) setSettlement(trip.settlement);
     }, (status) => {
-      if (status === "SUBSCRIBED") getTrip(createBrowserSupabase(), state.trip.id).then((tr) => setSettlement(tr.settlement)).catch(() => {});
-    }).then((u) => { if (alive) off = u; else u(); });
+      if (status === "SUBSCRIBED") { setLost(false); getTrip(createBrowserSupabase(), state.trip.id).then((tr) => setSettlement(tr.settlement)).catch(() => {}); }
+      else if (status !== "CLOSED") setLost(true);
+    }).then((u) => { if (alive) off = u; else u(); }, () => setLost(true));
     return () => { alive = false; off(); };
   }, [state]);
 
@@ -156,6 +163,7 @@ export function SettleView({ state }: { state: State }) {
   return (
     <Screen nav={false}>
       <PageHeader title="정산" back={groupHref} action={share} />
+      <LiveNotice lost={lost} onRetry={reload} />
       <AmountSection
         label={pendingSend.length > 0 ? "보낼 금액" : view.toSend.length > 0 ? "보낸 금액" : view.toReceive.length > 0 ? "받을 금액" : "1인 부담액"}
         amountWon={pendingSend.length > 0 ? sendTotal : view.toSend.length > 0 ? sentTotal : view.toReceive.length > 0 ? receiveTotal : view.perPersonWon}
