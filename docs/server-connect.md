@@ -10,7 +10,7 @@ npm install
 npm run check:server
 ```
 
-✗로 표시된 항목이 할 일입니다. 2026-11-15 기준으로 남은 항목은 아래 두 가지입니다.
+✗로 표시된 항목이 할 일입니다. 2026-11-15에 동승자 웹 마이그레이션(1-2)은 실제 프로젝트에 적용했고, 실서버 테스트(`npm run test:live`) 7개가 모두 통과했습니다. 남은 항목은 **Confirm email 끄기(1-1)** 하나이며, 프로젝트 **Owner** 계정만 바꿀 수 있습니다(Developer 역할은 인증 설정을 바꿀 수 없습니다).
 
 ## 1. Supabase 대시보드 설정 (5분)
 
@@ -30,7 +30,7 @@ npm run test:live      # 실제 서버에서 가입·참여·정산 요청·실�
 npm run e2e            # 브라우저로 가입부터 송금 완료 표시까지 (처음 한 번 npx playwright install chromium)
 ```
 
-`test:live`와 `e2e`는 실행할 때마다 시험용 사용자와 그룹을 서버에 남깁니다.
+`test:live`와 `e2e`는 실행할 때마다 시험용 사용자와 그룹을 서버에 남깁니다. `test:live`와 시드는 익명 로그인으로 사용자를 만들어 Confirm email 설정과 상관없이 돌고, `e2e`는 화면에서 이메일로 가입하므로 Confirm email이 꺼져 있어야 합니다.
 
 ## 3. 시연 데이터 만들기
 
@@ -44,8 +44,19 @@ npm run seed -- --settle
 
 1. Vercel에서 이 저장소를 가져오고 **Root Directory를 `web`** 으로 지정합니다.
 2. 환경변수 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`를 넣습니다. service_role 키는 넣지 않습니다.
-3. 배포 주소를 Supabase **Authentication → URL Configuration → Site URL**에 넣습니다.
+3. 배포 주소를 Supabase **Authentication → URL Configuration → Site URL**에 넣고, Vercel 환경변수 `NEXT_PUBLIC_SITE_URL`에도 같은 주소를 넣습니다(공유 미리보기용, 선택).
 4. 휴대폰으로 배포 주소에 접속해 2번 흐름을 다시 확인합니다.
+
+## 실서비스로 넘어갈 때 (Confirm email 다시 켜기)
+
+1. **Authentication → Emails → SMTP Settings**에서 발송용 SMTP(예: Resend, SES)를 연결합니다. 기본 발송은 시간당 몇 통으로 제한됩니다.
+2. **Authentication → URL Configuration → Redirect URLs**에 `https://<배포 주소>/auth/confirm**`를 추가합니다. 메일 템플릿은 기본값 그대로 둡니다. 가입할 때 웹이 돌아올 주소(`/auth/confirm?next=<초대 화면>`)를 함께 보내므로, 메일 링크를 누르면 `/auth/confirm`이 세션을 만들고 가입 전에 보던 초대 화면으로 돌려보냅니다.
+3. Confirm email을 켭니다. 이때 `check:server`는 `ALLOW_EMAIL_CONFIRM=1 npm run check:server`로 실행합니다. `test:live`와 `e2e`는 즉시 로그인을 전제로 하므로 시연용 프로젝트에서 돌립니다.
+
+## 알려진 한계 (다음 단계 과제)
+
+- **이름 연결:** 초대 코드를 아는 사람은 운전자가 등록한 이름을 누구나 고를 수 있습니다(코드를 받은 사람을 일행으로 믿는 설계). 잘못 연결되면 운행 전에 방장이 그 멤버를 빼고 이름을 다시 추가합니다. 운행 기록이 생긴 뒤에는 뺄 수 없습니다(`MEMBER_HAS_HISTORY`).
+- **강퇴 후 위치 채널:** Supabase Realtime은 Broadcast 권한을 연결할 때 확인하므로, 이미 연결된 운전자를 강퇴해도 토큰이 갱신될 때까지 위치를 받을 수 있습니다. 강퇴 기능을 열기 전에 채널 이름에 버전을 붙여 교체하는 방식이 필요합니다.
 
 ## 5. 차량 앱 연결 (다음 단계)
 

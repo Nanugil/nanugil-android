@@ -7,9 +7,14 @@ export const hasServer = url !== "" && key !== "";
 
 export type TestUser = { sb: SupabaseClient; email: string; password: string; userId: string };
 
-/** 무작위 이메일로 가입한 클라이언트. 대시보드에서 Confirm email이 꺼져 있어야 바로 세션이 생긴다. */
+/**
+ * 시험용 사용자. 익명 로그인을 먼저 쓴다(이메일 확인 설정과 메일 발송 한도에 영향받지 않음).
+ * 프로젝트에서 익명 로그인을 껐으면 무작위 이메일 가입으로 대신한다(이때는 Confirm email이 꺼져 있어야 한다).
+ */
 export async function newUser(displayName = "시험"): Promise<TestUser> {
   const sb = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const anon = await sb.auth.signInAnonymously({ options: { data: { display_name: displayName } } });
+  if (!anon.error && anon.data.session) return { sb, email: "(익명)", password: "", userId: anon.data.user!.id };
   const email = `nanugil-test+${crypto.randomUUID()}@example.com`;
   const password = crypto.randomUUID();
   const { data, error } = await sb.auth.signUp({ email, password, options: { data: { display_name: displayName } } });
