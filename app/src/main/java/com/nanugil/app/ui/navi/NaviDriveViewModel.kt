@@ -793,7 +793,9 @@ class NaviDriveViewModel(app: Application) : AndroidViewModel(app) {
         val trip = GroupTripApi.activeTrip(groupId)
         val riders = trip?.let { GroupTripApi.tripMembers(it.id) }.orEmpty()
         val myMemberId = members.firstOrNull { it.userId == me }?.id
-        return LoadedGroup(groupInfoOf(g, members, riders).copy(myId = myMemberId), trip, riders, myMemberId)
+        // 서버에 app_member_ids가 아직 없으면 예전처럼 user_id로 가른다
+        val appMembers = try { GroupTripApi.appMemberIds(groupId) } catch (e: ServerException) { Log.w(TAG, "app_member_ids", e); null }
+        return LoadedGroup(groupInfoOf(g, members, riders, appMembers).copy(myId = myMemberId), trip, riders, myMemberId)
     }
 
     /**

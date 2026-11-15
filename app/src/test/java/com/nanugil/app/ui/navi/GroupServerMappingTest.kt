@@ -39,6 +39,15 @@ class GroupServerMappingTest {
     }
 
     @Test
+    fun `동승자 웹에서 이름을 연결한 멤버는 운행 전에도 동승자`() {
+        // 정예린이 동승자 웹에서 이름을 연결해 user_id가 생겼지만 차량 앱 사용자는 아니다
+        val claimed = members.map { if (it.id == "m-p1") it.copy(userId = "u-web") else it }
+        val info = groupInfoOf(group, claimed, riders = emptyList(), appMembers = setOf("m-host", "m-b"))
+        assertEquals(listOf(true, true, false, false), info.members.map { it.driver })
+        assertEquals(2, info.cars)
+    }
+
+    @Test
     fun `운행 중에는 탄 차 이름을 붙이고 차 수는 운전자 행 수`() {
         val riders = listOf(ride("m-host", "m-host", "A차"), ride("m-p1", "m-host"))
         val info = groupInfoOf(group, members, riders)

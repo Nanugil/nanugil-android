@@ -13,8 +13,11 @@ import com.nanugil.app.data.server.GroupMember as ServerMember
 /**
  * 서버 그룹(#15) → 02·03·04·05 화면 값.
  * @param riders 진행 중 운행의 탄 사람들(T3). 운행 전이면 비어 있다.
+ * @param appMembers 차량 앱 사용자 멤버 ID. 운행 전에는 이 사람들만 운전자로 본다(동승자 웹 계정은 빠진다).
+ *   null이면(서버 함수를 못 읽음) user_id가 있는 멤버를 앱 사용자로 본다.
  */
-internal fun groupInfoOf(group: Group, members: List<ServerMember>, riders: List<TripMember>): GroupInfo {
+internal fun groupInfoOf(group: Group, members: List<ServerMember>, riders: List<TripMember>, appMembers: Set<String>? = null): GroupInfo {
+    val usesApp = { m: ServerMember -> appMembers?.contains(m.id) ?: (m.userId != null) }
     val drivers = riders.filter { it.isDriver }
     val labels = drivers.associate { it.memberId to it.vehicleLabel }
     return GroupInfo(
@@ -28,14 +31,14 @@ internal fun groupInfoOf(group: Group, members: List<ServerMember>, riders: List
             val ride = riders.firstOrNull { it.memberId == m.id }
             GroupMember(
                 name = m.displayName,
-                // 운행 전에는 앱 사용자를 운전자로 본다 (앱 없는 동승자는 user_id가 없다)
-                driver = ride?.isDriver ?: (m.userId != null),
+                // 운행 전에는 차량 앱 사용자를 운전자로 본다 (앱 없는 동승자·동승자 웹 계정은 동승자)
+                driver = ride?.isDriver ?: usesApp(m),
                 host = m.userId == group.ownerId,
                 car = ride?.let { labels[it.vehicleDriverMemberId] },
                 id = m.id,
             )
         }.sortedByDescending { it.host },
-        cars = if (drivers.isEmpty()) members.count { it.userId != null } else drivers.size,
+        cars = if (drivers.isEmpty()) members.count(usesApp) else drivers.size,
     )
 }
 
