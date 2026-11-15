@@ -42,6 +42,9 @@ npm run seed -- --settle
 
 ## 4. 배포 (Vercel)
 
+2026-11-15에 **https://nanugil.vercel.app** 으로 배포했습니다(Vercel 프로젝트 `nanugil`). 다시 배포할 때는 `web`에서 `npx vercel build --prod` → `npx vercel deploy --prebuilt --prod`를 실행합니다. 로컬 `.env.local`의 공개 값이 빌드에 들어가므로 Vercel 환경변수를 따로 넣지 않아도 됩니다. Git 연동 자동 배포로 바꾸려면 아래 1~2를 설정합니다.
+
+
 1. Vercel에서 이 저장소를 가져오고 **Root Directory를 `web`** 으로 지정합니다.
 2. 환경변수 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`를 넣습니다. service_role 키는 넣지 않습니다.
 3. 배포 주소를 Supabase **Authentication → URL Configuration → Site URL**에 넣고, Vercel 환경변수 `NEXT_PUBLIC_SITE_URL`에도 같은 주소를 넣습니다(공유 미리보기용, 선택).
